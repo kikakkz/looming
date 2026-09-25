@@ -20,3 +20,8 @@ type: progress
   check-trailers), memory bank initialized.
 - CI gate: `make ci-gate` (lock validation + memory bank validation + tool
   unit tests + trailer policy + shell lint) plus PR-title format workflow.
+- Pushed to github.com/kikakkz/looming (public, default branch main).
+  Network note: direct HTTPS to github.com is flaky from the dev machine;
+  token auth via ~/.git-credentials works when connectivity holds.
+  First push results: ci and labels workflows both green; kind/* and
+  area/* label taxonomy synced to GitHub.
