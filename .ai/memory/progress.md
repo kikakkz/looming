@@ -25,3 +25,20 @@ type: progress
   token auth via ~/.git-credentials works when connectivity holds.
   First push results: ci and labels workflows both green; kind/* and
   area/* label taxonomy synced to GitHub.
+
+## 2026-09-25 — First IDD loop (issue #1 → PR #2)
+
+- Corrections landed via the full loop: issue #1 (kind/task, area/docs),
+  branch `1-bootstrap-corrections`, PR #2. Contents: renamed project to
+  **Looming** (was Loom), added `.gitattributes`, added `assets/logo.svg`
+  (warp/weft/shuttle motif), README restructured on the wait-agent pattern.
+- First PR caught two real defects in bootstrap CI, both fixed on-branch:
+  1. `check-trailers.sh` iterated commit bodies line-by-line, so multi-line
+     bodies were checked as pseudo-commits; rewritten to per-commit
+     inspection via `rev-list` + `mapfile`, errors now name the sha.
+  2. The DCO step checked `origin/main..HEAD`, which on PR events is
+     GitHub's ephemeral merge commit (never carries trailers) — now checks
+     `pull_request.base.sha..head.sha`.
+  Regression tests added (7 cases, incl. merge-commit and multi-line-body).
+- Maintainer authorized AI commits to carry
+  `Signed-off-by: Zhao KK <kikakkz@hotmail.com>` for this session.
