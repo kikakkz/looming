@@ -1,0 +1,49 @@
+# CodeRabbit configuration — the review gate for this repository.
+# Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+#
+# Policy (maintainer decision, issue #9): merges are decided by review
+# results, not by green CI alone. `review_status: true` makes CodeRabbit
+# submit a formal APPROVE / REQUEST_CHANGES review; branch protection
+# requires one approving review, which the PR author cannot supply
+# themselves — so the gate cannot be self-served.
+
+language: "en"
+
+reviews:
+  profile: "assertive"
+  review_status: true # formal APPROVE / REQUEST_CHANGES on every PR
+  collapse_walkthrough: false
+  path_instructions:
+    - path: "AGENTS.md"
+      instructions: >
+        This file is the repository's operating contract. Violations of its
+        hard constraints (issue-driven development, CI-first, attribution
+        policy, stack-kit rule, process authority) are high-severity
+        findings.
+    - path: ".ai/**"
+      instructions: >
+        Agent assets governed by .ai/AGENTS.md: SKILL.md frontmatter rules,
+        lockfile pin discipline, ADR rules (immutable decision files,
+        bidirectional supersede only via adr_manager.py, generated index),
+        memory addressing rule (issue/AD numbers only, never file anchors).
+    - path: ".github/workflows/**"
+      instructions: >
+        CI changes must follow the CI-first rule: every code change lands
+        with its checks in the same PR. Required checks must stay
+        meaningful — do not weaken gates without an issue.
+    - path: ".ai/tools/**"
+      instructions: >
+        Every script must ship with unit tests in tests/ (stdlib only,
+        shellcheck-clean bash). Flag untested or network-dependent logic.
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main"]
+  tools:
+    shellcheck:
+      enabled: true
+    markdownlint:
+      enabled: true
+
+chat:
+  auto_reply: true
