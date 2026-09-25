@@ -21,6 +21,9 @@ same PR.
 - One entry = one skill. Fields: `name`, `source` (host on the allowlist),
   `path` (directory containing the upstream `SKILL.md`), `revision`
   (full 40-char sha), `license`.
+- Declared **bundles** are the exception: a methodology pack consumed as a
+  unit may pin its collection root in one entry, marked with a comment in
+  the lockfile. `superpowers` is the one declared bundle.
 - Adding or upgrading an entry is a PR; CI validates schema, sha format,
   and license allowlist.
 

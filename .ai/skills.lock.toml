@@ -12,6 +12,9 @@
 # allowlist, and license allowlist on every change.
 
 [[skill]]
+# Declared bundle (see .ai/AGENTS.md): the 15 skills are consumed as one
+# unit via the superpowers plugin marketplace; pinned at a single sha so
+# the pack's internal versions stay coherent.
 name = "superpowers"
 source = "github.com/obra/superpowers"
 path = "skills"
