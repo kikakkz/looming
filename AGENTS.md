@@ -8,7 +8,10 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 ## Hard constraints (non-negotiable)
 
 1. **Issue-driven development.** No issue, no code. Every PR references an
-   issue (`Closes #N`), branches are named `<issue>-<slug>`, and the issue
+   issue (`Closes #N`). Branches are named `<type>/<issue>-<slug>` where
+   `<type>` is one fixed vocabulary — the Conventional Commits types
+   (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert) — and the
+   prefix must match the PR title's type (CI enforces both). The issue
    thread carries plan, status, and review artifacts.
 2. **CI-first.** Every code change lands in the same PR as the CI that
    checks it. Red CI never merges. Run `make ci-gate` locally before
