@@ -23,5 +23,7 @@ jobs:
         run: make ci-gate
 
       - name: DCO + trailer check on PR commits
+        # Check the branch commits (base..head), NOT the checked-out merge
+        # commit — GitHub's ephemeral test merge never carries trailers.
         if: github.event_name == 'pull_request'
-        run: bash .ai/tools/check-trailers.sh --dco "origin/${{ github.base_ref }}..HEAD"
+        run: bash .ai/tools/check-trailers.sh --dco "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
