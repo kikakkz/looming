@@ -51,8 +51,9 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
   tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md).
 - `.github/` — templates, CODEOWNERS, workflows, contributing policy.
-- `.ai/memory/decisions.md` — accepted architecture decisions (AD-1…).
-  Read it before proposing anything architectural.
+- `.ai/memory/decisions.md` — pointer; the decisions themselves live one per
+  file in `.ai/memory/decisions/` (generated index: `decisions/README.md`).
+  Read them before proposing anything architectural.
 
 ## Collaboration protocol
 

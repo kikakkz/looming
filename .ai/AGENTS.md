@@ -44,7 +44,11 @@ same PR.
   wikilinks. No vector store, no binary formats.
 - `progress.md` and `activeContext.md` are **episodic**: agents update
   them directly at session boundaries.
-- `decisions.md` and any rule-like content are **procedural**: append-only,
-  changed only through a reviewed PR (prompt-injection defense). The
-  reviewer of record is a human; the judge profile takes over later.
+- `decisions/` — **procedural**: one file per architecture decision
+  (`NNNN-slug.md`), immutable except status flips. Create or supersede via
+  `python3 .ai/tools/adr_manager.py` (supersede is atomic and
+  bidirectional); the index (`decisions/README.md`) is generated, never
+  hand-edited. All changes, including status flips, land through a
+  reviewed PR (prompt-injection defense). `make check-adr` validates.
+- `decisions.md` is a stable pointer stub — never add content to it.
 - Never store secrets in memory files.
