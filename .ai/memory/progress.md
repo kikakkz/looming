@@ -42,3 +42,15 @@ type: progress
   Regression tests added (7 cases, incl. merge-commit and multi-line-body).
 - Maintainer authorized AI commits to carry
   `Signed-off-by: Zhao KK <kikakkz@hotmail.com>` for this session.
+
+## 2026-09-25 — Naming enforcement + protection hardening
+
+- PR #2 merged (squash, 1f914a3). Repo settings: auto-merge allowed,
+  squash merges, delete branch on merge.
+- `main` protected (AD-19): required checks `gate` + `conventional-title`
+  (strict), linear history, conversation resolution, no force push/
+  deletion, admins included.
+- Branch naming revised (AD-20, amends AD-19): `<type>/<issue>-<slug>`
+  with the fixed Conventional Commits vocabulary; new `branch-name` CI
+  check enforces format and prefix↔title consistency (issue #3, PR #4 —
+  itself the first compliant branch).

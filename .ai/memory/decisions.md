@@ -8,6 +8,13 @@ type: decisions
 Accepted architecture decisions. Append-only; changes only through a
 reviewed PR (see `.ai/AGENTS.md`). Each entry: date, status, essence.
 
+## AD-20 — 2026-09-25 — accepted
+
+Branch names carry a fixed-vocabulary prefix: `<type>/<issue>-<slug>`,
+where type ∈ Conventional Commits types (the same source of truth as PR
+titles). A `branch-name` CI check validates the format and requires the
+prefix to match the PR title's type. Amends AD-19's no-prefix stance.
+
 ## AD-19 — 2026-09-25 — accepted
 
 `main` is protected on GitHub: required checks `gate` + `conventional-title`

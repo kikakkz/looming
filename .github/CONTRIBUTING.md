@@ -9,7 +9,9 @@
 ## Issue-driven development
 
 Every change starts as an issue (`bug`, `feature`, or `task`). Branches
-are named `<issue>-<slug>`; PRs reference the issue with `Closes #N`.
+are named `<type>/<issue>-<slug>` with the type from the fixed Conventional
+Commits vocabulary; the prefix must match the PR title's type (enforced by
+the `branch-name` check). PRs reference the issue with `Closes #N`.
 Non-trivial work posts a plan to the issue before implementation.
 
 ## Issue taxonomy
