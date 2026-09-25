@@ -40,6 +40,7 @@ reviews:
     enabled: true
     drafts: false
     base_branches: ["main"]
+    auto_pause_after_reviewed_commits: 0 # gate must never pause: every push reopens review
   tools:
     shellcheck:
       enabled: true
