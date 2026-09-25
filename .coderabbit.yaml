@@ -2,16 +2,17 @@
 # Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
 #
 # Policy (maintainer decision, issue #9): merges are decided by review
-# results, not by green CI alone. `review_status: true` makes CodeRabbit
-# submit a formal APPROVE / REQUEST_CHANGES review; branch protection
-# requires one approving review, which the PR author cannot supply
-# themselves — so the gate cannot be self-served.
+# results, not by green CI alone. `request_changes_workflow: true` makes
+# CodeRabbit submit a formal APPROVE / REQUEST_CHANGES review; branch
+# protection requires one approving review, which the PR author cannot
+# supply themselves — so the gate cannot be self-served.
 
 language: "en"
 
 reviews:
   profile: "assertive"
-  review_status: true # formal APPROVE / REQUEST_CHANGES on every PR
+  review_status: true # approval state surfaced in the walkthrough
+  request_changes_workflow: true # formal APPROVE / REQUEST_CHANGES reviews
   collapse_walkthrough: false
   path_instructions:
     - path: "AGENTS.md"
