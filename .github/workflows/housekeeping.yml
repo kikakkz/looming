@@ -1,0 +1,67 @@
+name: housekeeping
+on:
+  schedule:
+    - cron: "23 6 1 * *" # 06:23 UTC on the 1st — monthly memory check
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check memory thresholds (strict)
+        id: check
+        run: python3 .ai/tools/memory_housekeeping.py check --strict
+
+      - name: Audit memory bank
+        if: failure()
+        run: python3 .ai/tools/memory_housekeeping.py doctor > /tmp/doctor.txt
+
+      - name: Open housekeeping issue (idempotent)
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          def api(path: str, payload: dict | None = None) -> dict:
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}{path}",
+                  data=json.dumps(payload).encode() if payload else None,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                  },
+              )
+              return json.load(urllib.request.urlopen(req))
+
+          title = "chore: memory housekeeping (thresholds exceeded)"
+          open_issues = api("/issues?state=open&labels=kind/cleanup")
+          if any(i["title"] == title for i in open_issues):
+              print("housekeeping issue already open — nothing to do")
+              raise SystemExit(0)
+
+          with open("/tmp/doctor.txt", encoding="utf-8") as fh:
+              report = fh.read()
+          body = (
+              "Monthly memory check exceeded its thresholds.\n\n"
+              "```\n" + report + "\n```\n\n"
+              "Remediation: `python3 .ai/tools/memory_housekeeping.py rotate`, "
+              "then land it via PR per .ai/AGENTS.md."
+          )
+          api("/issues", {"title": title, "body": body,
+                          "labels": ["kind/cleanup", "area/ai-assets"]})
+          print("housekeeping issue created")
+          EOF

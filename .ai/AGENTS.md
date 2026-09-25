@@ -44,6 +44,20 @@ same PR.
   wikilinks. No vector store, no binary formats.
 - `progress.md` and `activeContext.md` are **episodic**: agents update
   them directly at session boundaries.
+- **Addressing rule**: memory entries reference stable identifiers only —
+  issue numbers (`#N`) and decision numbers (`AD-N`) — never file anchors
+  or line numbers, so rotation never breaks links.
+- `progress.md` **rotates monthly**: `python3 .ai/tools/memory_housekeeping.py
+  rotate` moves older entries to `progress/YYYY-MM.md` and prepends a
+  generated "carried over" section. Rotation is done by the script, never
+  by hand. Soft threshold: 200 lines.
+- `activeContext.md` is a **links-only snapshot** (SSoT — details live in
+  progress / decisions / issues; never restate content). Hard cap:
+  100 lines; compress at session boundaries when over.
+- **No decay or ranking** in the repo layer (AD-9): expiry and relevance
+  ranking belong to the platform memory service.
+- `memory_housekeeping.py doctor` audits sizes; the monthly `housekeeping`
+  workflow opens a `kind/cleanup` issue when thresholds are exceeded.
 - `decisions/` — **procedural**: one file per architecture decision
   (`NNNN-slug.md`), immutable except status flips. Create or supersede via
   `python3 .ai/tools/adr_manager.py` (supersede is atomic and
