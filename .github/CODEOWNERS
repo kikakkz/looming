@@ -1,0 +1,7 @@
+# CODEOWNERS — every change needs review from the maintainer.
+# The .github directory itself is owned too, so workflow/permission
+# changes cannot slip in unnoticed.
+
+* @kikakkz
+/.ai/ @kikakkz
+/.github/ @kikakkz

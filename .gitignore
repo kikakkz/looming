@@ -1,0 +1,28 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node (skills tooling)
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Local env / secrets — never commit credentials
+.env
+.env.*
+*.pem
+*.key

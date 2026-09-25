@@ -1,0 +1,46 @@
+name: Task
+description: A unit of issue-driven development work (refactor, research, docs, infrastructure).
+title: "chore: "
+labels: ["kind/task"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which module this belongs to (see CONTRIBUTING.md).
+      options:
+        - gateway
+        - runtime
+        - sandbox
+        - registry
+        - memory
+        - scm-adapters
+        - pipeline
+        - bundle
+        - ci
+        - docs
+        - ai-assets
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this task exists; link the issue or decision it serves.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable statements defining "done".
+      value: "- [ ] "
+    validations:
+      required: true
+  - type: checkboxes
+    id: agent_ready
+    attributes:
+      label: Agent executability
+      options:
+        - label: This task is self-contained enough for an agent to execute (clear inputs, verifiable output)

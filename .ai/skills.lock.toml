@@ -1,0 +1,47 @@
+# External skill dependencies for this repository.
+#
+# Entries are pinned to an immutable git revision and fetched at install
+# time, e.g.:
+#   npx skills add github.com/<org>/<repo> --skill <path> --revision <sha>
+#
+# This repository is public on GitHub, so external skills are referenced,
+# never vendored. Vendoring is a platform feature of Loom for air-gapped
+# or private managed repositories, not something this repo does.
+#
+# CI (.github/workflows/ci.yml) validates schema, sha format, source
+# allowlist, and license allowlist on every change.
+
+[[skill]]
+name = "superpowers"
+source = "github.com/obra/superpowers"
+path = "plugins/superpowers/skills"
+revision = "5bf4e78011075bcfc0dc295f0724994cd123ee71"
+license = "MIT"
+
+[[skill]]
+name = "ponytail"
+source = "github.com/DietrichGebert/ponytail"
+path = "."
+revision = "e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156"
+license = "MIT"
+
+[[skill]]
+name = "code-review"
+source = "github.com/getsentry/skills"
+path = "code-review"
+revision = "c2f99a5b04b4cd992ec3022d7c2c3e23e938d241"
+license = "Apache-2.0"
+
+[[skill]]
+name = "triage"
+source = "github.com/mattpocock/skills"
+path = "triage"
+revision = "c55ee46073ed923f86ce59a5eb3b6d895095d1b7"
+license = "MIT"
+
+[[skill]]
+name = "kubernetes"
+source = "github.com/LukasNiessen/kubernetes-skill"
+path = "."
+revision = "34f93c1e409156958cc7c410ab1aa88ab512f10f"
+license = "MIT"

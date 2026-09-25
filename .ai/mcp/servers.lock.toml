@@ -1,0 +1,20 @@
+# MCP servers approved for agents working in this repository.
+#
+# Intentionally EMPTY at bootstrap. Every additional entry must arrive via
+# PR with:
+#   1. a demonstrated need stated in the issue,
+#   2. an immutable revision pin (full 40-char sha or content hash),
+#   3. an admission security scan report (e.g. snyk/agent-scan) attached
+#      to the PR.
+#
+# Each MCP server is supply-chain attack surface (tool poisoning is a
+# documented OWASP MCP Top-10 item), so the default posture is empty and
+# additive-on-need.
+#
+# Schema per entry:
+#   [[server]]
+#   name     = "reverse-dns-or-short-name"
+#   source   = "github.com/org/repo"
+#   path     = "."                       # directory containing the server
+#   revision = "40-char-sha"
+#   license  = "Apache-2.0"

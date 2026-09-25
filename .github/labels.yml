@@ -1,0 +1,25 @@
+# Issue label taxonomy, modeled on the Kubernetes kind/area convention.
+# Synced to GitHub by .github/workflows/labels.yml whenever this file
+# changes. Do not create labels by hand in the GitHub UI.
+
+# kind: what type of work
+- { name: "kind/bug", color: "d73a4a", description: "Something is broken" }
+- { name: "kind/feature", color: "a2eeef", description: "New capability" }
+- { name: "kind/task", color: "1d76db", description: "Unit of work: refactor, research, docs, infra" }
+- { name: "kind/design", color: "7057ff", description: "Design work; outcome lands in .ai/memory/decisions.md" }
+- { name: "kind/spike", color: "fb8500", description: "Time-boxed research or experiment" }
+- { name: "kind/cleanup", color: "c5c5c5", description: "Maintenance and hygiene" }
+- { name: "kind/docs", color: "0e8a16", description: "Documentation only" }
+
+# area: which module
+- { name: "area/gateway", color: "0052cc", description: "Model gateway component" }
+- { name: "area/runtime", color: "0052cc", description: "Agent runtime provider system" }
+- { name: "area/sandbox", color: "0052cc", description: "Sandbox pool (K8s, gVisor, warm pool)" }
+- { name: "area/registry", color: "0052cc", description: "Unified tools/MCP/skills registry" }
+- { name: "area/memory", color: "0052cc", description: "Organization memory" }
+- { name: "area/scm-adapters", color: "0052cc", description: "GitHub / GitLab CE adapters" }
+- { name: "area/pipeline", color: "0052cc", description: "Control plane: blueprint orchestration, event log" }
+- { name: "area/bundle", color: "5319e7", description: "Packaging, topology wizard, distribution" }
+- { name: "area/ci", color: "5319e7", description: "CI gates and repo tooling" }
+- { name: "area/docs", color: "5319e7", description: "Documentation" }
+- { name: "area/ai-assets", color: "5319e7", description: ".ai/ contents: skills, locks, memory bank" }

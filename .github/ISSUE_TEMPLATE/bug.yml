@@ -1,0 +1,43 @@
+name: Bug report
+description: Something is broken.
+title: "fix: "
+labels: ["kind/bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which module this belongs to (see CONTRIBUTING.md).
+      options:
+        - gateway
+        - runtime
+        - sandbox
+        - registry
+        - memory
+        - scm-adapters
+        - pipeline
+        - bundle
+        - ci
+        - docs
+        - ai-assets
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What you expected vs. what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduce
+      description: Steps or a minimal reproduction.
+      render: bash
+  - type: input
+    id: version
+    attributes:
+      label: Version / component
+      placeholder: "e.g. gateway v0.1.0 / bundle v0.1.0"
