@@ -195,7 +195,7 @@ learns is promoted into CI checks, memory, and tooling.
 
 - [AGENTS.md](AGENTS.md) — operating contract for humans and AI agents
 - [CONTRIBUTING.md](.github/CONTRIBUTING.md) — DCO, AI contribution policy, dev setup
-- [.ai/memory/decisions.md](.ai/memory/decisions.md) — accepted architecture decisions
+- [.ai/memory/decisions/](.ai/memory/decisions/) — accepted architecture decisions (one file per AD, generated index)
 - [docs/](docs/) — long-form design documents (land via issues)
 
 ---
