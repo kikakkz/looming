@@ -57,7 +57,7 @@ ambiguous verdicts escalate.
 ## AD-12 — 2026-09-25 — accepted
 
 Agent runtime is a pluggable provider system with capability levels
-L0–L3 (L3 = model calls routed via the Loom gateway). Default component
+L0–L3 (L3 = model calls routed via the Looming gateway). Default component
 chosen by bake-off (AD-15); users may bring their own agents.
 
 ## AD-11 — 2026-09-25 — accepted
@@ -71,7 +71,7 @@ immutable version + hash; MCP tool annotations declare permissions.
 
 Skills follow the SKILL.md open standard. This repo references external
 skills by sha-pinned lockfile, never vendors (public GitHub). Vendoring is
-a Loom platform mode for air-gapped/private managed repos. Superpowers
+a Looming platform mode for air-gapped/private managed repos. Superpowers
 occupies the methodology slot at bootstrap; AGENTS.md wins process
 conflicts.
 

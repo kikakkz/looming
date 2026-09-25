@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Loom is an enterprise agent-engineering platform shipped as a single
+Looming is an enterprise agent-engineering platform shipped as a single
 self-contained bundle. This file is the operating contract for every
 contributor, human or AI. It is optimized for constraints and commands;
 bulky knowledge lives in `docs/` and is referenced by pointer.

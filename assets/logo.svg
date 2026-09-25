@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Looming logo">
+  <!-- Warp threads: the fixed organizational infrastructure -->
+  <g stroke="#4F46E5" stroke-width="7" stroke-linecap="round">
+    <line x1="26" y1="18" x2="26" y2="110"/>
+    <line x1="47" y1="18" x2="47" y2="110"/>
+    <line x1="68" y1="18" x2="68" y2="110"/>
+    <line x1="89" y1="18" x2="89" y2="110"/>
+    <line x1="110" y1="18" x2="110" y2="110"/>
+  </g>
+  <!-- Weft thread: the work passing through -->
+  <line x1="14" y1="64" x2="122" y2="64" stroke="#F59E0B" stroke-width="9" stroke-linecap="round"/>
+  <!-- Shuttle: the agent, riding the intersection -->
+  <path d="M68 40 L92 64 L68 88 L44 64 Z" fill="#0F172A" stroke="#E2E8F0" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="68" cy="64" r="6" fill="#F59E0B"/>
+</svg>

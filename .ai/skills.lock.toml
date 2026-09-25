@@ -5,7 +5,7 @@
 #   npx skills add github.com/<org>/<repo> --skill <path> --revision <sha>
 #
 # This repository is public on GitHub, so external skills are referenced,
-# never vendored. Vendoring is a platform feature of Loom for air-gapped
+# never vendored. Vendoring is a platform feature of Looming for air-gapped
 # or private managed repositories, not something this repo does.
 #
 # CI (.github/workflows/ci.yml) validates schema, sha format, source
