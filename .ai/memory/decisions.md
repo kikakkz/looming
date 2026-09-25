@@ -8,6 +8,18 @@ type: decisions
 Accepted architecture decisions. Append-only; changes only through a
 reviewed PR (see `.ai/AGENTS.md`). Each entry: date, status, essence.
 
+## AD-19 — 2026-09-25 — accepted
+
+`main` is protected on GitHub: required checks `gate` + `conventional-title`
+(strict, branches must be up to date), linear history, unresolved
+conversations block merge, no force pushes, no branch deletions,
+`enforce_admins: true`. Review count is 0 while the maintainer is solo
+(GitHub forbids authors approving their own PRs); raise to 1 and enable
+code-owner review when human collaborators or agent-authored PRs become
+routine. Convention change: the project name is **Looming** (renamed from
+Loom in PR #2); branch naming stays `<issue>-<slug>` without a type prefix
+(mature OSS practice enforces PR title and issue linkage, not branch names).
+
 ## AD-18 — 2026-09-25 — accepted
 
 Governance formats follow mature upstream practice instead of invention:
@@ -57,7 +69,7 @@ ambiguous verdicts escalate.
 ## AD-12 — 2026-09-25 — accepted
 
 Agent runtime is a pluggable provider system with capability levels
-L0–L3 (L3 = model calls routed via the Loom gateway). Default component
+L0–L3 (L3 = model calls routed via the Looming gateway). Default component
 chosen by bake-off (AD-15); users may bring their own agents.
 
 ## AD-11 — 2026-09-25 — accepted
@@ -71,7 +83,7 @@ immutable version + hash; MCP tool annotations declare permissions.
 
 Skills follow the SKILL.md open standard. This repo references external
 skills by sha-pinned lockfile, never vendors (public GitHub). Vendoring is
-a Loom platform mode for air-gapped/private managed repos. Superpowers
+a Looming platform mode for air-gapped/private managed repos. Superpowers
 occupies the methodology slot at bootstrap; AGENTS.md wins process
 conflicts.
 

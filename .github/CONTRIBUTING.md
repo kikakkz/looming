@@ -1,4 +1,4 @@
-# Contributing to Loom
+# Contributing to Looming
 
 ## Development setup
 

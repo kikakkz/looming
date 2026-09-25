@@ -5,7 +5,7 @@ type: projectbrief
 
 # Project Brief
 
-Loom is an enterprise agent-engineering platform delivered as a single,
+Looming is an enterprise agent-engineering platform delivered as a single,
 self-contained bundle. It gives an organization one control plane for the
 whole agent lifecycle:
 

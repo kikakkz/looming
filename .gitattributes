@@ -1,0 +1,23 @@
+# Enforce LF for all text files; Git normalizes on commit.
+* text=auto eol=lf
+
+# Shell and make must stay LF on every platform (CI runs on Linux).
+*.sh     text eol=lf
+*.mk     text eol=lf
+Makefile text eol=lf
+
+# Markup, config, and code.
+*.md   text diff=markdown
+*.yml  text diff
+*.yaml text diff
+*.toml text diff
+*.json text diff
+*.py   text diff=python
+*.svg  text
+
+# Binaries.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
