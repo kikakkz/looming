@@ -1,16 +1,22 @@
 # CodeRabbit configuration — the review gate for this repository.
 # Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
 #
-# Policy (maintainer decision, issue #9): merges are decided by review
-# results, not by green CI alone. `request_changes_workflow: true` makes
-# CodeRabbit submit a formal APPROVE / REQUEST_CHANGES review; branch
-# protection requires one approving review, which the PR author cannot
-# supply themselves — so the gate cannot be self-served.
+# Policy (maintainer decision, issue #9; tiered in issue #18): merges
+# are decided by review results, not by green CI alone. Strictness
+# follows risk: the global profile is chill — functional bugs and
+# security findings under realistic failure modes still block, while
+# hypothetical multi-step failure scenarios and style nits are
+# suggestions. Credential-handling and installer code (.ai/tools)
+# keeps blocking treatment for CWE-class findings.
+# `request_changes_workflow: true` makes CodeRabbit submit a formal
+# APPROVE / REQUEST_CHANGES review; branch protection requires one
+# approving review, which the PR author cannot supply themselves — so
+# the gate cannot be self-served.
 
 language: "en"
 
 reviews:
-  profile: "assertive"
+  profile: "chill"
   review_status: true # approval state surfaced in the walkthrough
   request_changes_workflow: true # formal APPROVE / REQUEST_CHANGES reviews
   collapse_walkthrough: false
@@ -36,6 +42,18 @@ reviews:
       instructions: >
         Every script must ship with unit tests in tests/ (stdlib only,
         shellcheck-clean bash). Flag untested or network-dependent logic.
+        This directory holds credential-handling and installer logic:
+        CWE-class security findings and functional bugs under realistic
+        failure modes are blocking. Do NOT block on hardening against
+        hypothetical multi-step failure scenarios (rollback-of-rollback
+        errors, PID-reuse collisions with leftover files, failures inside
+        failure handlers); mention those as optional suggestions at most.
+    - path: "**"
+      instructions: >
+        Review for realistic failure modes. Do not block on defensive
+        handling of hypothetical multi-step failure scenarios; mention
+        them as optional suggestions at most. Style and maintainability
+        nits are non-blocking.
   auto_review:
     enabled: true
     drafts: false
