@@ -115,35 +115,42 @@ cmd_install() {
     rm -f "$tmp"
     [ -x "$tmpd/$name/bin/gh" ] \
         || { rm -rf "$tmpd"; die "archive layout unexpected: $name/bin/gh missing"; }
-    # keep the previous installation until the replacement is in
-    # place: rename it aside, swap, drop the backup only on success,
-    # restore it when the swap fails
-    prev=
+    # keep the previous installation until post-install verification
+    # has passed: stage it aside in a unique directory (mv -T so an
+    # existing path cannot silently become the parent), roll back on
+    # any failure, remove the backup only after the checks below
+    fail_install() {
+        rm -rf "$tmpd"
+        if [ -n "$prevdir" ] && [ -e "$prevdir/$name" ]; then
+            rm -rf "$target"
+            mv -T "$prevdir/$name" "$target" 2>/dev/null || true
+            rm -rf "$prevdir"
+        fi
+        die "$1"
+    }
+    prevdir=
     if [ -e "$target" ]; then
-        prev="$target.prev.$$"
-        if ! mv "$target" "$prev"; then
-            rm -rf "$tmpd"
+        prevdir=$(mktemp -d "$HOME/.local/opt/${name}.prev.XXXXXX") \
+            || { rm -rf "$tmpd"; die "cannot reserve a backup path; installation untouched"; }
+        if ! mv -T "$target" "$prevdir/$name"; then
+            rm -rf "$prevdir" "$tmpd"
             die "cannot stage previous $target aside; installation untouched"
         fi
     fi
     if ! mv "$tmpd/$name" "$target"; then
-        if [ -n "$prev" ]; then
-            mv "$prev" "$target" \
-                || die "install failed and could not restore the previous installation at $prev"
-        fi
-        rm -rf "$tmpd"
-        die "install failed; previous installation restored"
+        fail_install "install failed; previous installation restored"
     fi
     rmdir "$tmpd" 2>/dev/null || true
-    if [ -n "$prev" ]; then
-        rm -rf "$prev"
-    fi
     ln -sfn "$target/bin/gh" "$HOME/.local/bin/gh"
     hash -r 2>/dev/null || true
     # the binary selected from PATH must be the one just installed
-    selected=$(command -v gh) || die "installed, but ~/.local/bin is not on PATH"
+    selected=$(command -v gh) \
+        || fail_install "installed, but ~/.local/bin is not on PATH"
     [ "$(realpath "$selected")" = "$(realpath "$HOME/.local/bin/gh")" ] \
-        || die "another gh shadows $HOME/.local/bin/gh (selected: $selected); fix PATH order"
+        || fail_install "another gh shadows $HOME/.local/bin/gh (selected: $selected); fix PATH order"
+    if [ -n "$prevdir" ]; then
+        rm -rf "$prevdir"
+    fi
 }
 
 ensure_private_dir() {
@@ -156,7 +163,7 @@ ensure_private_dir() {
         /*) ;;
         *) return 1 ;; # relative paths would loop on ${d%/*}
     esac
-    local d p m
+    local d p m o
     d=$1
     while [ -n "$d" ] && [ "$d" != / ]; do
         if [ -d "$d" ]; then
@@ -175,10 +182,13 @@ ensure_private_dir() {
                         chmod 700 "$d" 2>/dev/null || return 1
                     fi
                 else
-                    # someone else's writable directory: only the
-                    # sticky bit stops others renaming our entries
-                    # (this is how /tmp, owned by root, stays safe)
+                    # someone else's writable directory: the sticky bit
+                    # stops third parties renaming our entries, but the
+                    # directory owner can still swap them (CWE-367) —
+                    # accept only root-owned sticky directories like /tmp
                     [ $((m & 01000)) -ne 0 ] || return 1
+                    o=$(stat -c %u "$d" 2>/dev/null) || return 1
+                    [ "$o" = 0 ] || return 1
                 fi
             fi
         fi
