@@ -127,12 +127,13 @@ cmd_install() {
             rm -rf "$prevdir"
         fi
         # restore the link to its pre-install state
-        if [ "$hadlink" -eq 1 ]; then
+        if [ -n "$prevfile" ] && [ -e "$prevfile" ]; then
+            rm -f "$link" 2>/dev/null || true
+            mv -T "$prevfile" "$link" 2>/dev/null || true
+        elif [ "$hadlink" -eq 1 ]; then
             if [ -n "$prevlink" ]; then
                 ln -sfn "$prevlink" "$link" 2>/dev/null || true
             fi
-            # a pre-existing non-symlink path was already replaced by
-            # ln -sfn; there is nothing safe to reconstruct there
         else
             rm -f "$link" 2>/dev/null || true
         fi
@@ -154,12 +155,23 @@ cmd_install() {
     # remember the link state so a rollback can restore it
     link="$HOME/.local/bin/gh"
     prevlink=
+    prevfile=
     hadlink=0
     if [ -L "$link" ]; then
         prevlink=$(readlink "$link")
         hadlink=1
     elif [ -e "$link" ]; then
+        # a regular file: move it into the backup directory so
+        # rollback can restore it — ln -sfn would otherwise replace it
+        # irrecoverably
         hadlink=1
+        if [ -z "$prevdir" ]; then
+            prevdir=$(mktemp -d "$HOME/.local/opt/${name}.prev.XXXXXX") \
+                || die "cannot reserve a backup path for $link; installation untouched"
+        fi
+        prevfile="$prevdir/bin-gh"
+        mv -T "$link" "$prevfile" \
+            || die "cannot back up existing $link; installation untouched"
     fi
     ln -sfn "$target/bin/gh" "$link" \
         || fail_install "cannot update $link"
