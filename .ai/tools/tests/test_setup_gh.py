@@ -142,6 +142,43 @@ class InstallSuccessTests(unittest.TestCase):
             self.assertEqual(os.readlink(Path(tmp) / ".local" / "bin" / "gh"),
                              str(installed))
 
+    def test_install_replaces_previous_installation_cleanly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            self._write(bin_dir, "uname",
+                        '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
+            self._write(bin_dir, "curl",
+                        '#!/bin/sh\nout=""\n'
+                        'while [ $# -gt 0 ]; do\n'
+                        '  case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac\n'
+                        'done\n'
+                        '[ -n "$out" ] && printf fake >"$out"\n')
+            self._write(bin_dir, "sha256sum", '#!/bin/sh\ncat >/dev/null\nexit 0\n')
+            self._write(bin_dir, "tar",
+                        '#!/bin/sh\n'
+                        'dest=""\n'
+                        'while [ $# -gt 0 ]; do\n'
+                        '  case "$1" in -C) dest="$2"; shift 2 ;; *) shift ;; esac\n'
+                        'done\n'
+                        'mkdir -p "$dest/gh_2.101.0_linux_amd64/bin"\n'
+                        'printf "#!/bin/sh\\n" >"$dest/gh_2.101.0_linux_amd64/bin/gh"\n'
+                        'chmod +x "$dest/gh_2.101.0_linux_amd64/bin/gh"\n')
+            # a previous installation must be swapped away, not left
+            # alongside as .prev debris
+            old = Path(tmp) / ".local" / "opt" / "gh_2.101.0_linux_amd64" / "bin"
+            old.mkdir(parents=True)
+            (old / "gh").write_text("#!/bin/sh\n")
+            local_bin = Path(tmp) / ".local" / "bin"
+            env = {"PATH": f"{bin_dir}:{local_bin}:/usr/bin:/bin", "HOME": tmp}
+            r = run_script(["install"], env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            opt = Path(tmp) / ".local" / "opt"
+            leftovers = [p for p in opt.iterdir()
+                         if p.name != "gh_2.101.0_linux_amd64"]
+            self.assertEqual(leftovers, [], f"staging debris: {leftovers}")
+            self.assertTrue(os.access(old / "gh", os.X_OK))
+
     def test_install_aborts_on_checksum_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"

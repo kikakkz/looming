@@ -115,9 +115,29 @@ cmd_install() {
     rm -f "$tmp"
     [ -x "$tmpd/$name/bin/gh" ] \
         || { rm -rf "$tmpd"; die "archive layout unexpected: $name/bin/gh missing"; }
-    rm -rf "$target"
-    mv "$tmpd/$name" "$target"
+    # keep the previous installation until the replacement is in
+    # place: rename it aside, swap, drop the backup only on success,
+    # restore it when the swap fails
+    prev=
+    if [ -e "$target" ]; then
+        prev="$target.prev.$$"
+        if ! mv "$target" "$prev"; then
+            rm -rf "$tmpd"
+            die "cannot stage previous $target aside; installation untouched"
+        fi
+    fi
+    if ! mv "$tmpd/$name" "$target"; then
+        if [ -n "$prev" ]; then
+            mv "$prev" "$target" \
+                || die "install failed and could not restore the previous installation at $prev"
+        fi
+        rm -rf "$tmpd"
+        die "install failed; previous installation restored"
+    fi
     rmdir "$tmpd" 2>/dev/null || true
+    if [ -n "$prev" ]; then
+        rm -rf "$prev"
+    fi
     ln -sfn "$target/bin/gh" "$HOME/.local/bin/gh"
     hash -r 2>/dev/null || true
     # the binary selected from PATH must be the one just installed
@@ -143,12 +163,23 @@ ensure_private_dir() {
             p=$(stat -c %a "$d" 2>/dev/null) || return 1
             case $p in '' | *[!0-7]*) return 1 ;; esac
             m=$((8#$p))
-            if [ -O "$d" ]; then
-                if [ $((m & 0022)) -ne 0 ] && [ $((m & 01000)) -eq 0 ]; then
-                    chmod 700 "$d" 2>/dev/null || return 1
+            # directories no one else can write are safe at any
+            # ownership (this is how /home — root-owned, no sticky bit —
+            # stays safe); only group/other-writable ones need care
+            if [ $((m & 0022)) -ne 0 ]; then
+                if [ -O "$d" ]; then
+                    # ours but shared: a local attacker could swap our
+                    # staged files — tighten unless the sticky bit
+                    # already protects our entries
+                    if [ $((m & 01000)) -eq 0 ]; then
+                        chmod 700 "$d" 2>/dev/null || return 1
+                    fi
+                else
+                    # someone else's writable directory: only the
+                    # sticky bit stops others renaming our entries
+                    # (this is how /tmp, owned by root, stays safe)
+                    [ $((m & 01000)) -ne 0 ] || return 1
                 fi
-            else
-                [ $((m & 01000)) -ne 0 ] || return 1
             fi
         fi
         d=${d%/*}
