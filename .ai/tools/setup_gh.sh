@@ -82,7 +82,7 @@ cmd_check() {
 }
 
 cmd_install() {
-    local sys arch sum name url tmp tmpd target selected prevdir link prevlink prevfile hadlink
+    local sys arch sum name url tmp tmpd target selected prevdir
     sys=$(uname -s)
     [ "$sys" = Linux ] || die "installs Linux binaries only; on $sys use the OS package manager (e.g. 'brew install gh')"
     case $(uname -m) in
@@ -115,71 +115,39 @@ cmd_install() {
     rm -f "$tmp"
     [ -x "$tmpd/$name/bin/gh" ] \
         || { rm -rf "$tmpd"; die "archive layout unexpected: $name/bin/gh missing"; }
-    # keep the previous installation until post-install verification
-    # has passed: stage it aside in a unique directory (mv -T so an
-    # existing path cannot silently become the parent), roll back on
-    # any failure, remove the backup only after the checks below
+    # keep the previous installation until the new one verifies: stage
+    # it aside in a unique directory (mv -T so an existing path cannot
+    # silently become the parent), roll back on failure, drop the
+    # backup only after the checks below
     fail_install() {
         rm -rf "$tmpd"
         if [ -n "$prevdir" ] && [ -e "$prevdir/$name" ]; then
             rm -rf "$target"
-            mv -T "$prevdir/$name" "$target" 2>/dev/null || true
-        else
-            # no previous installation: rollback returns the machine
-            # to the pre-install state
-            rm -rf "$target"
-        fi
-        # restore the link to its pre-install state before dropping
-        # the backup directory — a regular-file backup lives inside it
-        if [ -n "$prevfile" ] && [ -e "$prevfile" ]; then
-            rm -f "$link" 2>/dev/null || true
-            mv -T "$prevfile" "$link" 2>/dev/null || true
-        elif [ "$hadlink" -eq 1 ]; then
-            if [ -n "$prevlink" ]; then
-                ln -sfn "$prevlink" "$link" 2>/dev/null || true
+            if ! mv -T "$prevdir/$name" "$target" 2>/dev/null; then
+                die "$1 — previous installation kept at $prevdir"
             fi
+            rm -rf "$prevdir"
+            prevdir=
+            ln -sfn "$target/bin/gh" "$HOME/.local/bin/gh" 2>/dev/null || true
         else
-            rm -f "$link" 2>/dev/null || true
+            rm -rf "$target"
+            rm -f "$HOME/.local/bin/gh" 2>/dev/null || true
         fi
-        [ -z "$prevdir" ] || rm -rf "$prevdir"
         die "$1"
     }
     prevdir=
     if [ -e "$target" ]; then
         prevdir=$(mktemp -d "$HOME/.local/opt/${name}.prev.XXXXXX") \
             || { rm -rf "$tmpd"; die "cannot reserve a backup path; installation untouched"; }
-        if ! mv -T "$target" "$prevdir/$name"; then
-            rm -rf "$prevdir" "$tmpd"
-            die "cannot stage previous $target aside; installation untouched"
-        fi
+        mv -T "$target" "$prevdir/$name" \
+            || { rm -rf "$prevdir" "$tmpd"; die "cannot stage previous $target aside; installation untouched"; }
     fi
     if ! mv "$tmpd/$name" "$target"; then
-        fail_install "install failed; previous installation restored"
+        fail_install "install failed"
     fi
     rmdir "$tmpd" 2>/dev/null || true
-    # remember the link state so a rollback can restore it
-    link="$HOME/.local/bin/gh"
-    prevlink=
-    prevfile=
-    hadlink=0
-    if [ -L "$link" ]; then
-        prevlink=$(readlink "$link")
-        hadlink=1
-    elif [ -e "$link" ]; then
-        # a regular file: move it into the backup directory so
-        # rollback can restore it — ln -sfn would otherwise replace it
-        # irrecoverably
-        hadlink=1
-        if [ -z "$prevdir" ]; then
-            prevdir=$(mktemp -d "$HOME/.local/opt/${name}.prev.XXXXXX") \
-                || fail_install "cannot reserve a backup path for $link"
-        fi
-        prevfile="$prevdir/bin-gh"
-        mv -T "$link" "$prevfile" \
-            || fail_install "cannot back up existing $link"
-    fi
-    ln -sfn "$target/bin/gh" "$link" \
-        || fail_install "cannot update $link"
+    ln -sfn "$target/bin/gh" "$HOME/.local/bin/gh" \
+        || fail_install "cannot update the gh link"
     hash -r 2>/dev/null || true
     # the binary selected from PATH must be the one just installed
     selected=$(command -v gh) \
@@ -192,46 +160,27 @@ cmd_install() {
 }
 
 ensure_private_dir() {
-    # Make $1 and its existing parents safe for credential staging.
-    # Components we own are tightened to 0700 when a permissive umask
-    # left them group/other-writable; components owned by others are
-    # accepted only with the sticky bit (this is how /tmp, owned by
-    # root, stays safe). Returns 1 when the path cannot be made safe.
+    # Make an absolute path safe for credential staging. The leaf is
+    # created and tightened to 0700 (a permissive umask must not leave
+    # a group-writable config directory). A parent we own is tightened
+    # the same way; anyone else's writable parent is accepted only as a
+    # root-owned sticky directory (/tmp). Returns 1 when unsafe.
     case $1 in
         /*) ;;
-        *) return 1 ;; # relative paths would loop on ${d%/*}
+        *) return 1 ;; # relative paths are rejected before any walk
     esac
-    local d p m o
-    d=$1
-    while [ -n "$d" ] && [ "$d" != / ]; do
-        if [ -d "$d" ]; then
-            p=$(stat -c %a "$d" 2>/dev/null) || return 1
-            case $p in '' | *[!0-7]*) return 1 ;; esac
-            m=$((8#$p))
-            # directories no one else can write are safe at any
-            # ownership (this is how /home — root-owned, no sticky bit —
-            # stays safe); only group/other-writable ones need care
-            if [ $((m & 0022)) -ne 0 ]; then
-                if [ -O "$d" ]; then
-                    # ours but shared: a local attacker could swap our
-                    # staged files — tighten unless the sticky bit
-                    # already protects our entries
-                    if [ $((m & 01000)) -eq 0 ]; then
-                        chmod 700 "$d" 2>/dev/null || return 1
-                    fi
-                else
-                    # someone else's writable directory: the sticky bit
-                    # stops third parties renaming our entries, but the
-                    # directory owner can still swap them (CWE-367) —
-                    # accept only root-owned sticky directories like /tmp
-                    [ $((m & 01000)) -ne 0 ] || return 1
-                    o=$(stat -c %u "$d" 2>/dev/null) || return 1
-                    [ "$o" = 0 ] || return 1
-                fi
-            fi
-        fi
-        d=${d%/*}
-    done
+    local parent pm po
+    mkdir -p "$1" 2>/dev/null || return 1
+    chmod 700 "$1" 2>/dev/null || return 1
+    parent=${1%/*}
+    [ -n "$parent" ] || parent=/
+    [ -O "$parent" ] && return 0
+    pm=$(stat -c %a "$parent" 2>/dev/null) || return 1
+    po=$(stat -c %u "$parent" 2>/dev/null) || return 1
+    case $pm in '' | *[!0-7]*) return 1 ;; esac
+    [ $((8#$pm & 0022)) -eq 0 ] && return 0 # read-only parents are fine
+    [ $((8#$pm & 01000)) -ne 0 ] && [ "$po" = 0 ] && return 0 # /tmp
+    return 1
 }
 
 cmd_auth() {

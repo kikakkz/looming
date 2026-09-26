@@ -47,9 +47,9 @@ the tarball path does not.
   (non-interactive: a missing credential is a clean failure), writes
   gh's own `hosts.yml` (gh's config-dir resolution: `GH_CONFIG_DIR`,
   then `XDG_CONFIG_HOME/gh`, then `~/.config/gh`) with mode 0600,
-  tightening any existing file first. The config directory tree is made
-  user-private before staging (umask-created group-writable directories
-  are repaired; paths a local attacker could modify are rejected). An
+  tightening any existing file first. The config directory is made
+  user-private before staging (the leaf is repaired to 0700 against
+  permissive umasks; a shared parent directory is rejected). An
   invalid `GH_TOKEN`/`GITHUB_TOKEN` aborts before anything is changed —
   env tokens take precedence over stored credentials. An existing file
   is kept under a unique, non-overwriting backup name for manual
