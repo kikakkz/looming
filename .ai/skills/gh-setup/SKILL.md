@@ -16,16 +16,20 @@ authenticate from the git credential store. Never print tokens or
 ```bash
 # --active requires gh >= 2.53.0; the capability check covers that
 if command -v gh >/dev/null && gh auth status --help | grep -q -- --active; then
-  gh auth status --hostname github.com --active >/dev/null && echo "gh ready"
+  gh auth status --hostname github.com --active >/dev/null \
+    && gh pr list --limit 1 >/dev/null \
+    && { chmod 600 ~/.config/gh/hosts.yml 2>/dev/null; echo "gh ready"; }
 fi
 ```
 
-`gh ready` → done, nothing to install or configure. An older gh on
-PATH (no `--active` support) fails the capability check: continue with
-step 2 so the pinned, newer install shadows it — make sure
+`gh ready` means authenticated **and** able to read this repository
+(step 4's check, run up front); an existing `hosts.yml` has been
+tightened to mode 0600. Done — nothing to install or configure. An older
+gh on PATH (no `--active` support) fails the capability check: continue
+with step 2 so the pinned, newer install shadows it — make sure
 `~/.local/bin` precedes the old binary in PATH, or remove the old one.
 
-## 2. Install (skip if `gh` is already on PATH)
+## 2. Install (skip when the step-1 check passed)
 
 Pinned release; bump the version, URL, and checksums together in one PR.
 
@@ -65,6 +69,8 @@ overwrite an existing `hosts.yml`: it may hold other hosts or accounts.
 
 ```bash
 if ! gh auth status --hostname github.com --active >/dev/null 2>&1; then
+  # keep xtrace from tracing the credential (CWE-532)
+  xtrace=0; case $- in *x*) xtrace=1;; esac; set +x
   token=$(git credential fill <<'EOF' | sed -n 's/^password=//p'
 protocol=https
 host=github.com
@@ -82,6 +88,7 @@ EOF
   mv "$tmp" ~/.config/gh/hosts.yml
   gh auth setup-git   # let git HTTPS operations use gh's auth
   unset token
+  [ "$xtrace" -eq 1 ] && set -x
 fi
 ```
 
