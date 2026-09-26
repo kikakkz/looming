@@ -12,10 +12,118 @@
 # allowlist, and license allowlist on every change.
 
 [[skill]]
+# Declared bundle (see .ai/AGENTS.md): the 15 skills are consumed as one
+# unit via the superpowers plugin marketplace; pinned at a single sha so
+# the pack's internal versions stay coherent.
 name = "superpowers"
 source = "github.com/obra/superpowers"
-path = "plugins/superpowers/skills"
+path = "skills"
 revision = "5bf4e78011075bcfc0dc295f0724994cd123ee71"
+license = "MIT"
+
+[[skill]]
+name = "github-deep-research"
+source = "github.com/bytedance/deer-flow"
+path = "skills/public/github-deep-research"
+revision = "74f6dce4890bb19dde5c8fe8bb5d24475616b35c"
+license = "MIT"
+
+[[skill]]
+name = "deep-research"
+source = "github.com/bytedance/deer-flow"
+path = "skills/public/deep-research"
+revision = "74f6dce4890bb19dde5c8fe8bb5d24475616b35c"
+license = "MIT"
+
+[[skill]]
+name = "spec-driven-development"
+source = "github.com/addyosmani/agent-skills"
+path = "skills/spec-driven-development"
+revision = "bcab6a1b8503100e8618c3b4e32cc78de43de769"
+license = "MIT"
+
+[[skill]]
+name = "planning-and-task-breakdown"
+source = "github.com/addyosmani/agent-skills"
+path = "skills/planning-and-task-breakdown"
+revision = "bcab6a1b8503100e8618c3b4e32cc78de43de769"
+license = "MIT"
+
+[[skill]]
+name = "tdd-practice"
+source = "github.com/addyosmani/agent-skills"
+path = "skills/test-driven-development"
+revision = "bcab6a1b8503100e8618c3b4e32cc78de43de769"
+license = "MIT"
+
+[[skill]]
+name = "incremental-implementation"
+source = "github.com/addyosmani/agent-skills"
+path = "skills/incremental-implementation"
+revision = "bcab6a1b8503100e8618c3b4e32cc78de43de769"
+license = "MIT"
+
+[[skill]]
+name = "api-and-interface-design"
+source = "github.com/addyosmani/agent-skills"
+path = "skills/api-and-interface-design"
+revision = "bcab6a1b8503100e8618c3b4e32cc78de43de769"
+license = "MIT"
+
+[[skill]]
+name = "ddd-subdomains"
+source = "github.com/ForceInjection/domain-driven-design-skills"
+path = "skills/ddd-subdomains"
+revision = "8923ce99f228da64ef1ae2fe7f94b578e3046acb"
+license = "Apache-2.0"
+
+[[skill]]
+name = "ddd-contexts"
+source = "github.com/ForceInjection/domain-driven-design-skills"
+path = "skills/ddd-contexts"
+revision = "8923ce99f228da64ef1ae2fe7f94b578e3046acb"
+license = "Apache-2.0"
+
+[[skill]]
+name = "ddd-aggregates"
+source = "github.com/ForceInjection/domain-driven-design-skills"
+path = "skills/ddd-aggregates"
+revision = "8923ce99f228da64ef1ae2fe7f94b578e3046acb"
+license = "Apache-2.0"
+
+[[skill]]
+name = "ddd-model-review"
+source = "github.com/ForceInjection/domain-driven-design-skills"
+path = "skills/ddd-model-review"
+revision = "8923ce99f228da64ef1ae2fe7f94b578e3046acb"
+license = "Apache-2.0"
+
+[[skill]]
+name = "designing-architecture"
+source = "github.com/swell-agents/coding-skills"
+path = "skills/designing-architecture"
+revision = "2ffdc2fce8b951db88babd553d432c54b31bbd21"
+license = "MIT"
+
+[[skill]]
+name = "running-tdd-cycles"
+source = "github.com/swell-agents/coding-skills"
+path = "skills/running-tdd-cycles"
+revision = "2ffdc2fce8b951db88babd553d432c54b31bbd21"
+license = "MIT"
+
+[[skill]]
+name = "go-conventions"
+source = "github.com/swell-agents/coding-skills"
+path = "skills/go-conventions"
+revision = "2ffdc2fce8b951db88babd553d432c54b31bbd21"
+license = "MIT"
+
+[[skill]]
+name = "engineering-philosophy"
+source = "github.com/swell-agents/coding-skills"
+path = "skills/engineering-philosophy"
+revision = "2ffdc2fce8b951db88babd553d432c54b31bbd21"
 license = "MIT"
 
 [[skill]]
