@@ -37,10 +37,27 @@ config_dir() {
 }
 
 gh_ready() {
+    local slug
     command -v gh >/dev/null 2>&1 || return 1
     gh auth status --help 2>/dev/null | grep -q -- --active || return 1
     gh auth status --hostname github.com --active >/dev/null 2>&1 || return 1
-    gh pr list --limit 1 >/dev/null 2>&1 || return 1
+    slug=$(repo_slug) || return 1
+    gh pr list --limit 1 --repo "$slug" >/dev/null 2>&1 || return 1
+}
+
+repo_slug() {
+    # this repository, resolved from the checkout — GH_REPO must not be
+    # able to redirect the access check elsewhere
+    local url
+    url=$(git config --get remote.origin.url 2>/dev/null) || return 1
+    url=${url%.git}
+    case "$url" in
+        git@github.com:*/*) printf '%s\n' "${url#git@github.com:}" ;;
+        ssh://git@github.com/*/*) printf '%s\n' "${url#ssh://git@github.com/}" ;;
+        https://github.com/*/*) printf '%s\n' "${url#https://github.com/}" ;;
+        http://github.com/*/*) printf '%s\n' "${url#http://github.com/}" ;;
+        *) return 1 ;;
+    esac
 }
 
 secure_hosts_yml() {
@@ -138,9 +155,11 @@ EOF
 }
 
 cmd_verify() {
+    local slug
     gh auth status --hostname github.com --active >/dev/null 2>&1 \
         || die "gh auth check failed"
-    gh pr list --limit 1 >/dev/null 2>&1 \
+    slug=$(repo_slug) || die "cannot resolve this repository from remote.origin.url"
+    gh pr list --limit 1 --repo "$slug" >/dev/null 2>&1 \
         || die "cannot read PRs for this repository"
     log "gh configured"
 }

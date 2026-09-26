@@ -21,14 +21,19 @@ Exits 0 and prints `gh configured` (or `gh ready` when nothing was
 needed). Individual steps: `check`, `install`, `auth`, `verify`. On
 non-Linux systems install `gh` with the OS package manager
 ([cli.github.com](https://cli.github.com/)) and run
-`bash .ai/tools/setup_gh.sh auth`.
+`bash .ai/tools/setup_gh.sh auth`. On Linux with root available, the
+[apt repository](https://cli.github.com/) is an alternative to the
+tarball install — it requires root privileges, which the tarball path
+does not.
 
 ## What it does, and the invariants it keeps
 
 - `check` requires gh >= 2.53.0 (probes `--active` support), the active
   `github.com` account to authenticate, and read access to this
-  repository. A pre-existing `hosts.yml` is tightened to mode 0600, and
-  a chmod failure aborts instead of reporting readiness.
+  repository (resolved from `remote.origin.url`, so a `GH_REPO`
+  environment override cannot redirect the check). A pre-existing
+  `hosts.yml` is tightened to mode 0600, and a chmod failure aborts
+  instead of reporting readiness.
 - `install` fetches the pinned tarball, verifies it against the pinned
   sha256 sums (aborting before extraction on mismatch), extracts beside
   the target and swaps only on success, then symlinks into

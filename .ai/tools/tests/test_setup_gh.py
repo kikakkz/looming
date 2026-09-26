@@ -210,5 +210,31 @@ class AuthBootstrapTests(unittest.TestCase):
             self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
 
 
+class RepoSlugTests(unittest.TestCase):
+    def _slug(self, url):
+        with tempfile.TemporaryDirectory() as tmp:
+            gc = Path(tmp) / "gitconfig"
+            gc.write_text(f'[remote "origin"]\n\turl = {url}\n')
+            full = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "GIT_CONFIG_GLOBAL": str(gc)}
+            return subprocess.run(
+                [BASH, "-c", f'source "{SCRIPT}"; repo_slug'],
+                capture_output=True, text=True, env=full, cwd=tmp)
+
+    def test_https_remote(self):
+        r = self._slug("https://github.com/kikakkz/looming.git")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "kikakkz/looming")
+
+    def test_ssh_remote(self):
+        r = self._slug("git@github.com:kikakkz/looming.git")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "kikakkz/looming")
+
+    def test_non_github_remote_rejected(self):
+        r = self._slug("https://example.com/x/y.git")
+        self.assertNotEqual(r.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
