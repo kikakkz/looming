@@ -19,7 +19,11 @@ def run_script(args, env=None, cwd=None):
     # a developer or CI job exporting these must not leak into the tests
     full_env.pop("GH_TOKEN", None)
     full_env.pop("GITHUB_TOKEN", None)
-    full_env.update(env or {})
+    for key, value in (env or {}).items():
+        if value is None:
+            full_env.pop(key, None)
+        else:
+            full_env[key] = value
     return subprocess.run(
         [BASH, str(SCRIPT), *args],
         capture_output=True, text=True, env=full_env, cwd=cwd, timeout=60,
@@ -259,7 +263,12 @@ class AuthBootstrapTests(unittest.TestCase):
             askpass.chmod(0o755)
             env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": tmp,
                    "GH_CONFIG_DIR": str(Path(tmp) / "ghconf"),
-                   "GIT_ASKPASS": str(askpass)}
+                   "GIT_ASKPASS": str(askpass),
+                   # inherited Git configuration overrides must not
+                   # satisfy the credential lookup for this test
+                   "GIT_CONFIG_GLOBAL": None,
+                   "GIT_CONFIG_SYSTEM": None,
+                   "GIT_CONFIG_COUNT": None}
             gh = bin_dir / "gh"
             gh.write_text('#!/bin/sh\n'
                           'case "$*" in\n'
