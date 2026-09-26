@@ -22,8 +22,7 @@ needed). Individual steps: `check`, `install`, `auth`, `verify` — all
 Linux-only (they rely on GNU `stat` and Linux release assets). On
 non-Linux systems install `gh` with the OS package manager
 ([cli.github.com](https://cli.github.com/)) and authenticate with
-`gh auth login` (browser) or `gh config set oauth_token --host
-github.com`; do not run this script's `auth` there. On Linux with root
+`gh auth login` (browser flow); do not run this script's `auth` there. On Linux with root
 available, the [apt repository](https://cli.github.com/) is an
 alternative to the tarball install — it requires root privileges, which
 the tarball path does not.

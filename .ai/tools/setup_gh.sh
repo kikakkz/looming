@@ -193,7 +193,7 @@ ensure_private_dir() {
 
 cmd_auth() {
     [ "$(uname -s)" = Linux ] \
-        || die "auth is implemented for Linux only; on $(uname -s) use 'gh auth login' (browser) or 'gh config set oauth_token --host github.com' with a token from your credential store"
+        || die "auth is implemented for Linux only; on $(uname -s) use 'gh auth login' (browser flow)"
     secure_hosts_yml
     gh auth status --hostname github.com --active >/dev/null 2>&1 && return 0
     command -v gh >/dev/null 2>&1 || die "gh not on PATH; run: setup_gh.sh install"

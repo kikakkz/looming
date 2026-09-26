@@ -6,8 +6,9 @@
 - External agent skills are installed from `.ai/skills.lock.toml`
   (sha-pinned). Do not copy external skill content into this repository.
 - PR/issue automation drives GitHub through `gh`. If `gh` is missing or
-  unauthenticated on a machine, the `gh-setup` skill installs and
-  configures it from the git credential store.
+  unauthenticated on a Linux machine, the `gh-setup` skill installs and
+  configures it from the git credential store (on other systems use the
+  OS package manager and `gh auth login`).
 
 ## Issue-driven development
 
