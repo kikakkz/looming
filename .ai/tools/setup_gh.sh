@@ -124,9 +124,13 @@ cmd_install() {
         if [ -n "$prevdir" ] && [ -e "$prevdir/$name" ]; then
             rm -rf "$target"
             mv -T "$prevdir/$name" "$target" 2>/dev/null || true
-            rm -rf "$prevdir"
+        else
+            # no previous installation: rollback returns the machine
+            # to the pre-install state
+            rm -rf "$target"
         fi
-        # restore the link to its pre-install state
+        # restore the link to its pre-install state before dropping
+        # the backup directory — a regular-file backup lives inside it
         if [ -n "$prevfile" ] && [ -e "$prevfile" ]; then
             rm -f "$link" 2>/dev/null || true
             mv -T "$prevfile" "$link" 2>/dev/null || true
@@ -137,6 +141,7 @@ cmd_install() {
         else
             rm -f "$link" 2>/dev/null || true
         fi
+        [ -z "$prevdir" ] || rm -rf "$prevdir"
         die "$1"
     }
     prevdir=
@@ -167,11 +172,11 @@ cmd_install() {
         hadlink=1
         if [ -z "$prevdir" ]; then
             prevdir=$(mktemp -d "$HOME/.local/opt/${name}.prev.XXXXXX") \
-                || die "cannot reserve a backup path for $link; installation untouched"
+                || fail_install "cannot reserve a backup path for $link"
         fi
         prevfile="$prevdir/bin-gh"
         mv -T "$link" "$prevfile" \
-            || die "cannot back up existing $link; installation untouched"
+            || fail_install "cannot back up existing $link"
     fi
     ln -sfn "$target/bin/gh" "$link" \
         || fail_install "cannot update $link"
