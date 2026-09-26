@@ -7,12 +7,19 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 
 ## Hard constraints (non-negotiable)
 
-1. **Issue-driven development.** No issue, no code. Every PR references an
-   issue (`Closes #N`). Branches are named `<type>/<issue>-<slug>` where
-   `<type>` is one fixed vocabulary — the Conventional Commits types
+1. **Issue-driven development.** No issue, no code — and "no issue yet"
+   never means skip: before any development, find or file the issue first
+   (bots and agents too; CI cannot see the tracker, so this is on the
+   contributor). Every PR references an issue (`Closes #N`). Branches are
+   named `<type>/<issue>-<slug>` where `<type>` is one fixed vocabulary —
+   the Conventional Commits types
    (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert) — and the
-   prefix must match the PR title's type (CI enforces both). The issue
-   thread carries plan, status, and review artifacts.
+   prefix must match the PR title's type (CI enforces both). The prefix
+   follows the *change type*, not the issue's `kind/*` label: a
+   feature-kind issue whose change only touches CI is `ci/N-...` with a
+   `ci:` title (e.g. `ci/9-coderabbit-review-gate`; also
+   `feat/6-memory-housekeeping`, `fix/1-...`). The issue thread carries
+   plan, status, and review artifacts.
 2. **CI-first.** Every code change lands in the same PR as the CI that
    checks it. Red CI never merges. Run `make ci-gate` locally before
    pushing.
@@ -36,8 +43,12 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 
 ## Commands
 
-- `make ci-gate` — run the full local gate (locks, tool tests, trailer
-  checks, shell lint).
+- `make ci-gate` — run the full local gate (branch name, locks, tool
+  tests, trailer checks, ADR check, shell lint).
+- `make check-branch` — validate the current branch name against the
+  naming rule before push (same rule as the `branch-name` CI check). Run
+  `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
+  check prefix/title consistency.
 - `make validate-locks` — validate `.ai/*.lock.toml` files and the memory
   bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
@@ -57,6 +68,8 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 
 ## Collaboration protocol
 
+- Work starts at the issue tracker: find or file the issue before writing
+  any code, then cut the branch from it.
 - Work happens in issues; plans are posted as issue comments before
   implementation for anything non-trivial.
 - Acceptance criteria in the issue define "done"; PRs state how each is met.
