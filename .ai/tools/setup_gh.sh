@@ -160,27 +160,35 @@ cmd_install() {
 }
 
 ensure_private_dir() {
-    # Make an absolute path safe for credential staging. The leaf is
-    # created and tightened to 0700 (a permissive umask must not leave
-    # a group-writable config directory). A parent we own is tightened
-    # the same way; anyone else's writable parent is accepted only as a
-    # root-owned sticky directory (/tmp). Returns 1 when unsafe.
+    # Every component of an absolute path must be safe for credential
+    # staging: directories we own are tightened to 0700 (a permissive
+    # umask must not leave a group-writable config directory anywhere
+    # on the path); directories owned by others are accepted read-only
+    # or as root-owned sticky directories (/tmp). Returns 1 otherwise.
     case $1 in
         /*) ;;
         *) return 1 ;; # relative paths are rejected before any walk
     esac
-    local parent pm po
     mkdir -p "$1" 2>/dev/null || return 1
-    chmod 700 "$1" 2>/dev/null || return 1
-    parent=${1%/*}
-    [ -n "$parent" ] || parent=/
-    [ -O "$parent" ] && return 0
-    pm=$(stat -c %a "$parent" 2>/dev/null) || return 1
-    po=$(stat -c %u "$parent" 2>/dev/null) || return 1
-    case $pm in '' | *[!0-7]*) return 1 ;; esac
-    [ $((8#$pm & 0022)) -eq 0 ] && return 0 # read-only parents are fine
-    [ $((8#$pm & 01000)) -ne 0 ] && [ "$po" = 0 ] && return 0 # /tmp
-    return 1
+    local d p m o
+    d=$1
+    while [ -n "$d" ] && [ "$d" != / ]; do
+        if [ -O "$d" ]; then
+            chmod 700 "$d" 2>/dev/null || return 1
+        else
+            p=$(stat -c %a "$d" 2>/dev/null) || return 1
+            o=$(stat -c %u "$d" 2>/dev/null) || return 1
+            case $p in '' | *[!0-7]*) return 1 ;; esac
+            m=$((8#$p))
+            if [ $((m & 0022)) -ne 0 ]; then
+                # someone else's writable directory: only the sticky
+                # bit stops third parties, and only root ownership
+                # makes the owner trustworthy (CWE-367)
+                [ $((m & 01000)) -ne 0 ] && [ "$o" = 0 ] || return 1
+            fi
+        fi
+        d=${d%/*}
+    done
 }
 
 cmd_auth() {
