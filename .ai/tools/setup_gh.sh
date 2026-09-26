@@ -4,8 +4,8 @@
 #
 # Idempotent: exits 0 when gh is already installed and authenticated. When
 # it is not, installs a pinned release user-locally (no root) and
-# authenticates from the git credential store. Tokens and `gh auth
-# status` output are never printed.
+# authenticates from the git credential store. Tokens and `gh auth status`
+# output are never printed.
 #
 # Usage: setup_gh.sh [check|install|auth|verify|all]
 #   check    gate: gh >= 2.53.0, github.com auth (active account), repo read
@@ -60,7 +60,7 @@ cmd_check() {
 }
 
 cmd_install() {
-    local sys arch sum name url tmp
+    local sys arch sum name url tmp tmpd target selected
     sys=$(uname -s)
     [ "$sys" = Linux ] || die "installs Linux binaries only; on $sys use the OS package manager (e.g. 'brew install gh')"
     case $(uname -m) in
@@ -70,6 +70,7 @@ cmd_install() {
     esac
     name="gh_${GH_VERSION}_linux_${arch}"
     url="https://github.com/cli/cli/releases/download/v${GH_VERSION}/${name}.tar.gz"
+    target="$HOME/.local/opt/$name"
 
     mkdir -p "$HOME/.local/opt" "$HOME/.local/bin"
     tmp=$(mktemp "/tmp/${name}.tar.gz.XXXXXX")
@@ -77,15 +78,26 @@ cmd_install() {
     # a failed check must abort before anything is extracted (CWE-494)
     echo "$sum  $tmp" | sha256sum -c - >/dev/null \
         || { rm -f "$tmp"; die "checksum mismatch for $name"; }
-    rm -rf "$HOME/.local/opt/$name"
-    tar -xzf "$tmp" -C "$HOME/.local/opt" || { rm -f "$tmp"; die "extract failed"; }
+    # extract beside the target and swap only on success: a failed run
+    # must never leave the previous installation removed
+    tmpd=$(mktemp -d "/tmp/${name}.XXXXXX")
+    tar -xzf "$tmp" -C "$tmpd" || { rm -rf "$tmp" "$tmpd"; die "extract failed"; }
+    [ -x "$tmpd/$name/bin/gh" ] \
+        || { rm -rf "$tmp" "$tmpd"; die "archive layout unexpected: $name/bin/gh missing"; }
     rm -f "$tmp"
-    ln -sfn "$HOME/.local/opt/$name/bin/gh" "$HOME/.local/bin/gh"
+    rm -rf "$target"
+    mv "$tmpd/$name" "$target"
+    rmdir "$tmpd" 2>/dev/null || true
+    ln -sfn "$target/bin/gh" "$HOME/.local/bin/gh"
     hash -r 2>/dev/null || true
-    command -v gh >/dev/null 2>&1 || die "installed, but ~/.local/bin is not on PATH"
+    # the binary selected from PATH must be the one just installed
+    selected=$(command -v gh) || die "installed, but ~/.local/bin is not on PATH"
+    [ "$(realpath "$selected")" = "$(realpath "$HOME/.local/bin/gh")" ] \
+        || die "another gh shadows $HOME/.local/bin/gh (selected: $selected); fix PATH order"
 }
 
 cmd_auth() {
+    secure_hosts_yml
     gh auth status --hostname github.com --active >/dev/null 2>&1 && return 0
     command -v gh >/dev/null 2>&1 || die "gh not on PATH; run: setup_gh.sh install"
 
@@ -94,7 +106,7 @@ cmd_auth() {
     case $- in *x*) xtrace=1 ;; esac
     set +x
 
-    local token dir f tmp
+    local token dir f tmp bak
     token=$(git credential fill <<'EOF' | sed -n 's/^password=//p'
 protocol=https
 host=github.com
@@ -106,9 +118,11 @@ EOF
     f="$dir/hosts.yml"
     mkdir -p "$dir"
     if [ -f "$f" ]; then
-        # never silently overwrite: the old file may hold other hosts or
-        # accounts; keep it next to the fresh one for manual recovery
-        mv "$f" "$f.bak-$(date +%Y%m%d%H%M%S)"
+        # never silently overwrite: keep the old file under a unique,
+        # non-overwriting name (mktemp: unique, mode 0600) for recovery
+        bak=$(mktemp "$dir/hosts.yml.bak.XXXXXX")
+        mv -f "$f" "$bak"
+        log "previous hosts.yml kept at $bak"
     fi
     tmp=$(mktemp "$dir/hosts.yml.XXXXXX") # mktemp creates mode 0600
     printf 'github.com:\n    oauth_token: %s\n    git_protocol: https\n' "$token" >"$tmp"

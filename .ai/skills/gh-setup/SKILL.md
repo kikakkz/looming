@@ -9,7 +9,7 @@ Makes `gh` usable for this repository: installs a pinned release
 user-locally (no root) and authenticates from the git credential store.
 Idempotent — a machine that is already set up is left untouched. The
 implementation lives in the reviewed, tested repository tool
-[setup_gh.sh](../tools/setup_gh.sh); this skill is only the workflow.
+[setup_gh.sh](../../tools/setup_gh.sh); this skill is only the workflow.
 
 ## Run
 
@@ -29,14 +29,17 @@ non-Linux systems install `gh` with the OS package manager
   `github.com` account to authenticate, and read access to this
   repository. A pre-existing `hosts.yml` is tightened to mode 0600, and
   a chmod failure aborts instead of reporting readiness.
-- `install` fetches the pinned tarball into `~/.local/opt`, verifies it
-  against the pinned sha256 sums (aborting before extraction on
-  mismatch), and symlinks into `~/.local/bin` (must be on PATH).
+- `install` fetches the pinned tarball, verifies it against the pinned
+  sha256 sums (aborting before extraction on mismatch), extracts beside
+  the target and swaps only on success, then symlinks into
+  `~/.local/bin` (must precede any older gh on PATH — the script checks
+  and fails otherwise).
 - `auth` reads the `github.com` credential via `git credential fill`,
   writes gh's own `hosts.yml` (gh's config-dir resolution:
   `GH_CONFIG_DIR`, then `XDG_CONFIG_HOME/gh`, then `~/.config/gh`) with
-  mode 0600. An existing file is moved aside with a timestamped backup
-  for manual recovery, never silently overwritten; then
+  mode 0600, tightening any existing file first. An existing file is
+  kept under a unique, non-overwriting backup name for manual recovery,
+  never silently overwritten; then
   `gh auth setup-git --hostname github.com` must succeed.
 - `verify` re-runs the auth and repository-read checks.
 

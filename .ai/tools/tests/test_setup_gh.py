@@ -95,5 +95,94 @@ class ConfigDirTests(unittest.TestCase):
             "/home/t/.config/gh")
 
 
+class InstallSuccessTests(unittest.TestCase):
+    """Stubbed happy path: no network, no host credentials."""
+
+    def _write(self, d, name, body):
+        p = Path(d) / name
+        p.write_text(body)
+        p.chmod(0o755)
+        return p
+
+    def test_install_success_with_stubs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            self._write(bin_dir, "uname",
+                        '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
+            self._write(bin_dir, "curl",
+                        '#!/bin/sh\nout=""\n'
+                        'while [ $# -gt 0 ]; do\n'
+                        '  case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac\n'
+                        'done\n'
+                        '[ -n "$out" ] && printf fake >"$out"\n')
+            self._write(bin_dir, "sha256sum", '#!/bin/sh\ncat >/dev/null\nexit 0\n')
+            self._write(bin_dir, "tar",
+                        '#!/bin/sh\n'
+                        'dest=""\n'
+                        'while [ $# -gt 0 ]; do\n'
+                        '  case "$1" in -C) dest="$2"; shift 2 ;; *) shift ;; esac\n'
+                        'done\n'
+                        'mkdir -p "$dest/gh_2.101.0_linux_amd64/bin"\n'
+                        'printf "#!/bin/sh\\n" >"$dest/gh_2.101.0_linux_amd64/bin/gh"\n'
+                        'chmod +x "$dest/gh_2.101.0_linux_amd64/bin/gh"\n')
+            local_bin = Path(tmp) / ".local" / "bin"
+            env = {"PATH": f"{bin_dir}:{local_bin}:/usr/bin:/bin", "HOME": tmp}
+            r = run_script(["install"], env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            installed = Path(tmp) / ".local" / "opt" / "gh_2.101.0_linux_amd64" / "bin" / "gh"
+            self.assertTrue(os.access(installed, os.X_OK))
+            self.assertEqual(os.readlink(Path(tmp) / ".local" / "bin" / "gh"),
+                             str(installed))
+
+
+class AuthBootstrapTests(unittest.TestCase):
+    """Stubbed gh + fake credential helper: no host credentials touched."""
+
+    GH_MOCK = ('#!/bin/sh\n'
+               'case "$*" in\n'
+               '  "auth status"*) exit 1 ;;\n'
+               '  *) exit 0 ;;\n'
+               'esac\n')
+
+    def _env(self, tmp):
+        bin_dir = Path(tmp) / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        gh = bin_dir / "gh"
+        gh.write_text(self.GH_MOCK)
+        gh.chmod(0o755)
+        gitconfig = Path(tmp) / "gitconfig"
+        gitconfig.write_text(
+            '[credential]\n'
+            '\thelper = "!echo username=x-access-token; echo password=fake-token-123"\n')
+        return {
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "HOME": tmp,
+            "GH_CONFIG_DIR": str(Path(tmp) / "ghconf"),
+            "GIT_CONFIG_GLOBAL": str(gitconfig),
+        }
+
+    def test_auth_bootstrap_writes_secured_hosts_yml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = run_script(["auth"], env=self._env(tmp))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            hosts = Path(tmp) / "ghconf" / "hosts.yml"
+            self.assertIn("fake-token-123", hosts.read_text())
+            self.assertEqual(hosts.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn("fake-token-123", r.stdout + r.stderr)
+
+    def test_auth_backup_is_unique_and_preserves_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = self._env(tmp)
+            first = run_script(["auth"], env=env)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            second = run_script(["auth"], env=env)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            backups = list((Path(tmp) / "ghconf").glob("hosts.yml.bak.*"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn("fake-token-123", backups[0].read_text())
+            self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+
+
 if __name__ == "__main__":
     unittest.main()
