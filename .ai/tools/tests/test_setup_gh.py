@@ -16,6 +16,9 @@ BASH = shutil.which("bash") or "/bin/bash"
 
 def run_script(args, env=None, cwd=None):
     full_env = dict(os.environ)
+    # a developer or CI job exporting these must not leak into the tests
+    full_env.pop("GH_TOKEN", None)
+    full_env.pop("GITHUB_TOKEN", None)
     full_env.update(env or {})
     return subprocess.run(
         [BASH, str(SCRIPT), *args],
@@ -244,12 +247,17 @@ class AuthBootstrapTests(unittest.TestCase):
 
 
 class RepoSlugTests(unittest.TestCase):
+    def _mk_repo(self, tmp, url):
+        # repo_slug reads only the checkout's own config (--local), so
+        # the fixture must be a real repository, not a global config
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        subprocess.run(["git", "-C", tmp, "config", "--local",
+                        "remote.origin.url", url], check=True)
+
     def _slug(self, url):
         with tempfile.TemporaryDirectory() as tmp:
-            gc = Path(tmp) / "gitconfig"
-            gc.write_text(f'[remote "origin"]\n\turl = {url}\n')
-            full = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                    "GIT_CONFIG_GLOBAL": str(gc)}
+            self._mk_repo(tmp, url)
+            full = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
             return subprocess.run(
                 [BASH, "-c", f'source "{SCRIPT}"; repo_slug'],
                 capture_output=True, text=True, env=full, cwd=tmp)
@@ -270,6 +278,7 @@ class RepoSlugTests(unittest.TestCase):
 
     def test_access_check_ignores_gh_host(self):
         with tempfile.TemporaryDirectory() as tmp:
+            self._mk_repo(tmp, "https://github.com/kikakkz/looming.git")
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
             mock_log = Path(tmp) / "gh-args.log"
@@ -282,13 +291,9 @@ class RepoSlugTests(unittest.TestCase):
                 '  *) exit 0 ;;\n'
                 "esac\n")
             gh.chmod(0o755)
-            gc = Path(tmp) / "gitconfig"
-            gc.write_text('[remote "origin"]\n'
-                          "\turl = https://github.com/kikakkz/looming.git\n")
             full = {"PATH": f"{bin_dir}:/usr/bin:/bin",
                     "GH_HOST": "evil.example.com",
-                    "GH_MOCK_LOG": str(mock_log),
-                    "GIT_CONFIG_GLOBAL": str(gc)}
+                    "GH_MOCK_LOG": str(mock_log)}
             r = subprocess.run(
                 [BASH, "-c", f'source "{SCRIPT}"; gh_ready'],
                 capture_output=True, text=True, env=full, cwd=tmp)

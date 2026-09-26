@@ -18,13 +18,15 @@ bash .ai/tools/setup_gh.sh
 ```
 
 Exits 0 and prints `gh configured` (or `gh ready` when nothing was
-needed). Individual steps: `check`, `install`, `auth`, `verify`. On
+needed). Individual steps: `check`, `install`, `auth`, `verify` — all
+Linux-only (they rely on GNU `stat` and Linux release assets). On
 non-Linux systems install `gh` with the OS package manager
-([cli.github.com](https://cli.github.com/)) and run
-`bash .ai/tools/setup_gh.sh auth`. On Linux with root available, the
-[apt repository](https://cli.github.com/) is an alternative to the
-tarball install — it requires root privileges, which the tarball path
-does not.
+([cli.github.com](https://cli.github.com/)) and authenticate with
+`gh auth login` (browser) or `gh config set oauth_token --host
+github.com`; do not run this script's `auth` there. On Linux with root
+available, the [apt repository](https://cli.github.com/) is an
+alternative to the tarball install — it requires root privileges, which
+the tarball path does not.
 
 ## What it does, and the invariants it keeps
 
@@ -36,9 +38,11 @@ does not.
   instead of reporting readiness.
 - `install` fetches the pinned tarball, verifies it against the pinned
   sha256 sums (aborting before extraction on mismatch), extracts beside
-  the target and swaps only on success, then symlinks into
-  `~/.local/bin` (must precede any older gh on PATH — the script checks
-  and fails otherwise).
+  the target and swaps only on success, makes `~/.local/opt` and
+  `~/.local/bin` user-private (a permissive umask or pre-existing
+  writable directory would let a local user swap the installed binary),
+  then symlinks into `~/.local/bin` (must precede any older gh on PATH —
+  the script checks and fails otherwise).
 - `auth` reads the `github.com` credential via `git credential fill`
   (non-interactive: a missing credential is a clean failure), writes
   gh's own `hosts.yml` (gh's config-dir resolution: `GH_CONFIG_DIR`,

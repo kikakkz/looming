@@ -50,7 +50,11 @@ repo_slug() {
     # github.com — GH_REPO and GH_HOST must not be able to redirect the
     # access check elsewhere
     local url
-    url=$(git config --get remote.origin.url 2>/dev/null) || return 1
+    # --local and cleared repo-selection env: a GIT_DIR supplied by a
+    # hook, or a global remote.origin.url fallback, must not redirect
+    # the access check to another repository
+    url=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        git config --local --get remote.origin.url 2>/dev/null) || return 1
     url=${url%.git}
     case "$url" in
         git@github.com:*/*) printf 'github.com/%s\n' "${url#git@github.com:}" ;;
@@ -91,6 +95,13 @@ cmd_install() {
     target="$HOME/.local/opt/$name"
 
     mkdir -p "$HOME/.local/opt" "$HOME/.local/bin"
+    # the checksum and private staging do not protect the final paths:
+    # a permissive umask or a pre-existing writable directory would let
+    # another local user swap the installed binary or symlink
+    ensure_private_dir "$HOME/.local/opt" \
+        || die "$HOME/.local/opt cannot be made user-private; refusing to install"
+    ensure_private_dir "$HOME/.local/bin" \
+        || die "$HOME/.local/bin cannot be made user-private; refusing to install"
     tmp=$(mktemp "/tmp/${name}.tar.gz.XXXXXX")
     curl -fL --retry 3 --max-time 300 --retry-max-time 900 -o "$tmp" "$url" || { rm -f "$tmp"; die "download failed: $url"; }
     # a failed check must abort before anything is extracted (CWE-494)
@@ -145,6 +156,8 @@ ensure_private_dir() {
 }
 
 cmd_auth() {
+    [ "$(uname -s)" = Linux ] \
+        || die "auth is implemented for Linux only; on $(uname -s) use 'gh auth login' (browser) or 'gh config set oauth_token --host github.com' with a token from your credential store"
     secure_hosts_yml
     gh auth status --hostname github.com --active >/dev/null 2>&1 && return 0
     command -v gh >/dev/null 2>&1 || die "gh not on PATH; run: setup_gh.sh install"
@@ -163,7 +176,8 @@ cmd_auth() {
     local token dir f tmp bak
     # never prompt in unattended runs: a missing credential must be a
     # clean failure, not a wait for terminal input
-    token=$(GIT_TERMINAL_PROMPT=0 git credential fill <<'EOF' | sed -n 's/^password=//p'
+    token=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        GIT_TERMINAL_PROMPT=0 git credential fill <<'EOF' | sed -n 's/^password=//p'
 protocol=https
 host=github.com
 EOF
