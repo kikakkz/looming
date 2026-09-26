@@ -82,7 +82,7 @@ cmd_check() {
 }
 
 cmd_install() {
-    local sys arch sum name url tmp tmpd target selected
+    local sys arch sum name url tmp tmpd target selected prevdir link prevlink hadlink
     sys=$(uname -s)
     [ "$sys" = Linux ] || die "installs Linux binaries only; on $sys use the OS package manager (e.g. 'brew install gh')"
     case $(uname -m) in
@@ -126,6 +126,16 @@ cmd_install() {
             mv -T "$prevdir/$name" "$target" 2>/dev/null || true
             rm -rf "$prevdir"
         fi
+        # restore the link to its pre-install state
+        if [ "$hadlink" -eq 1 ]; then
+            if [ -n "$prevlink" ]; then
+                ln -sfn "$prevlink" "$link" 2>/dev/null || true
+            fi
+            # a pre-existing non-symlink path was already replaced by
+            # ln -sfn; there is nothing safe to reconstruct there
+        else
+            rm -f "$link" 2>/dev/null || true
+        fi
         die "$1"
     }
     prevdir=
@@ -141,7 +151,18 @@ cmd_install() {
         fail_install "install failed; previous installation restored"
     fi
     rmdir "$tmpd" 2>/dev/null || true
-    ln -sfn "$target/bin/gh" "$HOME/.local/bin/gh"
+    # remember the link state so a rollback can restore it
+    link="$HOME/.local/bin/gh"
+    prevlink=
+    hadlink=0
+    if [ -L "$link" ]; then
+        prevlink=$(readlink "$link")
+        hadlink=1
+    elif [ -e "$link" ]; then
+        hadlink=1
+    fi
+    ln -sfn "$target/bin/gh" "$link" \
+        || fail_install "cannot update $link"
     hash -r 2>/dev/null || true
     # the binary selected from PATH must be the one just installed
     selected=$(command -v gh) \
