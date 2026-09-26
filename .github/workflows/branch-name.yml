@@ -34,7 +34,10 @@ jobs:
 
           if [[ "$prefix_type" != "$title_type" ]]; then
             echo "Mismatch: branch prefix '$prefix_type/' vs PR title type '$title_type:'." >&2
-            echo "Rename the branch or fix the title so they agree." >&2
+            echo "Renaming the branch requires closing this PR and opening a new one" >&2
+            echo "(GitHub cannot retarget a PR). If the title can move instead," >&2
+            echo "edit the title; otherwise run 'make check-branch --title ...' before" >&2
+            echo "the next attempt." >&2
             exit 1
           fi
           echo "branch-name: OK ('$BRANCH' matches title type '$title_type')"

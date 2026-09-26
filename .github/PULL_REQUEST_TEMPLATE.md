@@ -13,6 +13,8 @@ Closes #
 
 ## Checklist
 
+- [ ] An issue exists for this change (filed first if missing); the branch
+      is named `<type>/<issue>-<slug>` with the matching title type
 - [ ] CI added/updated in this PR for every code change (CI-first rule)
 - [ ] PR title is Conventional Commits format
 - [ ] DCO sign-off present (`git commit -s`); AI contributions use

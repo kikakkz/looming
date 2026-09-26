@@ -8,11 +8,17 @@
 
 ## Issue-driven development
 
-Every change starts as an issue (`bug`, `feature`, or `task`). Branches
-are named `<type>/<issue>-<slug>` with the type from the fixed Conventional
-Commits vocabulary; the prefix must match the PR title's type (enforced by
-the `branch-name` check). PRs reference the issue with `Closes #N`.
-Non-trivial work posts a plan to the issue before implementation.
+Every change starts as an issue (`bug`, `feature`, or `task`) — if none
+matches, file one before writing any code; CI cannot see the tracker, so
+finding or filing the issue is on the contributor, humans and bots alike.
+Branches are named `<type>/<issue>-<slug>` with the type from the fixed
+Conventional Commits vocabulary; the prefix must match the PR title's type
+(enforced by the `branch-name` check, mirrored locally by
+`make check-branch`). The type follows the change, not the issue's
+`kind/*` label: a `feature`-kind issue whose change only touches CI is
+`ci/9-coderabbit-review-gate` with a `ci:` title, not `feat/`. PRs
+reference the issue with `Closes #N`. Non-trivial work posts a plan to the
+issue before implementation.
 
 ## Issue taxonomy
 
