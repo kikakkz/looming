@@ -78,13 +78,14 @@ cmd_install() {
     # a failed check must abort before anything is extracted (CWE-494)
     echo "$sum  $tmp" | sha256sum -c - >/dev/null \
         || { rm -f "$tmp"; die "checksum mismatch for $name"; }
-    # extract beside the target and swap only on success: a failed run
-    # must never leave the previous installation removed
-    tmpd=$(mktemp -d "/tmp/${name}.XXXXXX")
+    # stage on the same filesystem as the target so the final mv is a
+    # rename, not a copy: a failed run must never remove the previous
+    # installation
+    tmpd=$(mktemp -d "$HOME/.local/opt/${name}.stage.XXXXXX")
     tar -xzf "$tmp" -C "$tmpd" || { rm -rf "$tmp" "$tmpd"; die "extract failed"; }
-    [ -x "$tmpd/$name/bin/gh" ] \
-        || { rm -rf "$tmp" "$tmpd"; die "archive layout unexpected: $name/bin/gh missing"; }
     rm -f "$tmp"
+    [ -x "$tmpd/$name/bin/gh" ] \
+        || { rm -rf "$tmpd"; die "archive layout unexpected: $name/bin/gh missing"; }
     rm -rf "$target"
     mv "$tmpd/$name" "$target"
     rmdir "$tmpd" 2>/dev/null || true

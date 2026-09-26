@@ -135,6 +135,32 @@ class InstallSuccessTests(unittest.TestCase):
             self.assertEqual(os.readlink(Path(tmp) / ".local" / "bin" / "gh"),
                              str(installed))
 
+    def test_install_aborts_on_checksum_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            self._write(bin_dir, "uname",
+                        '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; esac\n')
+            self._write(bin_dir, "curl",
+                        '#!/bin/sh\nout=""\n'
+                        'while [ $# -gt 0 ]; do\n'
+                        '  case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac\n'
+                        'done\n'
+                        '[ -n "$out" ] && printf fake >"$out"\n')
+            self._write(bin_dir, "sha256sum", '#!/bin/sh\ncat >/dev/null\nexit 1\n')
+            tar_marker = Path(tmp) / "tar-called"
+            self._write(bin_dir, "tar", f'#!/bin/sh\ntouch "{tar_marker}"\n')
+            existing = Path(tmp) / ".local" / "opt" / "existing" / "bin"
+            existing.mkdir(parents=True)
+            (existing / "gh").write_text("#!/bin/sh\n")
+            env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": tmp}
+            r = run_script(["install"], env=env)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("checksum mismatch", r.stderr)
+            self.assertFalse(tar_marker.exists(), "tar ran despite checksum failure")
+            self.assertTrue((existing / "gh").exists(),
+                            "existing installation was touched")
+
 
 class AuthBootstrapTests(unittest.TestCase):
     """Stubbed gh + fake credential helper: no host credentials touched."""
