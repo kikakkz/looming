@@ -81,6 +81,10 @@ class CliTests(unittest.TestCase):
     def test_explicit_branch_failure(self):
         self.assertEqual(check_branch_name.main(["--branch", "oops"]), 1)
 
+    def test_empty_branch_rejected(self):
+        # '' is a supplied (malformed) value, not an omitted argument.
+        self.assertEqual(check_branch_name.main(["--branch", ""]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

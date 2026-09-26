@@ -46,8 +46,9 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make ci-gate` — run the full local gate (branch name, locks, tool
   tests, trailer checks, ADR check, shell lint).
 - `make check-branch` — validate the current branch name against the
-  naming rule before push (same rule as the `branch-name` CI check;
-  pass `--title "ci: ..."` to also check prefix/title consistency).
+  naming rule before push (same rule as the `branch-name` CI check). Run
+  `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
+  check prefix/title consistency.
 - `make validate-locks` — validate `.ai/*.lock.toml` files and the memory
   bank.
 - `make test-tools` — unit tests for `.ai/tools/`.

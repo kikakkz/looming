@@ -84,7 +84,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     try:
-        branch = args.branch or current_branch()
+        branch = args.branch if args.branch is not None else current_branch()
     except subprocess.CalledProcessError:
         print("ERROR: not inside a git repository.", file=sys.stderr)
         return 1
