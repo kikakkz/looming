@@ -245,14 +245,46 @@ class AuthBootstrapTests(unittest.TestCase):
             self.assertEqual(r.returncode, 1)
             self.assertIn("absolute", r.stderr)
 
+    def test_credential_lookup_disables_askpass(self):
+        # an inherited GIT_ASKPASS must not run: with no helper
+        # providing the credential the lookup fails cleanly instead of
+        # blocking unattended runs (the 60s timeout also guards hangs)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            marker = Path(tmp) / "askpass-called"
+            askpass = bin_dir / "askpass-helper"
+            askpass.write_text(f'#!/bin/sh\ntouch "{marker}"\n'
+                               "echo username=u\necho password=p\n")
+            askpass.chmod(0o755)
+            env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": tmp,
+                   "GH_CONFIG_DIR": str(Path(tmp) / "ghconf"),
+                   "GIT_ASKPASS": str(askpass)}
+            gh = bin_dir / "gh"
+            gh.write_text('#!/bin/sh\n'
+                          'case "$*" in\n'
+                          '  "auth status"*) exit 1 ;;\n'
+                          '  *) exit 0 ;;\n'
+                          'esac\n')
+            gh.chmod(0o755)
+            r = run_script(["auth"], env=env)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no github.com credential", r.stderr)
+            self.assertFalse(marker.exists(), "inherited GIT_ASKPASS ran")
+
 
 class RepoSlugTests(unittest.TestCase):
     def _mk_repo(self, tmp, url):
         # repo_slug reads only the checkout's own config (--local), so
-        # the fixture must be a real repository, not a global config
-        subprocess.run(["git", "init", "-q", tmp], check=True)
+        # the fixture must be a real repository, not a global config;
+        # inherited repository-location variables are cleared so a host
+        # hook cannot redirect init/config away from tmp
+        clean = dict(os.environ)
+        for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            clean.pop(var, None)
+        subprocess.run(["git", "init", "-q", tmp], check=True, env=clean)
         subprocess.run(["git", "-C", tmp, "config", "--local",
-                        "remote.origin.url", url], check=True)
+                        "remote.origin.url", url], check=True, env=clean)
 
     def _slug(self, url):
         with tempfile.TemporaryDirectory() as tmp:

@@ -175,13 +175,18 @@ cmd_auth() {
 
     local token dir f tmp bak
     # never prompt in unattended runs: a missing credential must be a
-    # clean failure, not a wait for terminal input
-    token=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
-        GIT_TERMINAL_PROMPT=0 git credential fill <<'EOF' | sed -n 's/^password=//p'
+    # clean failure, not a wait for terminal or askpass input
+    local cred
+    if ! cred=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 \
+        git -c core.askPass= credential fill 2>/dev/null <<'EOF'
 protocol=https
 host=github.com
 EOF
-)
+); then
+        cred=""
+    fi
+    token=$(printf '%s\n' "$cred" | sed -n 's/^password=//p')
     [ -n "$token" ] || die "no github.com credential in the git credential store"
 
     dir=$(config_dir)
