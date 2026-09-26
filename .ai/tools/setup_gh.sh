@@ -121,6 +121,10 @@ ensure_private_dir() {
     # left them group/other-writable; components owned by others are
     # accepted only with the sticky bit (this is how /tmp, owned by
     # root, stays safe). Returns 1 when the path cannot be made safe.
+    case $1 in
+        /*) ;;
+        *) return 1 ;; # relative paths would loop on ${d%/*}
+    esac
     local d p m
     d=$1
     while [ -n "$d" ] && [ "$d" != / ]; do
@@ -167,6 +171,10 @@ EOF
     [ -n "$token" ] || die "no github.com credential in the git credential store"
 
     dir=$(config_dir)
+    case $dir in
+        /*) ;;
+        *) die "GH_CONFIG_DIR must be an absolute path (got: $dir)" ;;
+    esac
     f="$dir/hosts.yml"
     mkdir -p "$dir" || die "cannot create $dir"
     ensure_private_dir "$dir" \

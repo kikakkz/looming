@@ -14,12 +14,12 @@ SCRIPT = ROOT / "setup_gh.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 
-def run_script(args, env=None):
+def run_script(args, env=None, cwd=None):
     full_env = dict(os.environ)
     full_env.update(env or {})
     return subprocess.run(
         [BASH, str(SCRIPT), *args],
-        capture_output=True, text=True, env=full_env,
+        capture_output=True, text=True, env=full_env, cwd=cwd, timeout=60,
     )
 
 
@@ -230,6 +230,17 @@ class AuthBootstrapTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(loose.stat().st_mode & 0o777, 0o700)
             self.assertIn("fake-token-123", (loose / "hosts.yml").read_text())
+
+    def test_auth_rejects_relative_config_dir(self):
+        # a relative GH_CONFIG_DIR would make the parent walk loop on
+        # ${d%/*}; it must fail fast instead (timeout also guards the
+        # hang regression)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = self._env(tmp)
+            env["GH_CONFIG_DIR"] = "relative-ghconf"
+            r = run_script(["auth"], env=env, cwd=tmp)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("absolute", r.stderr)
 
 
 class RepoSlugTests(unittest.TestCase):
