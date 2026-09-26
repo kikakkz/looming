@@ -39,12 +39,17 @@ does not.
   the target and swaps only on success, then symlinks into
   `~/.local/bin` (must precede any older gh on PATH — the script checks
   and fails otherwise).
-- `auth` reads the `github.com` credential via `git credential fill`,
-  writes gh's own `hosts.yml` (gh's config-dir resolution:
-  `GH_CONFIG_DIR`, then `XDG_CONFIG_HOME/gh`, then `~/.config/gh`) with
-  mode 0600, tightening any existing file first. An existing file is
-  kept under a unique, non-overwriting backup name for manual recovery,
-  never silently overwritten; then
+- `auth` reads the `github.com` credential via `git credential fill`
+  (non-interactive: a missing credential is a clean failure), writes
+  gh's own `hosts.yml` (gh's config-dir resolution: `GH_CONFIG_DIR`,
+  then `XDG_CONFIG_HOME/gh`, then `~/.config/gh`) with mode 0600,
+  tightening any existing file first. The config directory tree is made
+  user-private before staging (umask-created group-writable directories
+  are repaired; paths a local attacker could modify are rejected). An
+  invalid `GH_TOKEN`/`GITHUB_TOKEN` aborts before anything is changed —
+  env tokens take precedence over stored credentials. An existing file
+  is kept under a unique, non-overwriting backup name for manual
+  recovery, never silently overwritten; then
   `gh auth setup-git --hostname github.com` must succeed.
 - `verify` re-runs the auth and repository-read checks.
 

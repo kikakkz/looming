@@ -209,6 +209,28 @@ class AuthBootstrapTests(unittest.TestCase):
             self.assertIn("fake-token-123", backups[0].read_text())
             self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
 
+    def test_auth_rejects_invalid_env_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = self._env(tmp)
+            env["GH_TOKEN"] = "invalid-token"
+            r = run_script(["auth"], env=env)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("GH_TOKEN", r.stderr)
+            self.assertFalse((Path(tmp) / "ghconf" / "hosts.yml").exists())
+
+    def test_auth_repairs_permissive_config_dir(self):
+        # a umask-775 config directory we own gets tightened, not rejected
+        with tempfile.TemporaryDirectory() as tmp:
+            loose = Path(tmp) / "loose"
+            loose.mkdir()
+            loose.chmod(0o777)
+            env = self._env(tmp)
+            env["GH_CONFIG_DIR"] = str(loose)
+            r = run_script(["auth"], env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(loose.stat().st_mode & 0o777, 0o700)
+            self.assertIn("fake-token-123", (loose / "hosts.yml").read_text())
+
 
 class RepoSlugTests(unittest.TestCase):
     def _slug(self, url):

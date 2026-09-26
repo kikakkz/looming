@@ -92,7 +92,7 @@ cmd_install() {
 
     mkdir -p "$HOME/.local/opt" "$HOME/.local/bin"
     tmp=$(mktemp "/tmp/${name}.tar.gz.XXXXXX")
-    curl -fL --retry 3 -o "$tmp" "$url" || { rm -f "$tmp"; die "download failed: $url"; }
+    curl -fL --retry 3 --max-time 300 --retry-max-time 900 -o "$tmp" "$url" || { rm -f "$tmp"; die "download failed: $url"; }
     # a failed check must abort before anything is extracted (CWE-494)
     echo "$sum  $tmp" | sha256sum -c - >/dev/null \
         || { rm -f "$tmp"; die "checksum mismatch for $name"; }
@@ -115,10 +115,41 @@ cmd_install() {
         || die "another gh shadows $HOME/.local/bin/gh (selected: $selected); fix PATH order"
 }
 
+ensure_private_dir() {
+    # Make $1 and its existing parents safe for credential staging.
+    # Components we own are tightened to 0700 when a permissive umask
+    # left them group/other-writable; components owned by others are
+    # accepted only with the sticky bit (this is how /tmp, owned by
+    # root, stays safe). Returns 1 when the path cannot be made safe.
+    local d p m
+    d=$1
+    while [ -n "$d" ] && [ "$d" != / ]; do
+        if [ -d "$d" ]; then
+            p=$(stat -c %a "$d" 2>/dev/null) || return 1
+            case $p in '' | *[!0-7]*) return 1 ;; esac
+            m=$((8#$p))
+            if [ -O "$d" ]; then
+                if [ $((m & 0022)) -ne 0 ] && [ $((m & 01000)) -eq 0 ]; then
+                    chmod 700 "$d" 2>/dev/null || return 1
+                fi
+            else
+                [ $((m & 01000)) -ne 0 ] || return 1
+            fi
+        fi
+        d=${d%/*}
+    done
+}
+
 cmd_auth() {
     secure_hosts_yml
     gh auth status --hostname github.com --active >/dev/null 2>&1 && return 0
     command -v gh >/dev/null 2>&1 || die "gh not on PATH; run: setup_gh.sh install"
+    # an invalid environment token takes precedence over anything we
+    # store — fail before touching hosts.yml
+    if { [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; } \
+        && ! gh auth status --hostname github.com --active >/dev/null 2>&1; then
+        die "GH_TOKEN/GITHUB_TOKEN is set but invalid; unset it or fix it, then retry"
+    fi
 
     # keep xtrace from tracing the credential (CWE-532)
     local xtrace=0
@@ -126,7 +157,9 @@ cmd_auth() {
     set +x
 
     local token dir f tmp bak
-    token=$(git credential fill <<'EOF' | sed -n 's/^password=//p'
+    # never prompt in unattended runs: a missing credential must be a
+    # clean failure, not a wait for terminal input
+    token=$(GIT_TERMINAL_PROMPT=0 git credential fill <<'EOF' | sed -n 's/^password=//p'
 protocol=https
 host=github.com
 EOF
@@ -135,7 +168,9 @@ EOF
 
     dir=$(config_dir)
     f="$dir/hosts.yml"
-    mkdir -p "$dir"
+    mkdir -p "$dir" || die "cannot create $dir"
+    ensure_private_dir "$dir" \
+        || die "refusing to write credentials under $dir: path cannot be made user-private (check GH_CONFIG_DIR)"
     if [ -f "$f" ]; then
         # never silently overwrite: keep the old file under a unique,
         # non-overwriting name (mktemp: unique, mode 0600) for recovery
