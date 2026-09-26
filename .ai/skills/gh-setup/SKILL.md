@@ -14,7 +14,7 @@ repository.
 ## 1. Check
 
 ```bash
-command -v gh && gh auth status
+command -v gh && gh auth status --hostname github.com
 ```
 
 Both succeed → done, nothing to install or configure.
@@ -58,7 +58,7 @@ path (it is gh's own store; gh itself writes it mode 0600). Never
 overwrite an existing `hosts.yml`: it may hold other hosts or accounts.
 
 ```bash
-if ! gh auth status >/dev/null 2>&1; then
+if ! gh auth status --hostname github.com >/dev/null 2>&1; then
   token=$(git credential fill <<'EOF' | sed -n 's/^password=//p'
 protocol=https
 host=github.com
@@ -66,7 +66,7 @@ EOF
 )
   [ -n "$token" ] || { echo "no github.com credential in the git store" >&2; exit 1; }
   if [ -f ~/.config/gh/hosts.yml ]; then
-    echo "hosts.yml exists but auth failed; fix it by hand, not by overwriting" >&2
+    echo "hosts.yml exists but github.com auth failed; fix it by hand, not by overwriting" >&2
     exit 1
   fi
   mkdir -p ~/.config/gh
@@ -74,21 +74,21 @@ EOF
   printf 'github.com:\n    oauth_token: %s\n    git_protocol: https\n' "$token" > "$tmp"
   chmod 600 "$tmp"
   mv "$tmp" ~/.config/gh/hosts.yml
+  gh auth setup-git   # let git HTTPS operations use gh's auth
   unset token
 fi
-gh auth setup-git   # let git HTTPS operations use gh's auth
 ```
 
 ## 4. Verify
 
 ```bash
-gh auth status
+gh auth status --hostname github.com
 gh pr list --limit 1
 ```
 
-Both succeed → configured. If `gh auth status` still fails, the stored
-credential is missing or expired: fix `git credential fill` for
-`github.com` first, then repeat step 3.
+Both succeed → configured. If `gh auth status --hostname github.com`
+still fails, the stored credential is missing or expired: fix
+`git credential fill` for `github.com` first, then repeat step 3.
 
 ## Rules
 
