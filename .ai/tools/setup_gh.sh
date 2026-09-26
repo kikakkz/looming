@@ -82,7 +82,7 @@ cmd_check() {
 }
 
 cmd_install() {
-    local sys arch sum name url tmp tmpd target selected prevdir link prevlink hadlink
+    local sys arch sum name url tmp tmpd target selected prevdir link prevlink prevfile hadlink
     sys=$(uname -s)
     [ "$sys" = Linux ] || die "installs Linux binaries only; on $sys use the OS package manager (e.g. 'brew install gh')"
     case $(uname -m) in
