@@ -46,16 +46,17 @@ gh_ready() {
 }
 
 repo_slug() {
-    # this repository, resolved from the checkout — GH_REPO must not be
-    # able to redirect the access check elsewhere
+    # this repository, resolved from the checkout and host-pinned to
+    # github.com — GH_REPO and GH_HOST must not be able to redirect the
+    # access check elsewhere
     local url
     url=$(git config --get remote.origin.url 2>/dev/null) || return 1
     url=${url%.git}
     case "$url" in
-        git@github.com:*/*) printf '%s\n' "${url#git@github.com:}" ;;
-        ssh://git@github.com/*/*) printf '%s\n' "${url#ssh://git@github.com/}" ;;
-        https://github.com/*/*) printf '%s\n' "${url#https://github.com/}" ;;
-        http://github.com/*/*) printf '%s\n' "${url#http://github.com/}" ;;
+        git@github.com:*/*) printf 'github.com/%s\n' "${url#git@github.com:}" ;;
+        ssh://git@github.com/*/*) printf 'github.com/%s\n' "${url#ssh://git@github.com/}" ;;
+        https://github.com/*/*) printf 'github.com/%s\n' "${url#https://github.com/}" ;;
+        http://github.com/*/*) printf 'github.com/%s\n' "${url#http://github.com/}" ;;
         *) return 1 ;;
     esac
 }

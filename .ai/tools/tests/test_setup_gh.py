@@ -224,16 +224,45 @@ class RepoSlugTests(unittest.TestCase):
     def test_https_remote(self):
         r = self._slug("https://github.com/kikakkz/looming.git")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "kikakkz/looming")
+        self.assertEqual(r.stdout.strip(), "github.com/kikakkz/looming")
 
     def test_ssh_remote(self):
         r = self._slug("git@github.com:kikakkz/looming.git")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "kikakkz/looming")
+        self.assertEqual(r.stdout.strip(), "github.com/kikakkz/looming")
 
     def test_non_github_remote_rejected(self):
         r = self._slug("https://example.com/x/y.git")
         self.assertNotEqual(r.returncode, 0)
+
+    def test_access_check_ignores_gh_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            mock_log = Path(tmp) / "gh-args.log"
+            gh = bin_dir / "gh"
+            gh.write_text(
+                "#!/bin/sh\n"
+                'echo "$*" >> "' + str(mock_log) + '"\n'
+                'case "$*" in\n'
+                '  "auth status --help") echo "  -a, --active" ;;\n'
+                '  *) exit 0 ;;\n'
+                "esac\n")
+            gh.chmod(0o755)
+            gc = Path(tmp) / "gitconfig"
+            gc.write_text('[remote "origin"]\n'
+                          "\turl = https://github.com/kikakkz/looming.git\n")
+            full = {"PATH": f"{bin_dir}:/usr/bin:/bin",
+                    "GH_HOST": "evil.example.com",
+                    "GH_MOCK_LOG": str(mock_log),
+                    "GIT_CONFIG_GLOBAL": str(gc)}
+            r = subprocess.run(
+                [BASH, "-c", f'source "{SCRIPT}"; gh_ready'],
+                capture_output=True, text=True, env=full, cwd=tmp)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            calls = mock_log.read_text()
+            self.assertIn("pr list --limit 1 --repo github.com/kikakkz/looming",
+                          calls)
 
 
 if __name__ == "__main__":
