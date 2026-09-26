@@ -6,22 +6,28 @@ description: Ensure the GitHub CLI (gh) is installed and authenticated for this 
 # gh setup
 
 Makes `gh` available for this repository's GitHub operations. If `gh`
-is already installed and authenticated, do nothing and say so. Otherwise
-install it user-locally (no root) and authenticate from the git
-credential store. Never print the token; never write it into the
-repository.
+is already installed (a recent enough version) and authenticated, do
+nothing and say so. Otherwise install it user-locally (no root) and
+authenticate from the git credential store. Never print tokens or
+`gh auth status` output; never write credentials into the repository.
 
 ## 1. Check
 
 ```bash
-command -v gh && gh auth status --hostname github.com
+# --active requires gh >= 2.53.0; the capability check covers that
+if command -v gh >/dev/null && gh auth status --help | grep -q -- --active; then
+  gh auth status --hostname github.com --active >/dev/null && echo "gh ready"
+fi
 ```
 
-Both succeed → done, nothing to install or configure.
+`gh ready` → done, nothing to install or configure. An older gh on
+PATH (no `--active` support) fails the capability check: continue with
+step 2 so the pinned, newer install shadows it — make sure
+`~/.local/bin` precedes the old binary in PATH, or remove the old one.
 
 ## 2. Install (skip if `gh` is already on PATH)
 
-Pinned release; bump the version, URL, and checksum together in one PR.
+Pinned release; bump the version, URL, and checksums together in one PR.
 
 ```bash
 set -euo pipefail
@@ -49,7 +55,7 @@ rm "/tmp/${name}.tar.gz"
 - With root available, the apt repository from
   [cli.github.com](https://cli.github.com/) is the alternative.
 
-## 3. Authenticate (skip if `gh auth status` already passes)
+## 3. Authenticate (skip if the auth check already passes)
 
 Bootstrap gh's own config from the git credential store. `gh auth
 login --with-token` requires a `read:org`-scoped token, which a
@@ -58,7 +64,7 @@ path (it is gh's own store; gh itself writes it mode 0600). Never
 overwrite an existing `hosts.yml`: it may hold other hosts or accounts.
 
 ```bash
-if ! gh auth status --hostname github.com >/dev/null 2>&1; then
+if ! gh auth status --hostname github.com --active >/dev/null 2>&1; then
   token=$(git credential fill <<'EOF' | sed -n 's/^password=//p'
 protocol=https
 host=github.com
@@ -82,18 +88,20 @@ fi
 ## 4. Verify
 
 ```bash
-gh auth status --hostname github.com
-gh pr list --limit 1
+gh auth status --hostname github.com --active >/dev/null && gh pr list --limit 1
 ```
 
-Both succeed → configured. If `gh auth status --hostname github.com`
-still fails, the stored credential is missing or expired: fix
-`git credential fill` for `github.com` first, then repeat step 3.
+Both succeed → configured. If the auth check still fails, the stored
+credential is missing or expired: fix `git credential fill` for
+`github.com` first, then repeat step 3.
 
 ## Rules
 
 - Never print the token, pass it on a command line, or commit anything
   under `~/.config/gh` or `~/.local`.
+- Never print `gh auth status` output in scripts: gh up to 2.96.0 can
+  expose token prefixes (CWE-201). Use exit codes, as in the blocks
+  above.
 - The token inherits the git credential's scopes (`repo` is enough for
   every repo-level operation; org-level features need `read:org`).
 - Install/configure only the invoking user's environment; do not use
