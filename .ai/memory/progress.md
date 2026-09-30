@@ -60,7 +60,7 @@ type: progress
 - Issues #24–27 filed: adopt DDD practices, codify architecture
   constraints, enforce TDD/complexity budgets in CI, define the full
   testing stack. Survey pins from #12 become adopted practice there.
-- #12 merged via PR #13 (squash, b2dc4f7) after a long review-gate
+- #12 merged via #13 after a long review-gate
   marathon. Contents: superpowers path fixed (`plugins/superpowers/skills`
   → `skills`, the old pin 404'd), 15 methodology skill pins added with
   API path verification, `superpowers` declared as the one bundle entry
