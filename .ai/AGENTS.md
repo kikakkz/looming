@@ -50,7 +50,10 @@ same PR.
 - Plain markdown with `updated:` frontmatter; files interlink with
   wikilinks. No vector store, no binary formats.
 - `progress.md` and `activeContext.md` are **episodic**: agents update
-  them directly at session boundaries.
+  them at session boundaries, and the updates ride the normal flow —
+  branch + reviewed PR. Never write to main directly; the protection
+  rules admit no direct-push exception for memory files (AD-22:
+  generation is automatic, publication is uniform).
 - **Addressing rule**: memory entries reference stable identifiers only —
   issue numbers (`#N`) and decision numbers (`AD-N`) — never file anchors
   or line numbers, so rotation never breaks links.
@@ -61,7 +64,7 @@ same PR.
 - `activeContext.md` is a **links-only snapshot** (SSoT — details live in
   progress / decisions / issues; never restate content). Hard cap:
   100 lines; compress at session boundaries when over.
-- **No decay or ranking** in the repo layer (AD-9): expiry and relevance
+- **No decay or ranking** in the repo layer (AD-22): expiry and relevance
   ranking belong to the platform memory service.
 - `memory_housekeeping.py doctor` audits sizes; the monthly `housekeeping`
   workflow opens a `kind/cleanup` issue when thresholds are exceeded.

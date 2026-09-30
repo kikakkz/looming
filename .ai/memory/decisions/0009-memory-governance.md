@@ -2,9 +2,11 @@
 number: 9
 title: "Memory governance"
 date: "2026-09-25"
-status: "accepted"
+status: "superseded"
 supersedes: []
 adopted-at: "2026-09-25"
+superseded-by: 22
+superseded-at: "2026-10-01"
 ---
 
 # AD-9 — Memory governance

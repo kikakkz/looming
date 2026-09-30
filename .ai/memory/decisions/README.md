@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-22 — Memory governance: generation vs publication](0022-memory-governance-generation-vs-publication.md)
 - [AD-21 — Migrate decision records to one-file-per-decision ADR layout](0021-migrate-decision-records-to-one-file.md)
 - [AD-20 — Branch names carry a fixed-vocabulary prefix](0020-branch-names-carry-a-fixed-vocabulary.md)
 - [AD-18 — Governance formats follow mature upstream practice instead](0018-governance-formats-follow-mature-upstream-practice.md)
@@ -15,7 +16,6 @@
 - [AD-12 — Agent runtime is a pluggable provider system with](0012-agent-runtime-is-a-pluggable-provider.md)
 - [AD-11 — Unified registry covers MCP servers, skills, and tools.](0011-unified-registry-covers-mcp-servers-skills.md)
 - [AD-10 — Skills follow the SKILL.md open standard. This repo](0010-skills-follow-the-skill-md-open.md)
-- [AD-9 — Memory governance](0009-memory-governance.md)
 - [AD-8 — CI and judge are different dimensions](0008-ci-and-judge-are-different-dimensions.md)
 - [AD-7 — Verifier-first quality gate. CI guards known failures,](0007-verifier-first-quality-gate-ci-guards.md)
 - [AD-6 — All four agent roles get disposable sandboxes; the harness](0006-all-four-agent-roles-get-disposable.md)
@@ -28,3 +28,4 @@
 ## Superseded / Deprecated
 
 - [AD-19 — `main` is protected on GitHub](0019-main-is-protected-on-github.md) — superseded by [AD-20](0020)
+- [AD-9 — Memory governance](0009-memory-governance.md) — superseded by [AD-22](0022)

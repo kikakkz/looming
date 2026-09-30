@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-25
+updated: 2026-09-30
 type: activeContext
 ---
 
@@ -7,26 +7,20 @@ type: activeContext
 
 ## Current focus
 
-Repository bootstrap: skeleton, agent-facing conventions (AGENTS.md,
-`.ai/`), CI gates, Apache-2.0 + DCO. Bootstrap commit is the single
-exception to issue-driven development; everything after it goes through
-issues.
+- Post-bootstrap phase (#1 closed); engineering-methodology adoption:
+  #24 (DDD), #25 (architecture constraints), #26 (TDD + complexity
+  budgets), #27 (testing stack) — inputs from #12 pins and the
+  review-gate notes in #21.
 
-## Next (in order, each gated by maintainer instruction)
+## Next (each gated by maintainer instruction)
 
-1. Push skeleton to GitHub and file the bootstrap issue set.
-2. **Gateway component** — frozen until explicitly started. First
-   component per plan; Go; spec'd by prior decisions (AD-3).
-3. agentgateway (AAIF) research — build on it, reference it, or coexist;
-   outcome shapes the gateway slot (AD-17).
-4. Runtime bake-off spike (smoke opencode + OpenHands → full spike on the
-   winner) per AD-15.
-5. Event-stream schema — deferred by decision, designed post-bootstrap
-   through its own issue.
+- Gateway component (frozen until started): AD-3; preceded by the
+  agentgateway research and the runtime spike (AD-15).
+- Event-stream schema: deferred by decision; its own issue when
+  unblocked.
 
 ## Open questions
 
-- Repo layout under `cmd/` per component — first decided with the gateway
-  issue.
-- Whether to enable CodeRabbit immediately after push (free for public
-  repos) — pending maintainer call.
+- `cmd/` per-component layout — decided with the gateway issue.
+- Clean first-pass PRs vs the 1-approval gate — tracked in #21;
+  redesign candidate under #23 (pr-watch).
