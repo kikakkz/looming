@@ -15,7 +15,7 @@ type: activeContext
 ## Next (each gated by maintainer instruction)
 
 - Gateway component (frozen until started): AD-3; preceded by the
-  agentgateway research (AD-17) and the runtime spike (AD-15).
+  agentgateway research and the runtime spike (AD-15).
 - Event-stream schema: deferred by decision; its own issue when
   unblocked.
 
