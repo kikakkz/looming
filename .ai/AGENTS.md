@@ -18,9 +18,11 @@ same PR.
 - External skills are **never copied** into this repository. They are
   pinned here by immutable git revision and installed with
   `npx skills add` (or equivalent).
-- One entry = one skill. Fields: `name`, `source` (host on the allowlist),
-  `path` (directory containing the upstream `SKILL.md`), `revision`
-  (full 40-char sha), `license`.
+- One entry = one skill. Fields: `name` (local alias — may differ from
+  the upstream `SKILL.md` frontmatter name; installs pass the upstream name
+  to the Skills CLI `--skill`), `source` (host on the allowlist), `path`
+  (directory containing the upstream `SKILL.md`), `revision` (full 40-char
+  sha), `license`.
 - Declared **bundles** are the exception: a methodology pack consumed as a
   unit may pin its collection root in one entry, marked with a comment in
   the lockfile. `superpowers` is the one declared bundle; its lockfile

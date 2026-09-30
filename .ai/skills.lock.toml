@@ -2,7 +2,11 @@
 #
 # Entries are pinned to an immutable git revision and fetched at install
 # time, e.g.:
-#   npx skills add github.com/<org>/<repo> --skill <path> --revision <sha>
+#   npx skills add github.com/<org>/<repo> --skill <skill-name> --revision <sha>
+# where <skill-name> is the upstream SKILL.md frontmatter name, which may
+# differ from this file's `name` (e.g. tdd-practice pins upstream
+# test-driven-development). For the declared superpowers bundle use
+# --skill '*'.
 #
 # This repository is public on GitHub, so external skills are referenced,
 # never vendored. Vendoring is a platform feature of Looming for air-gapped
