@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-25
+updated: 2026-09-30
 type: progress
 ---
 
@@ -54,3 +54,32 @@ type: progress
   with the fixed Conventional Commits vocabulary; new `branch-name` CI
   check enforces format and prefix↔title consistency (issue #3, PR #4 —
   itself the first compliant branch).
+
+## 2026-09-30 — Methodology layer landed; review-gate behavior mapped
+
+- Issues #24–27 filed: adopt DDD practices, codify architecture
+  constraints, enforce TDD/complexity budgets in CI, define the full
+  testing stack. Survey pins from #12 become adopted practice there.
+- #12 merged via PR #13 (squash, b2dc4f7) after a long review-gate
+  marathon. Contents: superpowers path fixed (`plugins/superpowers/skills`
+  → `skills`, the old pin 404'd), 15 methodology skill pins added with
+  API path verification, `superpowers` declared as the one bundle entry
+  (two-way declaration rule: section in `.ai/AGENTS.md` + comment on the
+  lockfile entry).
+- Review fixes with verified substance: Skills CLI `--skill` takes the
+  upstream `SKILL.md` frontmatter name, not the lockfile path or alias
+  (`tdd-practice` → upstream `test-driven-development`; `kubernetes` →
+  `kubernetes-skill`); the CLI has no `--revision` flag — the immutable
+  pin is encoded in the source ref as `github.com/<org>/<repo>#<sha>`.
+- CodeRabbit behavior model, empirically mapped and recorded in #21:
+  incremental reviews with zero findings are silent and mark the commit
+  reviewed; `@coderabbitai full review` is the reliable verdict lever;
+  clean first-pass PRs do not receive a formal APPROVED (every APPROVED
+  in repo history ended a changes-requested → fix → re-review cycle);
+  `required_conversation_resolution` blocks on outdated threads too;
+  review dismissal works via GraphQL only (REST 404 with our token).
+- Protection note: approving reviews require 1 reviewer with write
+  access; the PR author cannot self-approve, so CodeRabbit's formal
+  review is the only approval path on this solo-maintainer repo.
+- auto-merge (squash, GraphQL-enabled) fired end-to-end once approval +
+  resolution + checks aligned.

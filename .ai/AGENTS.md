@@ -50,7 +50,9 @@ same PR.
 - Plain markdown with `updated:` frontmatter; files interlink with
   wikilinks. No vector store, no binary formats.
 - `progress.md` and `activeContext.md` are **episodic**: agents update
-  them directly at session boundaries.
+  them at session boundaries, and the updates ride the normal flow —
+  branch + reviewed PR. Never write to main directly; the protection
+  rules admit no direct-push exception for memory files.
 - **Addressing rule**: memory entries reference stable identifiers only —
   issue numbers (`#N`) and decision numbers (`AD-N`) — never file anchors
   or line numbers, so rotation never breaks links.
