@@ -120,8 +120,9 @@ class MemoryHousekeepingTests(HousekeepingCase):
         self.write_progress(first_of_month(TODAY).isoformat(),
                             TODAY.isoformat())
         self.assertEqual(self.rotate(), 0)
-        self.assertFalse((mh.ARCHIVE_DIR / f"{ym(prev_month(TODAY))}.md")
-                         .exists())
+        for month in (prev_month(TODAY), TODAY):
+            self.assertFalse((mh.ARCHIVE_DIR / f"{ym(month)}.md")
+                             .exists())
 
     def test_check_strict_fails_over_threshold(self) -> None:
         mh.PROGRESS.write_text("x\n" * (mh.PROGRESS_SOFT_LINES + 1),
