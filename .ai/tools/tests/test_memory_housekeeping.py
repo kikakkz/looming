@@ -6,11 +6,32 @@ import shutil
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import memory_housekeeping as mh
+
+TODAY = date.today()
+
+
+def first_of_month(d: date) -> date:
+    return d.replace(day=1)
+
+
+def prev_month(d: date) -> date:
+    """First day of the month before d's month."""
+    return first_of_month(first_of_month(d) - timedelta(days=1))
+
+
+def ym(d: date) -> str:
+    return d.strftime("%Y-%m")
+
+
+# Fixture dates must be derived from the real clock: rotation keys off the
+# actual current month, so hardcoded dates break on every month rollover.
 
 
 PROGRESS_TEMPLATE = """---
@@ -39,6 +60,16 @@ class HousekeepingCase(unittest.TestCase):
         mh.ACTIVE = self.tmp / "activeContext.md"
         mh.ARCHIVE_DIR = self.tmp / "progress"
 
+    def rotate(self) -> int:
+        """Run rotate with the tool's clock frozen to the fixture date.
+
+        Without the freeze, a test process alive across a month boundary
+        would see the tool compute a different \"current month\" than the
+        fixture data assumes.
+        """
+        with patch.object(mh, "today", return_value=TODAY.isoformat()):
+            return mh.main(["rotate"])
+
     def tearDown(self) -> None:
         mh.MEMORY, mh.PROGRESS, mh.ACTIVE, mh.ARCHIVE_DIR = self._orig
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -51,9 +82,10 @@ class HousekeepingCase(unittest.TestCase):
 
 class MemoryHousekeepingTests(HousekeepingCase):
     def test_rotate_archives_old_month_only(self) -> None:
-        self.write_progress("2026-08-15", "2026-09-25")
-        self.assertEqual(mh.main(["rotate"]), 0)
-        archive = mh.ARCHIVE_DIR / "2026-08.md"
+        old = prev_month(TODAY).replace(day=15)
+        self.write_progress(old.isoformat(), TODAY.isoformat())
+        self.assertEqual(self.rotate(), 0)
+        archive = mh.ARCHIVE_DIR / f"{ym(old)}.md"
         self.assertTrue(archive.exists())
         self.assertIn("Old work", archive.read_text(encoding="utf-8"))
         kept = mh.PROGRESS.read_text(encoding="utf-8")
@@ -61,9 +93,10 @@ class MemoryHousekeepingTests(HousekeepingCase):
         self.assertNotIn("Old work", kept)
 
     def test_carried_over_generated_from_refs(self) -> None:
-        self.write_progress("2026-08-15", "2026-09-25")
+        old = prev_month(TODAY).replace(day=15)
+        self.write_progress(old.isoformat(), TODAY.isoformat())
         mh.ACTIVE.write_text("focus on #12 and #7\n", encoding="utf-8")
-        self.assertEqual(mh.main(["rotate"]), 0)
+        self.assertEqual(self.rotate(), 0)
         kept = mh.PROGRESS.read_text(encoding="utf-8")
         self.assertIn("Carried over", kept)
         # refs from rotated entries + activeContext, deduplicated
@@ -75,17 +108,21 @@ class MemoryHousekeepingTests(HousekeepingCase):
         self.assertNotIn("- #9", carried)
 
     def test_rotate_refuses_existing_archive(self) -> None:
-        self.write_progress("2026-08-15", "2026-09-25")
+        old = prev_month(TODAY).replace(day=15)
+        self.write_progress(old.isoformat(), TODAY.isoformat())
         mh.ARCHIVE_DIR.mkdir(parents=True)
-        (mh.ARCHIVE_DIR / "2026-08.md").write_text("exists\n",
-                                                   encoding="utf-8")
-        self.assertEqual(mh.main(["rotate"]), 1)
+        (mh.ARCHIVE_DIR / f"{ym(old)}.md").write_text("exists\n",
+                                                     encoding="utf-8")
+        self.assertEqual(self.rotate(), 1)
         self.assertIn("Old work", mh.PROGRESS.read_text(encoding="utf-8"))
 
     def test_rotate_noop_within_current_month(self) -> None:
-        self.write_progress("2026-09-01", "2026-09-25")
-        self.assertEqual(mh.main(["rotate"]), 0)
-        self.assertFalse((mh.ARCHIVE_DIR / "2026-09.md").exists())
+        self.write_progress(first_of_month(TODAY).isoformat(),
+                            TODAY.isoformat())
+        self.assertEqual(self.rotate(), 0)
+        for month in (prev_month(TODAY), TODAY):
+            self.assertFalse((mh.ARCHIVE_DIR / f"{ym(month)}.md")
+                             .exists())
 
     def test_check_strict_fails_over_threshold(self) -> None:
         mh.PROGRESS.write_text("x\n" * (mh.PROGRESS_SOFT_LINES + 1),
