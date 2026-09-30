@@ -12,12 +12,12 @@ adopted-at: "2026-10-01"
 
 ## Context
 
-AD-9 declared "dual-track writes — episodic records auto-written,
+[[AD-9]] declared "dual-track writes — episodic records auto-written,
 procedural knowledge only via reviewed PR". Once `main` gained branch
-protection (AD-19), "auto-written" became impossible to follow literally:
+protection ([[AD-19]]), "auto-written" became impossible to follow literally:
 no direct pushes exist for any actor, so episodic updates could not land
 at all. Issue #28 restated the operating rule as "branch + reviewed PR
-for everything, memory included", which conflicts with AD-9's wording
+for everything, memory included", which conflicts with [[AD-9]]'s wording
 unless generation and publication are separated.
 
 ## Decision
@@ -31,20 +31,19 @@ type:
   deliberately.
 - **Publication is uniform**: every memory-bank change, episodic or
   procedural, rides the normal branch + reviewed PR flow (prompt-
-  injection defense from AD-9 stands). No direct-to-main writes exist
+  injection defense from [[AD-9]] stands). No direct-to-main writes exist
   for any actor or content type.
 - Org memory service models org→project→user scopes, Postgres-first;
-  the repo memory bank remains markdown under `.ai/memory/`. No decay
+  the repo memory bank remains plain markdown files. No decay
   or ranking in the repo layer — expiry and relevance ranking belong to
   the platform memory service.
 
-AD-9 is superseded; this record and the `.ai/AGENTS.md` memory section
-are the operational expression.
+[[AD-9]] is superseded; this record and the memory-section rules in the
+agent-assets operating contract are the operational expression.
 
 ## Consequences
 
-- The AGENTS.md episodic rule names the PR flow explicitly, closing the
-  #28 gap.
+- The episodic rule names the PR flow explicitly, closing the #28 gap.
 - Review tooling (CodeRabbit path instructions) can rely on one
   publication path for all memory content.
 - Older progress entries written before protection may cite forms the
