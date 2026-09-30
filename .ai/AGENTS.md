@@ -23,7 +23,9 @@ same PR.
   (full 40-char sha), `license`.
 - Declared **bundles** are the exception: a methodology pack consumed as a
   unit may pin its collection root in one entry, marked with a comment in
-  the lockfile. `superpowers` is the one declared bundle.
+  the lockfile. `superpowers` is the one declared bundle; its lockfile
+  comment points back to this section, and any future bundle must declare
+  itself in both places (rule here, comment on the entry).
 - Adding or upgrading an entry is a PR; CI validates schema, sha format,
   and license allowlist.
 
