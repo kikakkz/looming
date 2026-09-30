@@ -64,8 +64,8 @@ type: progress
   marathon. Contents: superpowers path fixed (`plugins/superpowers/skills`
   → `skills`, the old pin 404'd), 15 methodology skill pins added with
   API path verification, `superpowers` declared as the one bundle entry
-  (two-way declaration rule: section in `.ai/AGENTS.md` + comment on the
-  lockfile entry).
+  (two-way declaration rule: the governing doc states the exception and
+  the entry comment cites it).
 - Review fixes with verified substance: Skills CLI `--skill` takes the
   upstream `SKILL.md` frontmatter name, not the lockfile path or alias
   (`tdd-practice` → upstream `test-driven-development`; `kubernetes` →
