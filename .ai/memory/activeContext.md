@@ -7,9 +7,10 @@ type: activeContext
 
 ## Current focus
 
-- Methodology adoption: #24 (DDD), #25 (architecture constraints),
-  #26 (TDD + complexity budgets), #27 (testing stack) — inputs from #12
-  pins and the review-gate notes in #21.
+- Post-bootstrap phase (#1 closed); engineering-methodology adoption:
+  #24 (DDD), #25 (architecture constraints), #26 (TDD + complexity
+  budgets), #27 (testing stack) — inputs from #12 pins and the
+  review-gate notes in #21.
 
 ## Next (each gated by maintainer instruction)
 

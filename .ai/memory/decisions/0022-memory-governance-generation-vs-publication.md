@@ -2,6 +2,7 @@
 number: 22
 title: "Memory governance: generation vs publication"
 date: "2026-10-01"
+updated: "2026-10-01"
 status: "accepted"
 supersedes: [9]
 adopted-at: "2026-10-01"
