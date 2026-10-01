@@ -112,9 +112,9 @@ def verdict_for_head(reviews: list[dict], head: str) -> str:
 
 
 def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
-    query = f"""query($owner:String!,$name:String!,$number:Int!) {{
+    query = """query($owner:String!,$name:String!,$number:Int!) {{
       repository(owner:$owner, name:$name) {{
-        pullRequest(number:{pr}) {{
+        pullRequest(number:$number) {{
           reviewThreads(first:100) {{
             nodes {{
               id isResolved isOutdated path line
