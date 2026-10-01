@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-30
+updated: 2026-10-01
 type: progress
 ---
 
@@ -83,3 +83,35 @@ type: progress
   review is the only approval path on this solo-maintainer repo.
 - auto-merge (squash, GraphQL-enabled) fired end-to-end once approval +
   resolution + checks aligned.
+
+## 2026-10-01 — Go engineering methodology stack adopted
+
+- Standing rule from maintainer: methodology questions are settled by
+  mature upstream practice (research first, decide only when no good
+  reference exists), never by blocking on a decision meeting. This
+  milestone is the first execution of that rule.
+- PR #36 (branch `feat/33-methodology-stack`, one commit per concern)
+  landed AD-23, AD-24, AD-25 plus configs; closes #24–#27 (research
+  issues) and #32–#35 (adoption issues). #32 fixed first: the ADR
+  skeleton now emits the required `updated:` frontmatter field.
+- AD-23: single root `go.mod`; per-component `app/domain/port/adapter`
+  layers (wild-workouts hexagonal); domain stdlib-only; five independent
+  v0 bounded contexts in `.go-arch-lint.yml` (gateway dp/cp, cicd,
+  agentruntime, registry).
+- AD-24: TDD red-green-refactor with tests in the same PR; complexity
+  budgets funlen 50 / gocognit 30 / cyclop 15 as a ratchet that only
+  tightens via superseding AD; nolintlint three locks; `.golangci.yml`
+  v2 (standard + gosec + misspell).
+- AD-25: unit (default) / `integration` (testcontainers-go; GitLab CE
+  via `GenericContainer` — no upstream module) / `e2e` (deferred, tag
+  defined now); regression as replay tests inside unit+integration;
+  testify + go-cmp; 80% coverage via go-test-coverage; flake skips cite
+  their `kind/flake` issue.
+- Go CI jobs deliberately deferred per the CI-first rule: configs and
+  `make lint-go` / `test-unit` / `test-coverage` (warn-and-skip without
+  go.mod) land now, the enforcing jobs land with the first Go component.
+- CodeRabbit caught one real defect in review: depguard `pkg` entries
+  are package-path prefix matches, not regexes — the dotted-first-segment
+  deny pattern never matched anything; fixed to the canonical
+  `list-mode: strict` + `allow: [$gostd]`. Verified APPROVED →
+  auto-merge fired without a manual nudge.
