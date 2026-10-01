@@ -10,6 +10,12 @@ ignore_result() {
 
     # ruleid: checksum-result-ignored
     echo "$sum  $arc" | sha256sum -c - || :
+
+    # ruleid: checksum-result-ignored
+    sha256sum -c sums.txt || true # best-effort check
+
+    # ruleid: checksum-result-ignored
+    sha256sum -c sums.txt || :; tar -xf "$arc" -C "$d"
 }
 
 guard_result() {

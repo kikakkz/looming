@@ -21,12 +21,12 @@ rules:
           curl ... -o $ARCHIVE ...
           ...
       - pattern: tar $MODE ... $ARCHIVE ...
-      # extraction modes only: short-flag clusters containing x (-xzf) or
-      # the long form --extract; create/list/append/update/delete modes
-      # never extract
+      # extraction modes only: short-flag clusters containing x (-xzf),
+      # or the long extraction forms; create/list/append/update/delete
+      # modes never extract
       - metavariable-regex:
           metavariable: $MODE
-          regex: '^-(-[a-z-]+|[A-Za-z]*x[A-Za-z]*)$'
+          regex: '^(--extract|--get|-[A-Za-z]*x[A-Za-z]*)$'
       # a verification step between the matched download and the
       # extraction lifts the gate. File-level dataflow is a documented
       # approximation: the rule checks that a `sha256sum -c` runs after

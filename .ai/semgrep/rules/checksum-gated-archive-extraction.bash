@@ -57,6 +57,15 @@ extract_not_downloaded() {
     tar -czf "$bundle.tar.gz" "$dir"
 }
 
+# listing or re-packing a downloaded archive is not an extraction
+list_and_repack_downloaded() {
+    curl -sSL -o "$arc" "$url"
+    # ok: checksum-gated-archive-extraction
+    tar --list -f "$arc"
+    # ok: checksum-gated-archive-extraction
+    tar --create -f "$bundle.tar.gz" "$dir"
+}
+
 # a checksum run AFTER the extraction does not lift the gate
 extract_first_verify_later() {
     tmp=$(mktemp)

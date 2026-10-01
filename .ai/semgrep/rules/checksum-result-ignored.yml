@@ -16,4 +16,7 @@ rules:
       source: >-
         PR #17 review finding: 'Add a checksum-failure installation test'
       confidence: HIGH
-    pattern-regex: '(?m)^(?![ \t]*#)[^\n]*\bsha256sum\b[^\n]*\|\|[ \t]*(?:true|:)[ \t]*$'
+    # the swallow token may be followed by a comment or further
+    # semicolon-separated commands on the same line; the negative
+    # lookahead keeps the token boundary so `true_helper` does not match
+    pattern-regex: '(?m)^(?![ \t]*#)[^\n]*\bsha256sum\b[^\n]*\|\|[ \t]*(?:true|:)(?![A-Za-z0-9_])[^\n]*$'
