@@ -88,15 +88,15 @@ class CheckIndexTests(unittest.TestCase):
 
     def test_tab_indentation_rejected(self) -> None:
         self.write("read_order:\n\t- a\n")
-        self.assertTrue(self.problems())
+        self.assertTrue(any("two spaces" in p for p in self.problems()))
 
     def test_deep_indentation_rejected(self) -> None:
         self.write("read_on_demand:\n    skills: .ai/skills/\n")
-        self.assertTrue(self.problems())
+        self.assertTrue(any("two spaces" in p for p in self.problems()))
 
     def test_duplicate_subsection_key_rejected(self) -> None:
         self.write("read_on_demand:\n  skills: one.md\n  skills: two.md\n")
-        self.assertTrue(self.problems())
+        self.assertTrue(any("duplicate key" in p for p in self.problems()))
 
     def test_required_rules_shape_enforced(self) -> None:
         self.write("required_rules:\n  - .ai/skills/missing/SKILL.md\n")
