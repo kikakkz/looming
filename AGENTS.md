@@ -54,6 +54,25 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
 
+## Go engineering standards
+
+Applies to all Go components. Rationale and evidence live in the decision
+records; this section is the checkable contract. Enforcing CI jobs land
+with the first Go component (CI-first rule); configs are already in the
+repo.
+
+**Structure (AD-23).** One root `go.mod`. Every capability lives under
+`internal/<capability>/` in four packages: `app/` (use-case
+orchestration), `domain/` (pure model and business rules), `port/`
+(interfaces), `adapter/` (driving and driven implementations).
+`cmd/<binary>/` holds only `main` wiring.
+
+**Architecture (AD-23).** The bounded contexts and their dependency
+matrix are declared in `.go-arch-lint.yml`; dependencies not listed
+there are rejected by the linter. V0 contexts: `gateway/dp`,
+`gateway/cp`, `cicd`, `agentruntime`, `registry` — all independent.
+Extending the map requires a superseding AD in the same PR.
+
 ## Directory map
 
 - `cmd/` — component entrypoints (one directory per binary; empty until the
