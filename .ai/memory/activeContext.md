@@ -8,8 +8,7 @@ type: activeContext
 ## Current focus
 
 - Go engineering methodology adopted — see the 2026-10-01 entry in
-  [[progress]] and [[AD-23]], [[AD-24]], [[AD-25]] (#24–#27 research and
-  #32–#35 adoption closed via #36).
+  [[progress]] and [[AD-23]], [[AD-24]], [[AD-25]].
 
 ## Next (each gated by maintainer instruction)
 
