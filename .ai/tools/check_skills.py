@@ -25,38 +25,44 @@ from pathlib import Path
 REQUIRED = ("name", "description")
 
 
-def parse_frontmatter(text: str) -> dict[str, str] | None:
-    """minimal frontmatter: key: value lines between --- fences."""
-    if not text.startswith("---\n"):
+def split_frontmatter(text: str) -> tuple[dict[str, str], str] | None:
+    """frontmatter block and body, split on line-level --- fences.
+
+    A line-based fence scan (not str.split): an embedded "---" line
+    inside the block must not be mistaken for the closing fence, and a
+    closing fence at EOF without a trailing newline is still found.
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
         return None
-    try:
-        block = text.split("---\n", 2)[1]
-    except IndexError:
+    closing = next((i for i in range(1, len(lines))
+                    if lines[i].strip() == "---"), None)
+    if closing is None:
         return None
     data: dict[str, str] = {}
-    for line in block.splitlines():
+    for line in lines[1:closing]:
         if not line.strip() or line.strip().startswith("#"):
             continue
         key, sep, value = line.partition(":")
         if sep:
             data[key.strip()] = value.strip().strip('"').strip("'")
-    return data
+    return data, "".join(lines[closing + 1:])
 
 
 def check_skill(skill_md: Path) -> list[str]:
     problems: list[str] = []
     rel = skill_md.parent.name
     text = skill_md.read_text(encoding="utf-8")
-    meta = parse_frontmatter(text)
-    if meta is None:
+    split = split_frontmatter(text)
+    if split is None:
         return [f"{rel}: missing or malformed YAML frontmatter"]
+    meta, body = split
     for key in REQUIRED:
         if not meta.get(key):
             problems.append(f"{rel}: frontmatter lacks a non-empty {key!r}")
     if meta.get("name") and meta["name"] != rel:
         problems.append(
             f"{rel}: name {meta['name']!r} does not match the directory")
-    body = text.split("---\n", 2)[2] if text.count("---\n") >= 2 else ""
     if not body.strip():
         problems.append(f"{rel}: no body after the frontmatter")
     return problems

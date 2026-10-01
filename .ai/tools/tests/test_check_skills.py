@@ -64,6 +64,17 @@ class CheckSkillsTests(unittest.TestCase):
         self.mk("empty", "---\nname: empty\ndescription: d\n---\n\n")
         self.assertEqual(self.run_check(), 1)
 
+    def test_embedded_fence_line_is_not_the_closer(self) -> None:
+        # a --- separator inside the prose body must not end the
+        # frontmatter early; the real closing fence is the LAST one
+        self.mk("sep", "---\nname: sep\ndescription: d\n---\n\n# sep\n\n"
+                        "---\nnot: frontmatter\n\n")
+        self.assertEqual(self.run_check(), 0)
+
+    def test_closing_fence_at_eof_without_newline(self) -> None:
+        self.mk("eof", "---\nname: eof\ndescription: d\n---")
+        self.assertEqual(self.run_check(), 1)  # no body after the fence
+
     def test_missing_root_is_error(self) -> None:
         self.assertEqual(
             cs.main(["--root", str(self.root / "absent")]), 1)
