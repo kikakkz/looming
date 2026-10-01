@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-26 — Separate repository-management and product planes](0026-separate-repository-management-and-product-planes.md)
 - [AD-25 — Testing stack policy: layers, tags, coverage](0025-testing-stack-policy-layers-tags-coverage.md)
 - [AD-24 — TDD workflow and complexity budgets](0024-tdd-workflow-and-complexity-budgets.md)
 - [AD-23 — Go component structure: DDD layers and context map](0023-go-component-structure-ddd-layers-and.md)
