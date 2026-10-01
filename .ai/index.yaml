@@ -32,6 +32,7 @@ required_rules:
   ci-first: AGENTS.md hard constraint 2
   upstream-first: .ai/skills/upstream-first/SKILL.md
   session-bootstrap: .ai/skills/session-bootstrap/SKILL.md
+  backlog: .ai/skills/backlog/SKILL.md
 
 authoritative_sources:
   tracker: https://github.com/kikakkz/looming/issues
