@@ -29,6 +29,12 @@ live, separate, and belongs to the repository plane.
 
 ## Decision
 
+This record is itself **repository-plane** — it governs how this
+repository tracks work; it is the plane-defining record, and the
+declaration requirement applies to everything classified after it
+(records about the product plane classify as product; nothing needs to
+declare "both" because plane-crossing items split at intake).
+
 1. Every issue, decision record, skill, and gate declares its plane.
    Items that span both get split at intake; neither plane may absorb
    the other's work silently.
