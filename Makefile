@@ -1,10 +1,13 @@
 SHELL := /bin/bash
 
-.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr lint-sh lint-semgrep lint-go test-unit test-coverage
+.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills lint-sh lint-semgrep lint-go test-unit test-coverage
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
-ci-gate: check-branch validate-locks test-tools check-trailers check-adr lint-sh lint-semgrep lint-go test-unit
+ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills lint-sh lint-semgrep lint-go test-unit
+
+check-skills:
+	python3 .ai/tools/check_skills.py
 
 # Branch names are cheapest to fix before push: a rename after a PR exists
 # forces close-and-reopen (GitHub cannot retarget a PR).
