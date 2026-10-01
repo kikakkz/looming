@@ -126,6 +126,11 @@ are never imported by production code.
   static matching), or an **accepted residual** (the reason it needs no
   action is stated in the PR or issue thread). A finding may not be
   dropped without one of these.
+- Methodology defaults are upstream-first: with no house rule, adopt
+  mature upstream practice and cite it
+  ([.ai/skills/upstream-first/SKILL.md](.ai/skills/upstream-first/SKILL.md));
+  escalate when no good reference exists, references conflict
+  materially, or the decision is organization-novel.
 - Bots and agents follow the same rules as humans: same CI, same trailer
   policy, same issue protocol.
 
