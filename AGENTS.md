@@ -136,8 +136,7 @@ are never imported by production code.
   before code; everything else is a plain issue.
 - Product intake backpressure: a component carries at most as many
   open implementable issues as one release cycle can land; excess is
-  labeled `status/parked` (issue-shaped work waits as a parked issue —
-  the lot is only for ideas not ready to become work).
+  labeled `status/parked` (issue-shaped work waits as a parked issue).
 - **Review-finding triage.** Every review finding must end in exactly one
   of three buckets: a **codified rule** (landed as a semgrep rule with
   positive/negative fixtures in `.ai/semgrep/rules`, AD-8), a **documented
@@ -150,9 +149,10 @@ are never imported by production code.
   ([.ai/skills/upstream-first/SKILL.md](.ai/skills/upstream-first/SKILL.md));
   escalate when no good reference exists, references conflict
   materially, or the decision is organization-novel.
-- Ideas route by readiness: decided work files an issue and starts; only
-  ideas not ready to become work park in the current backlog lot (rotating;
-  see [.ai/skills/backlog/SKILL.md](.ai/skills/backlog/SKILL.md)).
+- Ideas route by readiness: decided work files an issue and starts;
+  not-yet-started work files an issue labeled `status/parked` — one
+  parking mechanism, no open-ended tracking issues
+  ([.ai/skills/backlog/SKILL.md](.ai/skills/backlog/SKILL.md)).
 - Bots and agents follow the same rules as humans: same CI, same trailer
   policy, same issue protocol.
 

@@ -190,7 +190,10 @@ def cmd_new(args: argparse.Namespace) -> int:
         if target not in adrs:
             print(f"ERROR: cannot supersede missing AD-{target}", file=sys.stderr)
             return 1
-    body = ("## Context\n\n(todo)\n\n## Decision\n\n(todo)\n\n"
+    body = ("## Context\n\n"
+            "(todo — when this decision fixes observed rot, cite the "
+            "concrete drift evidence: what rotted, where it was seen)\n\n"
+            "## Decision\n\n(todo)\n\n"
             "## Consequences\n\n(todo)\n")
     path = write_adr(number, args.title, "accepted", body, supersedes,
                      None, today(), None)

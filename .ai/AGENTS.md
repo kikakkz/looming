@@ -88,7 +88,9 @@ same PR.
 - `memory_housekeeping.py doctor` audits sizes; the monthly `housekeeping`
   workflow opens a `kind/cleanup` issue when thresholds are exceeded.
 - `decisions/` — **procedural**: one file per architecture decision
-  (`NNNN-slug.md`), immutable except status flips. Create or supersede via
+  (`NNNN-slug.md`), immutable except status flips. Decisions born from
+  observed rot cite the concrete drift evidence in Context — what
+  rotted, where it was observed — the AD-0001 post-mortem shape (#48). Create or supersede via
   `python3 .ai/tools/adr_manager.py` (supersede is atomic and
   bidirectional); the index (`decisions/README.md`) is generated, never
   hand-edited. All changes, including status flips, land through a

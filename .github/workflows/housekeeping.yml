@@ -9,17 +9,6 @@ permissions:
   issues: write
 
 jobs:
-  backlog:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Rotate backlog lot when due
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python3 .ai/tools/backlog_rotate.py
-
   memory:
     runs-on: ubuntu-latest
     steps:
