@@ -29,7 +29,7 @@
 - [AD-2 — Distribution is a single self-contained bundle artifact](0002-distribution-is-a-single-self-contained.md)
 - [AD-1 — Monorepo with hybrid versioning](0001-monorepo-with-hybrid-versioning.md)
 
-## Superseded / Deprecated
+## Inactive (superseded / deprecated / deferred)
 
 - [AD-19 — `main` is protected on GitHub](0019-main-is-protected-on-github.md) — superseded by [AD-20](0020)
 - [AD-9 — Memory governance](0009-memory-governance.md) — superseded by [AD-22](0022)

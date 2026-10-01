@@ -95,6 +95,18 @@ class AdrManagerTests(AdrCase):
         self.assertIn("supersedes: [1]", two.read_text(encoding="utf-8"))
         self.assertEqual(self.check(), 0)
 
+    def test_deferred_status_renders_in_inactive_section(self) -> None:
+        adr.main(["new", "--title", "Parked design"])
+        path = adr.ADR_DIR / "0001-parked-design.md"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace('status: "accepted"', 'status: "deferred"'),
+                        encoding="utf-8")
+        adr.main(["index"])
+        index = adr.INDEX.read_text(encoding="utf-8")
+        self.assertIn("Inactive (superseded / deprecated / deferred)", index)
+        self.assertIn("AD-1 — Parked design", index)
+        self.assertEqual(self.check(), 0)
+
     def test_import_refuses_nonempty_directory(self) -> None:
         adr.main(["new", "--title", "Existing"])
         legacy = self.tmp / "decisions.md"

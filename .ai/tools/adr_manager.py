@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ADR_DIR = Path(os.environ.get("ADR_DIR", ROOT / "memory" / "decisions"))
 INDEX = ADR_DIR / "README.md"
 
-STATUSES = ("accepted", "superseded", "deprecated")
+STATUSES = ("accepted", "superseded", "deprecated", "deferred")
 
 
 # --------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def render_index(adrs: dict[int, Adr]) -> str:
            "## Active", ""]
     for a in active:
         out.append(f"- [AD-{a.number} — {a.title}]({a.path.name})")
-    out += ["", "## Superseded / Deprecated", ""]
+    out += ["", "## Inactive (superseded / deprecated / deferred)", ""]
     for a in dead:
         link = f" — superseded by [AD-{a.superseded_by}]({a.superseded_by:04d})" if a.superseded_by else ""
         out.append(f"- [AD-{a.number} — {a.title}]({a.path.name}){link}")

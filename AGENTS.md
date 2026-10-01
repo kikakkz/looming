@@ -125,6 +125,18 @@ are never imported by production code.
   implementation for anything non-trivial.
 - Acceptance criteria in the issue define "done"; PRs state how each is met.
 - Reviews judge conformance to this file as much as code quality.
+- Product-plane issues state the `.ai/` tooling they will replace or
+  promote (dogfood migration target — e.g. pr_watch.py -> product
+  judge); AD-26's seam is a literal migration checklist.
+- Dogfood automation failure is issue-worthy: when a repo automation
+  (ci-gate job, pr-watch, housekeeping, labeler) flakes or misbehaves,
+  file an issue instead of silently retrying.
+- Design-first trigger: a change that is user/operator-facing or
+  crosses an AD-23 context boundary lands as `kind/design` with an AD
+  before code; everything else is a plain issue.
+- Product intake backpressure: a component carries at most as many
+  open implementable issues as one release cycle can land; excess
+  parks in the backlog lot.
 - **Review-finding triage.** Every review finding must end in exactly one
   of three buckets: a **codified rule** (landed as a semgrep rule with
   positive/negative fixtures in `.ai/semgrep/rules`, AD-8), a **documented
