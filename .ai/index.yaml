@@ -33,6 +33,7 @@ required_rules:
   upstream-first: .ai/skills/upstream-first/SKILL.md
   session-bootstrap: .ai/skills/session-bootstrap/SKILL.md
   backlog: .ai/skills/backlog/SKILL.md
+  small-step-iteration: .ai/skills/small-step-iteration/SKILL.md
 
 authoritative_sources:
   tracker: https://github.com/kikakkz/looming/issues
