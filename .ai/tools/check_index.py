@@ -43,6 +43,11 @@ def build_model(text: str) -> dict[str, object]:
             if current is None:
                 raise IndexError_(
                     f"line {lineno}: entry before any section")
+            leading = raw[: len(raw) - len(raw.lstrip())]
+            if "\t" in leading or len(leading) != 2:
+                raise IndexError_(
+                    f"line {lineno}: entries are indented exactly two "
+                    f"spaces (got {len(leading)} chars)")
             stripped = raw.strip()
             if kind is None:
                 # first entry decides the section kind and container
@@ -67,7 +72,12 @@ def build_model(text: str) -> dict[str, object]:
                 value = value.strip()
                 if not value:
                     raise IndexError_(f"line {lineno}: empty value")
-                sections[current][sub.strip()] = value  # type: ignore[index]
+                sub = sub.strip()
+                if sub in sections[current]:
+                    raise IndexError_(
+                        f"line {lineno}: duplicate key {sub!r} in "
+                        f"{current!r}")
+                sections[current][sub] = value  # type: ignore[index]
             continue
         key, sep, value = raw.partition(":")
         if not sep or not key.strip():
@@ -123,7 +133,9 @@ def check(root: Path, index: Path) -> list[str]:
             if not anchor_exists(root, ref):
                 problems.append(f"{section}.{sub} anchor missing: {ref}")
     rules = model.get("required_rules")
-    if isinstance(rules, dict):
+    if rules is not None and not isinstance(rules, dict):
+        problems.append("required_rules must be a key: value map")
+    elif isinstance(rules, dict):
         for name, ref in rules.items():
             token = ref.split()[0] if ref.split() else ""
             if (token.endswith(".md") or token.startswith(".")) \

@@ -86,6 +86,22 @@ class CheckIndexTests(unittest.TestCase):
         self.mk("docs")  # file, not directory
         self.assertTrue(any("docs/" in p for p in self.problems()))
 
+    def test_tab_indentation_rejected(self) -> None:
+        self.write("read_order:\n\t- a\n")
+        self.assertTrue(self.problems())
+
+    def test_deep_indentation_rejected(self) -> None:
+        self.write("read_on_demand:\n    skills: .ai/skills/\n")
+        self.assertTrue(self.problems())
+
+    def test_duplicate_subsection_key_rejected(self) -> None:
+        self.write("read_on_demand:\n  skills: one.md\n  skills: two.md\n")
+        self.assertTrue(self.problems())
+
+    def test_required_rules_shape_enforced(self) -> None:
+        self.write("required_rules:\n  - .ai/skills/missing/SKILL.md\n")
+        self.assertTrue(any("required_rules" in p for p in self.problems()))
+
     def test_main_cli(self) -> None:
         self.write(GOOD)
         self.mk("AGENTS.md")
