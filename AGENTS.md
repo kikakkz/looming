@@ -44,7 +44,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 ## Commands
 
 - `make ci-gate` — run the full local gate (branch name, locks, tool
-  tests, trailer checks, ADR check, shell lint).
+  tests, trailer checks, ADR check, shell lint, semgrep rules).
 - `make check-branch` — validate the current branch name against the
   naming rule before push (same rule as the `branch-name` CI check). Run
   `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
@@ -53,6 +53,9 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
+- `make lint-semgrep` — validate the custom rule fixtures
+  (`semgrep --test`) and scan `.ai/tools` with the rule pack
+  (`.ai/semgrep/rules`); warns and skips when semgrep is missing locally.
 - `make lint-go` — golangci-lint (complexity budgets, AD-24); warns and
   skips when golangci-lint or go.mod is missing locally.
 - `make test-unit` — Go unit tests with `-race`; falls back to plain
@@ -116,6 +119,13 @@ are never imported by production code.
   implementation for anything non-trivial.
 - Acceptance criteria in the issue define "done"; PRs state how each is met.
 - Reviews judge conformance to this file as much as code quality.
+- **Review-finding triage.** Every review finding must end in exactly one
+  of three buckets: a **codified rule** (landed as a semgrep rule with
+  positive/negative fixtures in `.ai/semgrep/rules`, AD-8), a **documented
+  rule** (encoded in a skill or `docs/`, for findings too semantic for
+  static matching), or an **accepted residual** (the reason it needs no
+  action is stated in the PR or issue thread). A finding may not be
+  dropped without one of these.
 - Bots and agents follow the same rules as humans: same CI, same trailer
   policy, same issue protocol.
 

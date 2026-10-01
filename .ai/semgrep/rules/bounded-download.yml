@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: bounded-download
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Downloads must be time-bounded: pass --max-time/--connect-timeout to
+      curl, or --timeout/--connect-timeout to wget. An unbounded download can
+      hang the caller forever (CWE-400).
+    metadata:
+      cwe:
+        - "CWE-400: Uncontrolled Resource Consumption"
+      source: "PR #17 review finding: 'Bound the release download time'"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: curl ...
+          - pattern: wget ...
+      # flags may be written space-separated (--max-time 300) or joined
+      # (--max-time=300); a single regex covers both forms
+      - pattern-not-regex: '(?:--max-time|--connect-timeout|--timeout|--dns-timeout|--read-timeout)(?:=|\s|$)'

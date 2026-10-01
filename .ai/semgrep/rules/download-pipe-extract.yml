@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: download-pipe-extract
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Piping a download straight into tar/unzip leaves no point where a
+      checksum can be verified. Download to a file, verify it (e.g.
+      `sha256sum -c`), then extract (CWE-353 / CWE-345).
+    metadata:
+      cwe:
+        - "CWE-353: Missing Support for Integrity Check"
+        - "CWE-345: Insufficient Verification of Data Authenticity"
+      source: >-
+        PR #17 review finding: 'Keep the previous installation until
+        extraction succeeds'
+      confidence: HIGH
+    pattern-either:
+      - pattern: curl ... | tar ...
+      - pattern: wget ... | tar ...
+      - pattern: curl ... | unzip ...
+      - pattern: wget ... | unzip ...

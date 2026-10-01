@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: checksum-gated-archive-extraction
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      A downloaded archive is extracted without a checksum verification in
+      between. Verify the archive (e.g. `sha256sum -c`) after downloading and
+      before extracting, and abort on mismatch (CWE-353 / CWE-345).
+    metadata:
+      cwe:
+        - "CWE-353: Missing Support for Integrity Check"
+        - "CWE-345: Insufficient Verification of Data Authenticity"
+      source: >-
+        PR #17 review findings: 'Keep the previous installation until
+        extraction succeeds', 'Add a checksum-failure installation test'
+      confidence: MEDIUM
+    patterns:
+      - pattern-inside: |
+          curl ... -o $ARCHIVE ...
+          ...
+      - pattern-either:
+          - pattern: tar $FLAGS ... $ARCHIVE ...
+          - pattern: tar --extract ... $ARCHIVE ...
+      - metavariable-regex:
+          metavariable: $FLAGS
+          regex: "^-x.*$"
+      # A verification step between download and extraction lifts the gate.
+      # File-level dataflow is a documented approximation: the rule checks
+      # that a `sha256sum -c` runs after the download and before the
+      # extraction, not that it names the same file (semgrep bash has no
+      # taint tracking).
+      - pattern-not-inside: |
+          sha256sum ... -c ...
+          ...
+          tar ... $ARCHIVE ...
