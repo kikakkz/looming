@@ -1,6 +1,9 @@
 # AGENTS.md — `.ai/`
 
-Agent assets live here. Everything in this directory is checked by CI
+Agent assets live here. Bootstrap from the machine-readable map
+[.ai/index.yaml](index.yaml) (`read_order`, `read_on_demand`,
+`required_rules`) — never crawl this directory; the session-bootstrap
+skill (`.ai/skills/session-bootstrap/`) defines the protocol. Everything in this directory is checked by CI
 (`make ci-gate`); anything added here must arrive with its checks in the
 same PR.
 

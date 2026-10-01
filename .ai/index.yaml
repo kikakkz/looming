@@ -1,0 +1,44 @@
+# Machine-readable index of the .ai/ control plane (borrowed back from
+# the wait-agent survey, #48). Agents bootstrap from this file instead
+# of crawling the directory.
+#
+# `make check-index` validates that every referenced file exists and
+# rejects unknown sections. wait-agent's own integrity check passed
+# vacuously while its anchors were dead links (#48 records the lesson),
+# so this gate is strict: anything it cannot parse is an error, never
+# silently skipped.
+#
+# Schema (intentionally minimal; parsed by .ai/tools/check_index.py
+# with stdlib only):
+#   key: value        scalar
+#   key:              list  — followed by "  - item" lines
+#   key:              map   — followed by "  sub: value" lines
+
+read_order:
+  - AGENTS.md
+  - .ai/AGENTS.md
+  - .ai/memory/activeContext.md
+  - .ai/memory/decisions/README.md
+
+read_on_demand:
+  progress: .ai/memory/progress.md
+  decisions: .ai/memory/decisions/
+  skills: .ai/skills/
+  tools: .ai/tools/
+  semgrep: .ai/semgrep/rules/
+
+required_rules:
+  issue-driven: AGENTS.md hard constraint 1
+  ci-first: AGENTS.md hard constraint 2
+  upstream-first: .ai/skills/upstream-first/SKILL.md
+  session-bootstrap: .ai/skills/session-bootstrap/SKILL.md
+
+authoritative_sources:
+  tracker: https://github.com/kikakkz/looming/issues
+  decisions: .ai/memory/decisions/README.md
+  gate: Makefile
+
+directories:
+  skills: .ai/skills/
+  tools: .ai/tools/
+  memory: .ai/memory/
