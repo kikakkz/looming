@@ -112,12 +112,18 @@ def verdict_for_head(reviews: list[dict], head: str) -> str:
 
 
 def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
-    query = (
-        "query($owner:String!,$name:String!,$number:Int!){"
-        "repository(owner:$owner,name:$name){"
-        f"pullRequest(number:{pr}){{reviewThreads(first:100){{nodes{{"
-        "id isResolved isOutdated path line"
-        "comments(first:1){nodes{body author{login}}}}}}}}}}}")
+    query = f"""query($owner:String!,$name:String!,$number:Int!) {{
+      repository(owner:$owner, name:$name) {{
+        pullRequest(number:{pr}) {{
+          reviewThreads(first:100) {{
+            nodes {{
+              id isResolved isOutdated path line
+              comments(first:1) {{ nodes {{ body author {{ login }} }} }}
+            }}
+          }}
+        }}
+      }}
+    }}"""
     owner, name = repo.split("/")
     out = run_gh(["api", "graphql", "-f", f"query={query}",
                   "-f", f"owner={owner}", "-f", f"name={name}",

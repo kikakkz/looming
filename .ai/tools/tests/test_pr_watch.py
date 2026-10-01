@@ -94,6 +94,24 @@ class PureFunctionTests(unittest.TestCase):
         reviews = [review("CHANGES_REQUESTED", commit="oldsha")]
         self.assertEqual(pw.verdict_for_head(reviews, HEAD), "none")
 
+    def test_open_threads_query_is_balanced(self) -> None:
+        # live-demo regression: a string-concatenation slip produced
+        # `linecomments` and an unbalanced query that gh rejected
+        sent: list[list[str]] = []
+        fake = GhFake({("api", "graphql", "query"): {"data": {"repository":
+            {"pullRequest": {"reviewThreads": {"nodes": []}}}}}})
+
+        def spy(args: list[str], gh: str = "gh") -> str:
+            sent.append(args)
+            return fake(args, gh)
+
+        with mock.patch.object(pw, "run_gh", spy):
+            self.assertEqual(pw.open_threads("x/y", 7, "gh"), [])
+        body = next(a.split("=", 1)[1] for a in sent[0]
+                    if a.startswith("query="))
+        self.assertEqual(body.count("{"), body.count("}"))
+        self.assertIn("line\n", body)  # field boundary survived
+
     def test_nudge_count_filters_text_and_time(self) -> None:
         comments = [
             {"body": "@coderabbitai full review",
