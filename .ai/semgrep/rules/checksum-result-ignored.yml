@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: checksum-result-ignored
+    # bash patterns cannot match `||` (like redirections, it lives
+    # outside the command node), so this rule matches the raw line; the
+    # leading negative lookahead keeps comment lines from matching.
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      The checksum verification result is discarded (`|| true` / `|| :`).
+      A failed checksum must abort the run before anything consumes the
+      verified file (CWE-754).
+    metadata:
+      cwe:
+        - "CWE-754: Improper Check of Exceptional Conditions"
+      source: >-
+        PR #17 review finding: 'Add a checksum-failure installation test'
+      confidence: HIGH
+    # the swallow token may be followed by a comment or further
+    # semicolon-separated commands on the same line; the negative
+    # lookahead keeps the token boundary so `true_helper` does not match
+    pattern-regex: '(?m)^(?![ \t]*#)[^\n]*\bsha256sum\b[^\n]*\|\|[ \t]*(?:true|:)(?![A-Za-z0-9_])[^\n]*$'

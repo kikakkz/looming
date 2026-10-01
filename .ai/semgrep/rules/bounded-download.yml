@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: bounded-download
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Downloads must be transfer-time bounded: pass --max-time to curl or
+      --timeout to wget. A connection-only bound (--connect-timeout)
+      still lets a stalled transfer wait indefinitely, and an unbounded
+      download can hang the caller forever (CWE-400).
+    metadata:
+      cwe:
+        - "CWE-400: Uncontrolled Resource Consumption"
+      source: "PR #17 review finding: 'Bound the release download time'"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: curl ...
+          - pattern: wget ...
+      # the bound must cover the transfer, not just connection setup:
+      # curl --max-time / wget --timeout, in either `--flag value` or
+      # `--flag=value` form
+      - pattern-not-regex: '(?:--max-time|--timeout)(?:=|\s|$)'

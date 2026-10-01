@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: fixed-suffix-backup-name
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      Backing up to a fixed .bak/.old/.backup name overwrites (or can be
+      pre-created by) an existing path and destroys the previous backup.
+      Reserve a unique name with mktemp, or suffix with an unpredictable
+      component (CWE-377).
+    metadata:
+      cwe:
+        - "CWE-377: Insecure Temporary File"
+      source: >-
+        PR #17 review findings: 'Use a unique, non-overwriting backup name',
+        'Reserve a backup path that does not already exist'
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: cp ... $SRC $DST
+          - pattern: mv ... $SRC $DST
+      - metavariable-regex:
+          metavariable: $DST
+          regex: '.*\.(bak|old|backup)("|$)'

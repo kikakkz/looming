@@ -45,6 +45,19 @@ same PR.
 - Bash scripts must pass `shellcheck`; Python must be stdlib-only.
 - Scripts must be deterministic and side-effect free outside their args.
 
+## `semgrep/` — custom static rules
+
+- One rule per pair: `rules/<name>.yml` (the rule) and
+  `rules/<name>.bash` (its fixture, semgrep test annotations —
+  `# ruleid: <id>` must-hit lines, `# ok: <id>` must-miss lines).
+- Rules codify review findings per the triage convention in the root
+  AGENTS.md; each rule's metadata cites the finding it comes from and its
+  CWE mapping. Findings too semantic for static matching stay documented
+  rules (skills/docs), never half-codified here.
+- `make lint-semgrep` runs `semgrep --test` on the fixtures and scans
+  `.ai/tools` with `--error`; both run in CI. If bash mode cannot express
+  a rule, use `generic` mode and say why in a rule comment.
+
 ## `memory/` — memory bank
 
 - Plain markdown with `updated:` frontmatter; files interlink with

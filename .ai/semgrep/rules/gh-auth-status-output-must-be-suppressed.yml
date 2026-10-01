@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+rules:
+  - id: gh-auth-status-output-must-be-suppressed
+    # bash mode cannot express this rule: redirections are optional in
+    # bash patterns, so a redirected call is indistinguishable from a
+    # bare one. Match the raw line with a regex instead: a leading `#`
+    # keeps comment lines from matching. Safe forms are a pipe into the
+    # consumer, or both streams redirected — on failure gh writes its
+    # status output (account details) to stderr, so stdout-only
+    # redirection still leaks.
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      `gh auth status` writes account details to stdout, and to stderr
+      when authentication fails; pipe it into its consumer or redirect
+      both streams. `2>&1`-only redirection still leaks stdout to the
+      terminal (CWE-532).
+    metadata:
+      cwe:
+        - "CWE-532: Insertion of Sensitive Information into Log File"
+      source: "PR #17 review finding: 'suppressed gh auth status output'"
+      confidence: HIGH
+    pattern-regex: '^[ \t]*gh[ \t]+auth[ \t]+status\b(?![^\n]*(?<!\|)\|(?!\|))(?![^\n]*(?<![0-9])>[^\n]*2>)'
