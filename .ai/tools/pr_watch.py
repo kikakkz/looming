@@ -158,7 +158,11 @@ def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
         if not page["hasNextPage"]:
             break
         cursor = page["endCursor"]
-    return [t for t in nodes if not t["isResolved"] and not t["isOutdated"]]
+    # GitHub tracks isOutdated and isResolved separately: a fix can
+    # outdate a thread without resolving it, and those conversations
+    # still block merge (required_conversation_resolution). Keep every
+    # unresolved thread visible; callers decide fix vs resolve.
+    return [t for t in nodes if not t["isResolved"]]
 
 
 def nudges_for_head(comments: list[dict], head: str) -> int:
@@ -271,11 +275,32 @@ def cmd_findings(repo: str, pr: int, gh: str) -> int:
         "id": t["id"],
         "path": t.get("path"),
         "line": t.get("line"),
+        "outdated": t.get("isOutdated", False),
         "author": t["comments"]["nodes"][0]["author"]["login"]
         if t["comments"]["nodes"] else None,
-        "body": (t["comments"]["nodes"][0]["body"][:200]
+        "body": (t["comments"]["nodes"][0]["body"]
                  if t["comments"]["nodes"] else ""),
     } for t in threads]
+    # findings that live in the review body rather than the diff have no
+    # thread; surface the latest CHANGES_REQUESTED body so triage sees them
+    pull = gh_json(["api", f"repos/{repo}/pulls/{pr}"], gh)
+    head = head_sha(pull)
+    reviews = gh_json_list(["api", f"repos/{repo}/pulls/{pr}/reviews"], gh)
+    standing = [r for r in reviews
+                if r["user"]["login"] == BOT_LOGIN
+                and r.get("commit_id") == head
+                and r.get("state") == "CHANGES_REQUESTED"
+                and (r.get("body") or "").strip()]
+    if standing:
+        latest = max(standing, key=lambda r: r.get("submitted_at") or "")
+        slim.append({
+            "id": None,
+            "path": None,
+            "line": None,
+            "outdated": False,
+            "author": BOT_LOGIN,
+            "body": "[review summary] " + latest["body"].strip(),
+        })
     print(json.dumps(slim, indent=2))
     return 0
 
