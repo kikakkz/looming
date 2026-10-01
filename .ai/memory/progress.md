@@ -56,3 +56,44 @@ open-state truth lives in the issue tracker -->
   deny pattern never matched anything; fixed to the canonical
   `list-mode: strict` + `allow: [$gostd]`. Verified APPROVED →
   auto-merge fired without a manual nudge.
+
+## 2026-10-01 — Engineering-tooling suite: semgrep pack, pr-watch, upstream-first
+
+- Maintainer direction (#39): "不再为成熟实践设决策点" — methodology
+  questions follow mature upstream practice autonomously; escalate only
+  when organization-novel. Codified as `.ai/skills/upstream-first/` with
+  `make check-skills` validating every SKILL.md (frontmatter contract,
+  six tests). #24–#27's research debt is fully converted: no open
+  methodology questions remain.
+- #19 semgrep rule pack (#43): eight rules with positive/negative
+  fixture pairs codify PR #17's pattern-class findings (bounded
+  downloads, checksum-gated extraction + swallowed-checksum, credential
+  prompt guards, gh host pinning, auth-status suppression, backup-name
+  uniqueness). Bash-mode semantics mapped empirically: full-word command
+  matching needs `$...ARGS` ellipses; env-prefix exceptions and
+  redirects live outside the command node, so several rules are
+  generic-mode regexes; pure-lookahead regexes produce zero-width
+  matches that `pattern-not-regex` does not honor. The pack caught its
+  first real defect on day one (cross-line credential guard in
+  setup_gh.sh). Review-finding triage convention now in AGENTS.md:
+  codified rule / documented rule / accepted residual.
+- #23 pr-watch (#44): `.ai/tools/pr_watch.py` + skill own the
+  review-fix loop. Live demo on its own PR caught real defects round
+  one (GraphQL braces, check-runs envelope). Review loop economics
+  measured: five rounds each on #41/#44; the lever that ends a clean PR
+  is an explicit "Please submit a formal APPROVED review" comment plus
+  GraphQL resolution of all threads; stale CHANGES_REQUESTED from older
+  heads can be dismissed once findings are confirmed addressed. The
+  approval-vs-push race rule is encoded: nudge idempotency matches the
+  head SHA recorded in our own comment, never timestamps.
+- Operating lesson (parallel agents): a background subagent sharing the
+  main worktree committed to the checked-out branch and force-pushed
+  mid-session. Recovery cost real time. Rule recorded here: subagents
+  get dedicated `git worktree`s before any git write, always; main-tree
+  branch checkouts while a subagent runs are forbidden. The zombie
+  eventually completed #19's loop correctly from its worktree — the
+  procedure, once isolated, worked as written.
+- Repo state after the suite: main carries semgrep + check-skills +
+  pr_watch in ci-gate; 60+ tool tests green; open issues are #21
+  (parking lot) and #20 (judge evaluation — deferred by maintainer
+  until wait-agent practice matures).

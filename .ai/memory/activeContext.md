@@ -7,20 +7,19 @@ type: activeContext
 
 ## Current focus
 
-- Go engineering methodology adopted — see the 2026-10-01 entry in
-  [[progress]] and [[AD-23]], [[AD-24]], [[AD-25]].
+- Engineering-tooling suite complete — see the 2026-10-01 entry in
+  [[progress]] (#19, #23, #39).
 
 ## Next (each gated by maintainer instruction)
 
-- Gateway component (frozen until started) — AD-3; preceded by the
-  agentgateway research and the runtime spike (AD-15). The methodology
-  configs those ADs name are already in the repo.
+- Overall architecture discussion with the maintainer before any
+  feature work — the gateway stays frozen ([[AD-3]]); the agentgateway
+  research and runtime spike ([[AD-15]]) precede it.
 - Event-stream schema: deferred by decision; its own issue when
   unblocked.
 
 ## Open questions
 
-- E2E runner budget — the `e2e` layer is defined in AD-25 but stays
-  empty until one exists.
-- Clean first-pass PRs vs the 1-approval gate — #21; redesign
-  candidate under #23 (pr-watch).
+- E2E runner budget — the `e2e` layer is defined in [[AD-25]].
+- Review-gate economics at scale — see the 2026-10-01 entry in
+  [[progress]]; `.ai/skills/pr-watch/` implements the current levers.
