@@ -135,6 +135,8 @@ class Api:
 
     def call(self, path: str, payload: dict | None = None,
              method: str | None = None) -> dict:
+        # GitHub REST assigns a method per endpoint: POST to create,
+        # PATCH to update — never rely on payload-implied POST
         req = urllib.request.Request(
             f"https://api.github.com/repos/{self.repo}{path}",
             data=json.dumps(payload).encode() if payload else None,
@@ -167,13 +169,15 @@ def rotate(api: Api, skill_path: Path, dry_run: bool) -> int:
         "labels": LOT_LABELS,
     })
     api.call(f"/issues/{lot}", {"state": "closed",
-                                "state_reason": "completed"})
+                                "state_reason": "completed"},
+             method="PATCH")
     api.call(f"/issues/{lot}/comments", {
         "body": build_summary_comment(lot, graduated, unchecked)})
     # the skill file lives in git: a CI checkout is throwaway, so the
     # reference update rides a follow-up issue rather than a lost write
     followup_title = f"chore: point backlog skill at lot #{lot + 1}"
-    open_issues = api.call("/issues?state=open&labels=kind/cleanup")
+    open_issues = api.call(
+        "/issues?state=open&labels=kind/cleanup&per_page=100")
     if not any(i["title"] == followup_title for i in open_issues):
         api.call("/issues", {
             "title": followup_title,

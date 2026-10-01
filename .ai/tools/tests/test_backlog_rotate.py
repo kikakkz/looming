@@ -97,6 +97,7 @@ class ApiFake:
 
     def call(self, path, payload=None, method=None):
         if payload and payload.get("state") == "closed":
+            assert method == "PATCH", f"issue close must be PATCH, got {method}"
             self.closed.append(21)
             return {}
         if path == "/issues/21" and payload is None:
@@ -105,6 +106,7 @@ class ApiFake:
             self.created.append(payload)
             return {"number": 22}
         if path.startswith("/issues?state=open"):
+            assert "per_page=100" in path
             return self.open_cleanup
         if path.endswith("/comments"):
             self.comments.append((21, payload["body"]))
