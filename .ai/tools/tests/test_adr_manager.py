@@ -45,6 +45,23 @@ class AdrManagerTests(AdrCase):
         self.assertIn("supersedes: [1]", new)
         self.assertEqual(self.check(), 0)
 
+    def test_new_skeleton_carries_updated_field(self) -> None:
+        adr.main(["new", "--title", "Fresh"])
+        text = adr.ADR_DIR.joinpath("0001-fresh.md").read_text(encoding="utf-8")
+        self.assertIn('updated: "', text)
+        self.assertIn(f'updated: "{adr.today()}"', text)
+
+    def test_supersede_bumps_updated_on_target(self) -> None:
+        adr.main(["new", "--title", "Old way"])
+        old = adr.ADR_DIR / "0001-old-way.md"
+        stale = old.read_text(encoding="utf-8").replace(
+            f'updated: "{adr.today()}"', 'updated: "2000-01-01"', 1)
+        old.write_text(stale, encoding="utf-8")
+        adr.main(["new", "--title", "New way", "--supersedes", "1"])
+        flipped = old.read_text(encoding="utf-8")
+        self.assertNotIn('updated: "2000-01-01"', flipped)
+        self.assertIn(f'updated: "{adr.today()}"', flipped)
+
     def test_check_detects_missing_reciprocal_link(self) -> None:
         adr.main(["new", "--title", "A"])
         adr.main(["new", "--title", "B"])

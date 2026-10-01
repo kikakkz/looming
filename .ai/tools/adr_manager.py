@@ -133,6 +133,7 @@ def write_adr(number: int, title: str, status: str, body: str,
         "number": number,
         "title": title,
         "date": adopted_at,
+        "updated": adopted_at,
         "status": status,
         "supersedes": supersedes,
     }
@@ -150,6 +151,7 @@ def write_adr(number: int, title: str, status: str, body: str,
 def flip_to_superseded(target: Adr, by: int) -> None:
     meta = dict(target.meta)
     meta["status"] = "superseded"
+    meta["updated"] = today()
     meta["superseded-by"] = by
     meta["superseded-at"] = today()
     body = target.text.split("---\n", 2)[2]
