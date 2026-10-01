@@ -31,8 +31,8 @@ open-state truth lives in the issue tracker -->
   mature upstream practice (research first, decide only when no good
   reference exists), never by blocking on a decision meeting. This
   milestone is the first execution of that rule.
-- PR #36 (branch `feat/33-methodology-stack`, one commit per concern)
-  landed AD-23, AD-24, AD-25 plus configs; closes #24–#27 (research
+- #36 (one commit per concern) landed AD-23, AD-24, AD-25 plus configs;
+  closes #24–#27 (research
   issues) and #32–#35 (adoption issues). #32 fixed first: the ADR
   skeleton now emits the required `updated:` frontmatter field.
 - AD-23: single root `go.mod`; per-component `app/domain/port/adapter`
