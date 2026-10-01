@@ -13,9 +13,12 @@ a cache; the tracker and the repository are the truth.
 ## Protocol
 
 1. **Load the control plane in order.** Read `.ai/index.yaml` first,
-   then its `read_order` list top to bottom. Never crawl `.ai/` — the
-   index is the map; if the index and the directory disagree, fix the
-   index (co-change rule) rather than guessing.
+   then its `read_order` list top to bottom, then the `required_rules`
+   map — those named skills (upstream-first, backlog,
+   small-step-iteration, …) are loaded for every session, not on
+   demand. Never crawl `.ai/` — the index is the map; if the index and
+   the directory disagree, fix the index (co-change rule) rather than
+   guessing.
 2. **Orient, don't archive-dive.** `activeContext.md` says what matters
    now; the latest `progress.md` entry says how we got here. Follow
    pointers into decisions and issues for detail — never restate it.
