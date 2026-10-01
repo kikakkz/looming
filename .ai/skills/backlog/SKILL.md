@@ -19,6 +19,11 @@ below) — an intake, not a waiting room for everything.
 2. **Direction unclear, needs discussion, or no owner yet?** Park it in
    the current lot: one or two sentences, no design required. Reference
    stable identifiers only (issue / AD numbers), never file anchors.
+   Idea-shaped work waits here; **issue-shaped but not-now work files a
+   real issue labeled `status/parked`** instead — parked work must be a
+   queryable state across lot rotations (the k8s lifecycle-label
+   lesson), and a parked issue re-affirms its parking at every lot
+   rotation or decays with the lot.
 3. **Graduation.** When a parked idea becomes a real issue, check its
    box in the lot and link the issue. The lot never keeps shadows of
    graduated work.
