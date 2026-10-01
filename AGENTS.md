@@ -86,6 +86,16 @@ cyclomatic ≤ 15. Budgets only ratchet down, via a superseding AD-24.
 Every `//nolint` names its linter, explains itself, and must be in use
 (nolintlint).
 
+**Testing (AD-25).** Layers by build tag: unit (default — no network,
+disk, or wall-clock), `integration` (testcontainers-go; GitLab CE via
+`GenericContainer`), `e2e` (deferred until a runner budget exists).
+Regression protection is replay/fixture tests inside the unit and
+integration layers, added with every bug fix. Assertions: testify +
+go-cmp. Coverage ≥ 80% at file, package, and total granularity
+(go-test-coverage, `.testcoverage.yml`). A skipped test cites its
+`kind/flake` issue number; test-only helpers live under `tests/` and
+are never imported by production code.
+
 ## Directory map
 
 - `cmd/` — component entrypoints (one directory per binary; empty until the
