@@ -1,6 +1,6 @@
 ---
 name: upstream-first
-description: Settle methodology, process, and tooling questions by researching and adopting mature upstream practice first. Use whenever a decision has no repository rule yet. Escalate to the maintainer only when no good reference exists or the decision is organization-novel.
+description: Settle methodology, process, and tooling questions by researching and adopting mature upstream practice first. Use whenever a decision has no repository rule yet. Escalate to the maintainer only when no good reference exists, references conflict materially, or the decision is organization-novel.
 ---
 
 # Upstream First

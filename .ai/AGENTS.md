@@ -8,7 +8,8 @@ same PR.
 
 - One directory per skill, each containing a `SKILL.md` following the
   Agent Skills open standard: YAML frontmatter with required `name` and
-  `description`.
+  `description`. `make check-skills` validates the contract (name matches
+  the directory, body present).
 - Frontmatter may set `license: Apache-2.0`.
 - Body: concise, imperative, tool-agnostic instructions. Link, don't copy,
   external reference material.
