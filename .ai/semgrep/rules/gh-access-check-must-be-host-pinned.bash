@@ -14,6 +14,9 @@ checks_unpinned() {
 
     # ruleid: gh-access-check-must-be-host-pinned
     gh api repos/acme/widget --jq .name
+
+    # ruleid: gh-access-check-must-be-host-pinned
+    gh auth status --hostname gitlab.com --active
 }
 
 checks_pinned() {

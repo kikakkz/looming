@@ -12,6 +12,18 @@ status_leaks() {
 
     # ruleid: gh-auth-status-output-must-be-suppressed
     gh auth status --hostname github.com --active 2>&1
+
+    # ruleid: gh-auth-status-output-must-be-suppressed
+    gh auth status --hostname github.com --active >/dev/null
+
+    # ruleid: gh-auth-status-output-must-be-suppressed
+    gh auth status --hostname github.com --active >"$log"
+
+    # ruleid: gh-auth-status-output-must-be-suppressed
+    gh auth status --hostname github.com --active || exit 1
+
+    # ruleid: gh-auth-status-output-must-be-suppressed
+    gh auth status --hostname github.com --active && echo ready >/dev/null
 }
 
 status_suppressed() {

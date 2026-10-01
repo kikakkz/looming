@@ -16,19 +16,21 @@ lookup_prompts() {
 
     # ruleid: non-interactive-credential-lookup
     git push origin main
+
+    # ruleid: non-interactive-credential-lookup
+    GIT_TERMINAL_PROMPT=0 git credential fill <<<"$request"
 }
 
 lookup_non_interactive() {
     # ok: non-interactive-credential-lookup
-    cred=$(GIT_TERMINAL_PROMPT=0 git credential fill <<<"$request")
+    cred=$(GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git credential fill <<<"$request")
 
     # ok: non-interactive-credential-lookup
-    cred=$(env -u GIT_DIR GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 \
-        git -c core.askPass= credential fill 2>/dev/null <<<"$request")
+    cred=$(env -u GIT_DIR GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git -c core.askPass= credential fill 2>/dev/null <<<"$request")
 
     # ok: non-interactive-credential-lookup
-    GIT_TERMINAL_PROMPT=0 git clone https://github.com/acme/widget.git "$srcdir"
+    GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git clone https://github.com/acme/widget.git "$srcdir"
 
     # ok: non-interactive-credential-lookup
-    env -u GIT_SSH_COMMAND GIT_TERMINAL_PROMPT=0 git ls-remote origin
+    env -u GIT_SSH_COMMAND GIT_ASKPASS= GIT_TERMINAL_PROMPT=0 git ls-remote origin
 }

@@ -4,10 +4,10 @@ rules:
     languages: [bash]
     severity: ERROR
     message: >-
-      `gh` host/repository access checks must pin --hostname github.com or an
-      explicit --repo. Otherwise the GH_HOST/GH_REPO environment overrides
-      can redirect the check to another host or repository and a green
-      result proves nothing about this repository (CWE-15).
+      `gh` host/repository access checks must pin --hostname github.com
+      or an explicit --repo. Otherwise the GH_HOST/GH_REPO environment
+      overrides can redirect the check to another host or repository and
+      a green result proves nothing about this repository (CWE-15).
     metadata:
       cwe:
         - "CWE-15: External Control of System or Configuration Setting"
@@ -18,7 +18,13 @@ rules:
       confidence: HIGH
     patterns:
       - pattern: gh $CMD ...
-      - pattern-not: gh $CMD ... --hostname $HOST ...
+      # the pinned host is the target being verified, not any host
+      - pattern-not: gh $CMD ... --hostname github.com ...
+      # a --repo exemption covers repository-scoped commands whose slug
+      # carries the host (github.com/owner/name, as repo_slug() builds
+      # it). Whether a dynamic slug really is host-pinned is provenance
+      # a static rule cannot see: accepted residual, documented here
+      # per the review-finding triage convention.
       - pattern-not: gh $CMD ... --repo $REPO ...
       - pattern-not: gh $CMD ... --help ...
       # `gh auth token` prints a credential; it never checks repository

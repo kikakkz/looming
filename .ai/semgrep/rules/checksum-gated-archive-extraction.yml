@@ -4,9 +4,10 @@ rules:
     languages: [bash]
     severity: ERROR
     message: >-
-      A downloaded archive is extracted without a checksum verification in
-      between. Verify the archive (e.g. `sha256sum -c`) after downloading and
-      before extracting, and abort on mismatch (CWE-353 / CWE-345).
+      A downloaded archive is extracted without a checksum verification
+      between the download and the extraction. Verify the archive after
+      downloading and before extracting, and make sure a mismatch aborts
+      the run (see checksum-result-ignored) (CWE-353 / CWE-345).
     metadata:
       cwe:
         - "CWE-353: Missing Support for Integrity Check"
@@ -19,18 +20,23 @@ rules:
       - pattern-inside: |
           curl ... -o $ARCHIVE ...
           ...
-      - pattern-either:
-          - pattern: tar $FLAGS ... $ARCHIVE ...
-          - pattern: tar --extract ... $ARCHIVE ...
+      - pattern: tar $MODE ... $ARCHIVE ...
+      # extraction modes only: short-flag clusters containing x (-xzf) or
+      # the long form --extract; create/list/append/update/delete modes
+      # never extract
       - metavariable-regex:
-          metavariable: $FLAGS
-          regex: "^-x.*$"
-      # A verification step between download and extraction lifts the gate.
-      # File-level dataflow is a documented approximation: the rule checks
-      # that a `sha256sum -c` runs after the download and before the
-      # extraction, not that it names the same file (semgrep bash has no
-      # taint tracking).
+          metavariable: $MODE
+          regex: '^-(-[a-z-]+|[A-Za-z]*x[A-Za-z]*)$'
+      # a verification step between the matched download and the
+      # extraction lifts the gate. File-level dataflow is a documented
+      # approximation: the rule checks that a `sha256sum -c` runs after
+      # the download and before the extraction, not that it names the
+      # same file (semgrep bash has no taint tracking). Whether the
+      # checksum failure aborts is codified separately in
+      # checksum-result-ignored.
       - pattern-not-inside: |
+          curl ... -o $ARCHIVE ...
+          ...
           sha256sum ... -c ...
           ...
           tar ... $ARCHIVE ...

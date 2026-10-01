@@ -8,20 +8,25 @@ dl_unbounded() {
     curl -fL -o "$tmp" "$url"
 
     # ruleid: bounded-download
-    curl -fL --retry 3 -o "$tmp" "$url"
+    curl -fL --connect-timeout 10 -o "$tmp" "$url"
 
     # ruleid: bounded-download
     wget -q -O "$tmp" "$url"
 
+    # ruleid: bounded-download
+    wget -q --connect-timeout=10 -O "$tmp" "$url"
+}
+
+dl_bounded() {
     # ok: bounded-download
     curl -fL --max-time 300 -o "$tmp" "$url"
 
     # ok: bounded-download
-    curl -fL --connect-timeout 10 -o "$tmp" "$url"
+    curl -fL --max-time=300 --connect-timeout 10 -o "$tmp" "$url"
 
     # ok: bounded-download
     wget -q --timeout=30 -O "$tmp" "$url"
 
     # ok: bounded-download
-    wget -q --connect-timeout=10 -O "$tmp" "$url"
+    wget -q --timeout=30 --connect-timeout=10 -O "$tmp" "$url"
 }

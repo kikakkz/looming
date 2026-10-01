@@ -4,9 +4,10 @@ rules:
     languages: [bash]
     severity: ERROR
     message: >-
-      Downloads must be time-bounded: pass --max-time/--connect-timeout to
-      curl, or --timeout/--connect-timeout to wget. An unbounded download can
-      hang the caller forever (CWE-400).
+      Downloads must be transfer-time bounded: pass --max-time to curl or
+      --timeout to wget. A connection-only bound (--connect-timeout)
+      still lets a stalled transfer wait indefinitely, and an unbounded
+      download can hang the caller forever (CWE-400).
     metadata:
       cwe:
         - "CWE-400: Uncontrolled Resource Consumption"
@@ -16,6 +17,7 @@ rules:
       - pattern-either:
           - pattern: curl ...
           - pattern: wget ...
-      # flags may be written space-separated (--max-time 300) or joined
-      # (--max-time=300); a single regex covers both forms
-      - pattern-not-regex: '(?:--max-time|--connect-timeout|--timeout|--dns-timeout|--read-timeout)(?:=|\s|$)'
+      # the bound must cover the transfer, not just connection setup:
+      # curl --max-time / wget --timeout, in either `--flag value` or
+      # `--flag=value` form
+      - pattern-not-regex: '(?:--max-time|--timeout)(?:=|\s|$)'
