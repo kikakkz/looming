@@ -1,10 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr lint-sh
+.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr lint-sh lint-go test-unit test-coverage
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
-ci-gate: check-branch validate-locks test-tools check-trailers check-adr lint-sh
+ci-gate: check-branch validate-locks test-tools check-trailers check-adr lint-sh lint-go test-unit
 
 # Branch names are cheapest to fix before push: a rename after a PR exists
 # forces close-and-reopen (GitHub cannot retarget a PR).
@@ -29,4 +29,39 @@ lint-sh:
 		echo "shellcheck: OK"; \
 	else \
 		echo "shellcheck: not installed, skipped (CI installs it)"; \
+	fi
+
+# Go targets follow the same warn-and-skip policy as shellcheck: missing
+# tools or a missing go.mod skip loudly instead of failing. The CI job
+# that turns these red lands with the first Go component (CI-first rule).
+lint-go:
+	@if [ ! -f go.mod ]; then \
+		echo "lint-go: no go.mod yet, skipped (lands with the first Go component)"; \
+	elif command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint: not installed, skipped (CI installs it)"; \
+	fi
+
+test-unit:
+	@if [ ! -f go.mod ]; then \
+		echo "test-unit: no go.mod yet, skipped (lands with the first Go component)"; \
+	elif command -v gotestsum >/dev/null 2>&1; then \
+		gotestsum --format testname -- -race ./...; \
+	else \
+		go test -race ./...; \
+	fi
+
+test-coverage:
+	@if [ ! -f go.mod ]; then \
+		echo "test-coverage: no go.mod yet, skipped (lands with the first Go component)"; \
+	elif command -v go >/dev/null 2>&1; then \
+		go test -covermode=atomic -coverprofile=coverage.out ./... && \
+		if command -v go-test-coverage >/dev/null 2>&1; then \
+			go-test-coverage -config=.testcoverage.yml; \
+		else \
+			go tool cover -func=coverage.out; \
+		fi; \
+	else \
+		echo "go: not installed, skipped (CI installs it)"; \
 	fi

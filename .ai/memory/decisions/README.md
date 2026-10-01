@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-24 — TDD workflow and complexity budgets](0024-tdd-workflow-and-complexity-budgets.md)
 - [AD-23 — Go component structure: DDD layers and context map](0023-go-component-structure-ddd-layers-and.md)
 - [AD-22 — Memory governance: generation vs publication](0022-memory-governance-generation-vs-publication.md)
 - [AD-21 — Migrate decision records to one-file-per-decision ADR layout](0021-migrate-decision-records-to-one-file.md)
