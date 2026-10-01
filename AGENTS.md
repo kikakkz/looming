@@ -53,6 +53,11 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
+- `make check-skills` — validate every `.ai/skills/*/SKILL.md` against
+  the Agent Skills frontmatter contract.
+- `make check-index` — validate `.ai/index.yaml`: parseable under the
+  constrained subset, no unknown sections, every anchor (files, dirs,
+  rule pointers) exists.
 - `make lint-semgrep` — validate the custom rule fixtures
   (`semgrep --test`) and scan `.ai/tools` with the rule pack
   (`.ai/semgrep/rules`); warns and skips when semgrep is missing locally.
@@ -105,7 +110,8 @@ are never imported by production code.
   gateway issue lands).
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
-  tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md).
+  tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap
+  map: [.ai/index.yaml](.ai/index.yaml) — read it first, never crawl.
 - `.github/` — templates, CODEOWNERS, workflows, contributing policy.
 - `.ai/memory/decisions.md` — pointer; the decisions themselves live one per
   file in `.ai/memory/decisions/` (generated index: `decisions/README.md`).
