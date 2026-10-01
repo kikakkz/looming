@@ -213,9 +213,7 @@ cmd_auth() {
     # never prompt in unattended runs: a missing credential must be a
     # clean failure, not a wait for terminal or askpass input
     local cred
-    if ! cred=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
-        GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 \
-        git -c core.askPass= credential fill 2>/dev/null <<'EOF'
+    if ! cred=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git -c core.askPass= credential fill 2>/dev/null <<'EOF'
 protocol=https
 host=github.com
 EOF
