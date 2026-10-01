@@ -286,13 +286,18 @@ def cmd_findings(repo: str, pr: int, gh: str) -> int:
     pull = gh_json(["api", f"repos/{repo}/pulls/{pr}"], gh)
     head = head_sha(pull)
     reviews = gh_json_list(["api", f"repos/{repo}/pulls/{pr}/reviews"], gh)
-    standing = [r for r in reviews
-                if r["user"]["login"] == BOT_LOGIN
-                and r.get("commit_id") == head
-                and r.get("state") == "CHANGES_REQUESTED"
-                and (r.get("body") or "").strip()]
-    if standing:
-        latest = max(standing, key=lambda r: r.get("submitted_at") or "")
+    on_head = [r for r in reviews
+               if r["user"]["login"] == BOT_LOGIN
+               and r.get("commit_id") == head
+               and r.get("state") != "COMMENTED"]
+    if on_head:
+        latest = max(on_head, key=lambda r: r.get("submitted_at") or "")
+        if latest.get("state") != "CHANGES_REQUESTED" \
+                or not (latest.get("body") or "").strip():
+            latest = None
+    else:
+        latest = None
+    if latest:
         slim.append({
             "id": None,
             "path": None,
