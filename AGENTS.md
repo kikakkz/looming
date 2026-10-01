@@ -135,8 +135,9 @@ are never imported by production code.
   crosses an AD-23 context boundary lands as `kind/design` with an AD
   before code; everything else is a plain issue.
 - Product intake backpressure: a component carries at most as many
-  open implementable issues as one release cycle can land; excess
-  parks in the backlog lot.
+  open implementable issues as one release cycle can land; excess is
+  labeled `status/parked` (issue-shaped work waits as a parked issue —
+  the lot is only for ideas not ready to become work).
 - **Review-finding triage.** Every review finding must end in exactly one
   of three buckets: a **codified rule** (landed as a semgrep rule with
   positive/negative fixtures in `.ai/semgrep/rules`, AD-8), a **documented
