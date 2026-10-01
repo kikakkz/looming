@@ -87,7 +87,10 @@ class MemoryHousekeepingTests(HousekeepingCase):
         self.assertEqual(self.rotate(), 0)
         archive = mh.ARCHIVE_DIR / f"{ym(old)}.md"
         self.assertTrue(archive.exists())
-        self.assertIn("Old work", archive.read_text(encoding="utf-8"))
+        archived = archive.read_text(encoding="utf-8")
+        self.assertIn("Old work", archived)
+        self.assertTrue(archived.startswith("---\n"),
+                        "archives carry the memory-bank frontmatter")
         kept = mh.PROGRESS.read_text(encoding="utf-8")
         self.assertIn("Current work", kept)
         self.assertNotIn("Old work", kept)
