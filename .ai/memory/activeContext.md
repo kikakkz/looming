@@ -7,14 +7,17 @@ type: activeContext
 
 ## Current focus
 
-- Go engineering methodology adopted — see the 2026-10-01 entry in
-  [[progress]] and [[AD-23]], [[AD-24]], [[AD-25]].
+- Engineering-tooling suite complete — see the 2026-10-01 entry in
+  [[progress]]: semgrep rule pack (#19), pr-watch loop owner (#23),
+  upstream-first skill with `make check-skills` (#39). The repo now
+  enforces its own review conventions mechanically.
 
 ## Next (each gated by maintainer instruction)
 
-- Gateway component (frozen until started) — AD-3; preceded by the
-  agentgateway research and the runtime spike (AD-15). The methodology
-  configs those ADs name are already in the repo.
+- Overall architecture discussion with the maintainer before any
+  feature work — the gateway stays frozen (AD-3) until that
+  conversation lands; the agentgateway research and runtime spike
+  (AD-15) precede it.
 - Event-stream schema: deferred by decision; its own issue when
   unblocked.
 
@@ -22,5 +25,7 @@ type: activeContext
 
 - E2E runner budget — the `e2e` layer is defined in AD-25 but stays
   empty until one exists.
-- Clean first-pass PRs vs the 1-approval gate — #21; redesign
-  candidate under #23 (pr-watch).
+- Review-gate economics at scale — five-round cleanups on #41/#44 were
+  worth it for new tooling; the "clean PR needs an explicit approval
+  request" step is the documented lever until the gate is redesigned
+  (#21 notes, pr-watch implements).
