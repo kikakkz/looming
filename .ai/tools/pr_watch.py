@@ -150,12 +150,16 @@ def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
 def nudges_for_head(comments: list[dict], head: str) -> int:
     """our full-review nudges that name this head SHA (one nudge per head).
 
-    Matching on the SHA recorded in the comment, not on timestamps:
+    Matching the full `head: <sha>` marker line recorded in our own nudge
+    comment, not a bare SHA substring: prose mentioning the SHA must not
+    block the review request. Timestamps are not used at all —
     head.repo.pushed_at moves on any push to any branch of the fork, so
     timestamp windows can reset the count and allow a second nudge.
     """
+    marker = f"\nhead: {head}"
     return sum(1 for c in comments
-               if NUDGE_TEXT in c.get("body", "") and head in c.get("body", ""))
+               if NUDGE_TEXT in c.get("body", "")
+               and marker in c.get("body", ""))
 
 
 def snapshot(repo: str, pr: int, gh: str) -> dict:

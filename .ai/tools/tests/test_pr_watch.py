@@ -150,6 +150,8 @@ class PureFunctionTests(unittest.TestCase):
         comments = [
             {"body": "@coderabbitai full review\n\nhead: " + HEAD},
             {"body": "@coderabbitai full review\n\nhead: oldsha"},
+            # prose mentioning the SHA without the marker line must not block
+            {"body": "the push " + HEAD + " broke things"},
             {"body": "unrelated"},
         ]
         self.assertEqual(pw.nudges_for_head(comments, HEAD), 1)
