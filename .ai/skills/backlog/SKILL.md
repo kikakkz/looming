@@ -13,7 +13,10 @@ lifecycle, no rotation machinery.
 ## Routing
 
 1. **Decided or clearly scoped?** File an issue and start the normal
-   flow (branch → PR). Never hold decided work in limbo.
+   flow (branch → PR) — subject to the component capacity rule: when a
+   component already carries a release cycle's worth of implementable
+   work, file the issue and park it instead of starting it. Never hold
+   decided work in unlabeled limbo.
 2. **Real but not starting now?** File the issue anyway and label it
    `status/parked`: scoped enough to describe, deliberately waiting —
    no owner, no cycle capacity, needs discussion first. A sentence or

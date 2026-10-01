@@ -26,4 +26,4 @@
 
 # status: lifecycle position (kubernetes lifecycle/ lesson — parked work
 # must be a queryable state, not only an issue's content)
-- { name: "status/parked", color: "c2e0c6", description: "Real issue, deliberately not being worked now; re-affirm or it decays with the backlog lot" }
+- { name: "status/parked", color: "c2e0c6", description: "Real issue, deliberately not being worked now; re-affirm at the monthly hygiene glance or it goes stale" }
