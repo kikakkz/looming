@@ -31,14 +31,11 @@ linters:
     depguard:
       rules:
         domain-purity:
+          list-mode: strict
           files:
             - "**/domain/**/*.go"
-          deny:
-            # Any import path whose first segment contains a dot is
-            # non-stdlib (github.com/..., golang.org/x/...); stdlib
-            # paths (net/http, crypto/tls) never match.
-            - pkg: '^[a-z0-9_-]*(\.[a-z0-9_-]+)+/'
-              desc: "domain packages import stdlib only (AD-23)"
+          allow:
+            - $gostd # stdlib only (AD-23); anything else is rejected
 
 formatters:
   enable:
