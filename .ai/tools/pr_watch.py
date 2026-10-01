@@ -43,8 +43,12 @@ BOT_LOGIN = "coderabbitai[bot]"
 # --------------------------------------------------------------------------
 # gh plumbing
 
-def run_gh(args: list[str], gh: str = "gh") -> str:
-    proc = subprocess.run([gh, *args], capture_output=True, text=True)
+def run_gh(args: list[str], gh: str = "gh", timeout: int = 60) -> str:
+    try:
+        proc = subprocess.run([gh, *args], capture_output=True, text=True,
+                              timeout=timeout)
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        raise RuntimeError(f"gh {' '.join(args)}: {exc}") from exc
     if proc.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)}: {proc.stderr.strip()}")
     return proc.stdout
@@ -69,9 +73,12 @@ def gh_json_list(args: list[str], gh: str = "gh") -> list:
 
 
 def detect_repo(gh: str = "gh") -> str:
-    proc = subprocess.run(
-        ["git", "config", "--get", "remote.origin.url"],
-        capture_output=True, text=True)
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        raise RuntimeError(f"git config remote.origin.url: {exc}") from exc
     url = proc.stdout.strip()
     match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
     if not match:
@@ -98,10 +105,17 @@ def checks_state(check_runs: list[dict]) -> str:
 
 
 def verdict_for_head(reviews: list[dict], head: str) -> str:
-    """latest bot review state on this head, else 'none'."""
+    """latest standing bot verdict on this head, else 'none'.
+
+    COMMENTED reviews (acknowledgements, summary notes) never override
+    a standing APPROVED / CHANGES_REQUESTED; DISMISSED stays selectable
+    so an explicit dismissal clears the verdict.
+    """
     latest: dict | None = None
     for review in reviews:
         if review["user"]["login"] != BOT_LOGIN:
+            continue
+        if review.get("state") == "COMMENTED":
             continue
         if review.get("commit_id") != head:
             continue

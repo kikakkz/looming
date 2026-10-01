@@ -4,6 +4,7 @@
 
 import io
 import json
+import subprocess
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -91,6 +92,23 @@ class PureFunctionTests(unittest.TestCase):
                           submitted="2026-09-30T00:00:00Z"),
                    review("APPROVED")]
         self.assertEqual(pw.verdict_for_head(reviews, HEAD), "APPROVED")
+
+    def test_commented_review_preserves_standing_verdict(self) -> None:
+        reviews = [review("APPROVED",
+                          submitted="2026-10-01T00:00:00Z"),
+                   review("COMMENTED",
+                          submitted="2026-10-01T01:00:00Z")]
+        self.assertEqual(pw.verdict_for_head(reviews, HEAD), "APPROVED")
+
+    def test_run_gh_wraps_subprocess_failures(self) -> None:
+        with mock.patch("subprocess.run",
+                        side_effect=FileNotFoundError("gh")):
+            with self.assertRaises(RuntimeError):
+                pw.run_gh(["api", "x"])
+        with mock.patch("subprocess.run",
+                        side_effect=subprocess.TimeoutExpired("gh", 60)):
+            with self.assertRaises(RuntimeError):
+                pw.run_gh(["api", "x"])
 
     def test_verdict_ignores_other_heads(self) -> None:
         reviews = [review("CHANGES_REQUESTED", commit="oldsha")]
