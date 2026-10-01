@@ -24,6 +24,22 @@ from pathlib import Path
 
 REQUIRED = ("name", "description")
 
+NULL_SCALARS = ("", "null", "~")
+
+
+def scalar(value: str) -> str:
+    """frontmatter scalar with YAML comment and null handling.
+
+    `description: # TODO` carries no scalar (the rest is a comment), and
+    `description: null` / `~` are null values — none of these satisfy a
+    required non-empty field.
+    """
+    cleaned = value.strip()
+    if cleaned.startswith("#"):
+        return ""
+    cleaned = cleaned.strip('"').strip("'")
+    return "" if cleaned.lower() in NULL_SCALARS else cleaned
+
 
 def split_frontmatter(text: str) -> tuple[dict[str, str], str] | None:
     """frontmatter block and body, split on line-level --- fences.
@@ -45,7 +61,7 @@ def split_frontmatter(text: str) -> tuple[dict[str, str], str] | None:
             continue
         key, sep, value = line.partition(":")
         if sep:
-            data[key.strip()] = value.strip().strip('"').strip("'")
+            data[key.strip()] = scalar(value)
     return data, "".join(lines[closing + 1:])
 
 

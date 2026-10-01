@@ -75,6 +75,11 @@ class CheckSkillsTests(unittest.TestCase):
         self.mk("eof", "---\nname: eof\ndescription: d\n---")
         self.assertEqual(self.run_check(), 1)  # no body after the fence
 
+    def test_comment_or_null_description_rejected(self) -> None:
+        self.mk("cmt", "---\nname: cmt\ndescription: # TODO\n---\n\n# b\n")
+        self.mk("nul", "---\nname: nul\ndescription: null\n---\n\n# b\n")
+        self.assertEqual(self.run_check(), 1)
+
     def test_missing_root_is_error(self) -> None:
         self.assertEqual(
             cs.main(["--root", str(self.root / "absent")]), 1)

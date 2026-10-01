@@ -13,7 +13,9 @@ what mature, well-known projects already do — and adopt that.
 
 1. **Check the house rules first.** `AGENTS.md` (root and `.ai/`),
    `docs/`, and the decision records in `.ai/memory/decisions/` already
-   settle many questions. A standing rule wins over any external pack.
+   settle many questions. On process conflicts a standing house rule
+   wins (hard constraint 7 limits that precedence to process —
+   methodology packs still govern implementation craft).
 2. **Research upstream.** Look for the practice in mature projects with
    multiple independent adopters (e.g. language-ecosystem flagships,
    CNCF/Linux Foundation projects, widely referenced architecture
