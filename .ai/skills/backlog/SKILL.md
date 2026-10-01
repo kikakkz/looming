@@ -43,7 +43,7 @@ comes first:
 **Current lot: #21 (lot 1, opened 2026-09-26).**
 
 Until automation exists, whoever closes a lot performs the rotation by
-hand. #21 is lot 1.
+hand.
 
 ## Why the split is readiness, not quality
 
