@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-30
+updated: 2026-10-01
 type: activeContext
 ---
 
@@ -7,20 +7,21 @@ type: activeContext
 
 ## Current focus
 
-- Post-bootstrap phase (#1 closed); engineering-methodology adoption:
-  #24 (DDD), #25 (architecture constraints), #26 (TDD + complexity
-  budgets), #27 (testing stack) — inputs from #12 pins and the
-  review-gate notes in #21.
+- Go engineering methodology adopted — see the 2026-10-01 entry in
+  [[progress]] and [[AD-23]], [[AD-24]], [[AD-25]] (#33–#35, PR #36;
+  research #24–#27 and tool issue #32 closed).
 
 ## Next (each gated by maintainer instruction)
 
-- Gateway component (frozen until started): AD-3; preceded by the
-  agentgateway research and the runtime spike (AD-15).
+- Gateway component (frozen until started) — AD-3; preceded by the
+  agentgateway research and the runtime spike (AD-15). The methodology
+  configs those ADs name are already in the repo.
 - Event-stream schema: deferred by decision; its own issue when
   unblocked.
 
 ## Open questions
 
-- `cmd/` per-component layout — decided with the gateway issue.
-- Clean first-pass PRs vs the 1-approval gate — tracked in #21;
-  redesign candidate under #23 (pr-watch).
+- E2E runner budget — the `e2e` layer is defined in AD-25 but stays
+  empty until one exists.
+- Clean first-pass PRs vs the 1-approval gate — #21; redesign
+  candidate under #23 (pr-watch).

@@ -98,7 +98,11 @@ def cmd_rotate(_args: argparse.Namespace) -> int:
                   file=sys.stderr)
             return 1
         body = "\n\n".join(e[2] for e in month_entries)
-        archive.write_text(f"# Progress — {month}\n\n{body}\n",
+        archive.write_text("---\n"
+                           f"updated: {today()}\n"
+                           "type: progress-archive\n"
+                           "---\n\n"
+                           f"# Progress — {month}\n\n{body}\n",
                            encoding="utf-8")
         print(f"archived {len(month_entries)} entries to {archive.name}")
 
