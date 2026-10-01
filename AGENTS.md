@@ -138,8 +138,8 @@ are never imported by production code.
   escalate when no good reference exists, references conflict
   materially, or the decision is organization-novel.
 - Ideas route by readiness: decided work files an issue and starts; only
-  ideas not ready to become work park in the backlog (#21)
-  ([.ai/skills/backlog/SKILL.md](.ai/skills/backlog/SKILL.md)).
+  ideas not ready to become work park in the current backlog lot (rotating;
+  see [.ai/skills/backlog/SKILL.md](.ai/skills/backlog/SKILL.md)).
 - Bots and agents follow the same rules as humans: same CI, same trailer
   policy, same issue protocol.
 
