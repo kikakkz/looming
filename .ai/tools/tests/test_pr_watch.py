@@ -44,8 +44,7 @@ class GhFake:
             key = ("api", "graphql", kind)
         else:
             key = tuple(a for a in args
-                        if not a.startswith(("--jq", "--paginate"))
-                        and a != ".")
+                        if not a.startswith(("--jq", "--paginate", ".")))
         if args[:3] == ["api", "-X", "POST"] or (
                 args[:2] == ["api", "graphql"]
                 and any("mutation" in a for a in args)):
@@ -61,11 +60,14 @@ def base_routes() -> dict:
     return {
         ("api", "repos/x/y/pulls/7"): pull(),
         ("api", "repos/x/y/pulls/7/reviews"): [review("COMMENTED")],
+        # gh applies --jq .check_runs client-side; run_gh sees the array
         ("api", f"repos/x/y/commits/{HEAD}/check-runs"):
             [{"status": "completed", "conclusion": "success"}],
         ("api", "repos/x/y/issues/7/comments"): [],
         ("api", "graphql", "query"): {"data": {"repository": {"pullRequest":
-            {"reviewThreads": {"nodes": []}}}}},
+            {"reviewThreads": {"pageInfo": {"hasNextPage": False,
+                                            "endCursor": None},
+                                 "nodes": []}}}}},
     }
 
 
@@ -99,7 +101,9 @@ class PureFunctionTests(unittest.TestCase):
         # `linecomments` and an unbalanced query that gh rejected
         sent: list[list[str]] = []
         fake = GhFake({("api", "graphql", "query"): {"data": {"repository":
-            {"pullRequest": {"reviewThreads": {"nodes": []}}}}}})
+            {"pullRequest": {"reviewThreads": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": []}}}}}})
 
         def spy(args: list[str], gh: str = "gh") -> str:
             sent.append(args)
@@ -112,16 +116,43 @@ class PureFunctionTests(unittest.TestCase):
         self.assertEqual(body.count("{"), body.count("}"))
         self.assertIn("line\n", body)  # field boundary survived
 
-    def test_nudge_count_filters_text_and_time(self) -> None:
-        comments = [
-            {"body": "@coderabbitai full review",
-             "created_at": "2026-10-02T00:00:00Z"},
-            {"body": "@coderabbitai full review",
-             "created_at": "2026-09-01T00:00:00Z"},
-            {"body": "unrelated", "created_at": "2026-10-02T00:00:00Z"},
+    def test_open_threads_paginates_past_first_page(self) -> None:
+        # a connection limited with first:100 needs explicit pagination:
+        # an unresolved thread on page 2 must still block the nudge
+        resolved = {"id": "t0", "isResolved": True, "isOutdated": False,
+                    "path": "f", "line": 1, "comments": {"nodes": []}}
+        pending = {"id": "t1", "isResolved": False, "isOutdated": False,
+                   "path": "f", "line": 2, "comments": {"nodes": []}}
+        pages = [
+            {"reviewThreads": {"pageInfo": {"hasNextPage": True,
+                                            "endCursor": "CURSOR1"},
+                               "nodes": [resolved]}},
+            {"reviewThreads": {"pageInfo": {"hasNextPage": False,
+                                            "endCursor": None},
+                               "nodes": [pending]}},
         ]
-        self.assertEqual(pw.nudge_count_since(
-            comments, "2026-10-01T00:00:00Z"), 1)
+        calls: list[list[str]] = []
+
+        def paged(args: list[str], gh: str = "gh") -> str:
+            calls.append(args)
+            after = next((a.split("=", 1)[1] for a in args
+                          if a.startswith("after=")), "")
+            page = pages[1] if after == "CURSOR1" else pages[0]
+            return json.dumps({"data": {"repository":
+                {"pullRequest": page}}})
+
+        with mock.patch.object(pw, "run_gh", paged):
+            threads = pw.open_threads("x/y", 7, "gh")
+        self.assertEqual([t["id"] for t in threads], ["t1"])
+        self.assertEqual(len(calls), 2)
+
+    def test_nudge_count_matches_head_sha(self) -> None:
+        comments = [
+            {"body": "@coderabbitai full review\n\nhead: " + HEAD},
+            {"body": "@coderabbitai full review\n\nhead: oldsha"},
+            {"body": "unrelated"},
+        ]
+        self.assertEqual(pw.nudges_for_head(comments, HEAD), 1)
 
     def test_detect_repo_from_https_and_scp(self) -> None:
         for url in ("https://github.com/own/rep.git",
@@ -186,8 +217,7 @@ class NudgeGuardTests(unittest.TestCase):
         fake = GhFake(base_routes())
         fake.routes[("api", "repos/x/y/pulls/7/reviews")] = []
         fake.routes[("api", "repos/x/y/issues/7/comments")] = [
-            {"body": "@coderabbitai full review",
-             "created_at": "2026-10-01T01:00:00Z"}]
+            {"body": "@coderabbitai full review\n\nhead: " + HEAD}]
         code, _, err = self.nudge(fake)
         self.assertEqual(code, 1)
         self.assertIn("one nudge per head", err)
@@ -197,7 +227,8 @@ class NudgeGuardTests(unittest.TestCase):
         fake.routes[("api", "repos/x/y/pulls/7/reviews")] = []
         fake.routes[("api", "graphql", "query")] = {
             "data": {"repository": {"pullRequest": {"reviewThreads":
-                {"nodes": [{"id": "t1", "isResolved": False,
+                {"pageInfo": {"hasNextPage": False, "endCursor": None},
+                 "nodes": [{"id": "t1", "isResolved": False,
                             "isOutdated": False, "path": "f", "line": 1,
                             "comments": {"nodes": []}}]}}}}}
         code, _, err = self.nudge(fake)

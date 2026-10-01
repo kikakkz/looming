@@ -112,10 +112,11 @@ def verdict_for_head(reviews: list[dict], head: str) -> str:
 
 
 def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
-    query = """query($owner:String!,$name:String!,$number:Int!) {
+    query = """query($owner:String!,$name:String!,$number:Int!,$after:String) {
       repository(owner:$owner, name:$name) {
         pullRequest(number:$number) {
-          reviewThreads(first:100) {
+          reviewThreads(first:100, after:$after) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               id isResolved isOutdated path line
               comments(first:1) { nodes { body author { login } } }
@@ -125,35 +126,49 @@ def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
       }
     }"""
     owner, name = repo.split("/")
-    out = run_gh(["api", "graphql", "-f", f"query={query}",
-                  "-f", f"owner={owner}", "-f", f"name={name}",
-                  "-f", f"number={pr}"], gh)
-    nodes = (json.loads(out)["data"]["repository"]["pullRequest"]
-             ["reviewThreads"]["nodes"])
+    nodes: list[dict] = []
+    cursor: str | None = None
+    while True:
+        args = ["api", "graphql", "-f", f"query={query}",
+                "-f", f"owner={owner}", "-f", f"name={name}",
+                "-f", f"number={pr}"]
+        if cursor:
+            args += ["-f", f"after={cursor}"]
+        else:
+            args += ["-f", "after="]
+        out = json.loads(run_gh(args, gh))
+        threads = (out["data"]["repository"]["pullRequest"]
+                   ["reviewThreads"])
+        nodes.extend(threads["nodes"])
+        page = threads["pageInfo"]
+        if not page["hasNextPage"]:
+            break
+        cursor = page["endCursor"]
     return [t for t in nodes if not t["isResolved"] and not t["isOutdated"]]
 
 
-def nudge_count_since(comments: list[dict], since: str | None) -> int:
-    """our full-review nudges after the head was pushed (ISO 8601)."""
-    count = 0
-    for comment in comments:
-        if NUDGE_TEXT not in comment.get("body", ""):
-            continue
-        if since and comment.get("created_at", "") < since:
-            continue
-        count += 1
-    return count
+def nudges_for_head(comments: list[dict], head: str) -> int:
+    """our full-review nudges that name this head SHA (one nudge per head).
+
+    Matching on the SHA recorded in the comment, not on timestamps:
+    head.repo.pushed_at moves on any push to any branch of the fork, so
+    timestamp windows can reset the count and allow a second nudge.
+    """
+    return sum(1 for c in comments
+               if NUDGE_TEXT in c.get("body", "") and head in c.get("body", ""))
 
 
 def snapshot(repo: str, pr: int, gh: str) -> dict:
     pull = gh_json(["api", f"repos/{repo}/pulls/{pr}"], gh)
     head = head_sha(pull)
     reviews = gh_json_list(["api", f"repos/{repo}/pulls/{pr}/reviews"], gh)
+    # the check-runs endpoint wraps runs in {"total_count", "check_runs"};
+    # ask gh for the array so --paginate concatenates pages correctly
     checks = gh_json_list(
-        ["api", f"repos/{repo}/commits/{head}/check-runs"], gh)
+        ["api", f"repos/{repo}/commits/{head}/check-runs",
+         "--jq", ".check_runs"], gh)
     comments = gh_json_list(
         ["api", f"repos/{repo}/issues/{pr}/comments"], gh)
-    pushed_at = (pull.get("head", {}).get("repo", {}) or {}).get("pushed_at")
     threads = open_threads(repo, pr, gh)
     return {
         "pr": pr,
@@ -163,8 +178,7 @@ def snapshot(repo: str, pr: int, gh: str) -> dict:
         "checks": checks_state(checks),
         "verdict": verdict_for_head(reviews, head),
         "open_threads": len(threads),
-        "nudges_for_head": nudge_count_since(comments, pushed_at),
-        "head_pushed_at": pushed_at,
+        "nudges_for_head": nudges_for_head(comments, head),
     }
 
 
@@ -199,8 +213,9 @@ def cmd_nudge(repo: str, pr: int, dry_run: bool, gh: str) -> int:
     if dry_run:
         print(NUDGE_TEXT)
         return 0
+    body = f"{NUDGE_TEXT}\n\nhead: {snap['head']}"
     run_gh(["api", "-X", "POST", f"repos/{repo}/issues/{pr}/comments",
-            "-f", f"body={NUDGE_TEXT}"], gh)
+            "-f", f"body={body}"], gh)
     print(f"nudge: posted on #{pr} @ {snap['head'][:8]}")
     return 0
 
