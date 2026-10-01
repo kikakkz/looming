@@ -53,6 +53,48 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
+- `make lint-go` — golangci-lint (complexity budgets, AD-24); warns and
+  skips when golangci-lint or go.mod is missing locally.
+- `make test-unit` — Go unit tests with `-race`; falls back to plain
+  `go test` without gotestsum; skips when go.mod is missing.
+- `make test-coverage` — coverage profile plus the go-test-coverage
+  threshold check (`.testcoverage.yml`, AD-25) when installed.
+
+## Go engineering standards
+
+Applies to all Go components. Rationale and evidence live in the decision
+records; this section is the checkable contract. Enforcing CI jobs land
+with the first Go component (CI-first rule); configs are already in the
+repo.
+
+**Structure (AD-23).** One root `go.mod`. Every capability lives under
+`internal/<capability>/` in four packages: `app/` (use-case
+orchestration), `domain/` (pure model and business rules), `port/`
+(interfaces), `adapter/` (driving and driven implementations).
+`cmd/<binary>/` holds only `main` wiring.
+
+**Architecture (AD-23).** The bounded contexts and their dependency
+matrix are declared in `.go-arch-lint.yml`; dependencies not listed
+there are rejected by the linter. V0 contexts: `gateway/dp`,
+`gateway/cp`, `cicd`, `agentruntime`, `registry` — all independent.
+Extending the map requires a superseding AD in the same PR.
+
+**TDD and complexity (AD-24).** Red-green-refactor; the failing test
+lands before the implementation, in the same PR. Budgets enforced by
+`.golangci.yml`: ≤ 50 statements per function (funlen), gocognit ≤ 30,
+cyclomatic ≤ 15. Budgets only ratchet down, via a superseding AD-24.
+Every `//nolint` names its linter, explains itself, and must be in use
+(nolintlint).
+
+**Testing (AD-25).** Layers by build tag: unit (default — no network,
+disk, or wall-clock), `integration` (testcontainers-go; GitLab CE via
+`GenericContainer`), `e2e` (deferred until a runner budget exists).
+Regression protection is replay/fixture tests inside the unit and
+integration layers, added with every bug fix. Assertions: testify +
+go-cmp. Coverage ≥ 80% at file, package, and total granularity
+(go-test-coverage, `.testcoverage.yml`). A skipped test cites its
+`kind/flake` issue number; test-only helpers live under `tests/` and
+are never imported by production code.
 
 ## Directory map
 

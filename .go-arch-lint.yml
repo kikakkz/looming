@@ -1,0 +1,31 @@
+# Dependency rules between Go capability components (AD-23).
+# The CI job that runs `go-arch-lint check` lands with the first Go
+# component (CI-first rule); until then this file is prospective and
+# unenforced. Any new component or allowed dependency requires a
+# superseding decision record in the same PR.
+version: 1
+workdir: .
+
+components:
+  gateway-dp:
+    in: internal/gateway/dp
+  gateway-cp:
+    in: internal/gateway/cp
+  cicd:
+    in: internal/cicd
+  agentruntime:
+    in: internal/agentruntime
+  registry:
+    in: internal/registry
+
+deps:
+  gateway-dp:
+    mayDependOn: []
+  gateway-cp:
+    mayDependOn: []
+  cicd:
+    mayDependOn: []
+  agentruntime:
+    mayDependOn: []
+  registry:
+    mayDependOn: []

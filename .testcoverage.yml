@@ -1,0 +1,8 @@
+# Coverage thresholds (AD-25), checked by go-test-coverage.
+# The CI gate lands with the first Go component; until then
+# `make test-coverage` reports without failing.
+profile: coverage.out
+threshold:
+  file: 80
+  package: 80
+  total: 80
