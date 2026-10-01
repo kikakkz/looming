@@ -23,6 +23,8 @@ The backlog (#21) is an intake, not a waiting room for everything.
 
 ## Why the split is readiness, not quality
 
-Every idea is welcome at the door — the backlog admits all of them. What
-decides where an idea waits is only whether it is ready to become work
-today. Filter at graduation (does a real issue exist?), not at intake.
+Every idea is welcome at the door of the process — none is rejected for
+being half-formed. But only ideas not ready to become work wait in
+#21; ready ones never enter the lot at all (routing step 1). Judge
+each idea once, at intake: readiness decides where it waits, and
+graduation (does a real issue exist?) retires it from the lot.
