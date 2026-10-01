@@ -5,8 +5,9 @@ description: Route every new idea by readiness — decided or clearly scoped wor
 
 # Backlog
 
-The backlog (a rotating parking-lot issue, currently #21) is an intake,
-not a waiting room for everything.
+The backlog is a rotating parking-lot issue (one lot at a time; the
+current lot's number is named exactly once, in the rotation section
+below) — an intake, not a waiting room for everything.
 
 ## Routing
 
@@ -35,8 +36,11 @@ comes first:
    never copied** — re-affirming an idea is a deliberate act, and ideas
    that earn no re-affirmation die with their lot. That decay is the
    forcing function keeping the lot honest.
-3. Point this skill's "currently" reference at the successor (it is the
-   only place a lot number is named; nothing else hardcodes one).
+3. Point this skill's "currently" reference at the successor — the
+   "currently" line below is the single place a lot number is named,
+   and nothing else in the repo may hardcode one.
+
+**Current lot: #21 (lot 1, opened 2026-09-26).**
 
 Until automation exists, whoever closes a lot performs the rotation by
 hand. #21 is lot 1.
