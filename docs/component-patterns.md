@@ -4,7 +4,9 @@ Solidified from #54 (closed); provenance: the wait-agent runtime
 survey of 2026-10-01 (evidence list in #48 comments, repository
 plane). These four patterns are binding for the product components in
 AD-27; per AD-27 §7 each lands with its component's implementation
-issue, which inherits the pattern from this document.
+issue, which inherits the pattern from this document. Distribution is
+tracked by #82 (parked until the first component implementation
+issue is filed).
 
 ## 1. Agent-state signals via reconciled hook configs
 
