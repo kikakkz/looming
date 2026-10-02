@@ -15,7 +15,7 @@ changes that need them.
 | **Task** | A unit of work inside a run, routed by task class (local inline vs sub-agent ⇒ ker). |
 | **Worker** | An execution slot that runs a task, optionally with a third-party CLI as its harness. |
 | **Judge** | A review role over produced artifacts; its fail cases become CI FailCases, its taste proposals become Registry items. |
-| **Sandbox** | An isolated execution environment, model-triggered provisioned, credentials never inside. |
+| **Sandbox** | An isolated execution environment provisioned by a model trigger; credentials never enter it. |
 | **PEP** | Policy Enforcement Point: fail-closed evaluation before every tool dispatch. |
 | **PolicyRule** | A review-gated, versioned rule artifact in the Registry (same lifecycle as tools/MCP/skills). |
 | **DecisionEvent** | One append-only audit record: who · via-whom · what · decision (Agent 365 subject/actor shape). |
