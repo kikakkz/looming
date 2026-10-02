@@ -98,25 +98,29 @@ we consider best, and each slot can be replaced with your own or an
 open-source alternative.
 
 ```text
-┌─────────────────────────── Looming bundle ────────────────────────────┐
-│                                                                         │
-│  Control plane (product core, not pluggable)                            │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │ blueprint orchestrator · event log · issue protocol · judge      │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-│  Pluggable slots (default in bundle ▸ alternatives)                     │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────────────┐  │
-│  │ gateway    │ │ runtime    │ │ memory     │ │ registry             │  │
-│  │ Go gateway │ ▸ providers  │ ▸ mem0 /     │ │ ToolHive ▸           │  │
-│  │ ▸agentgw?  │  (L0–L3)     │  Graphiti…   │ │ mcp-context-forge    │  │
-│  └────────────┘ └────────────┘ └────────────┘ └──────────────────────┘  │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                          │
-│  │ sandbox    │ │ SCM        │ │ decision   │                          │
-│  │ K8s+gVisor │ │ GitLab CE  │ │ engine     │                          │
-│  │ ▸E2B/Kata  │ │ +GitHub    │ │ rules+Laya │                          │
-│  └────────────┘ └────────────┘ └────────────┘                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────── Looming bundle ─────────────────────────────────┐
+│                                                                            │
+│  Control plane (product core, not pluggable)                               │
+│                                                                            │
+│  ┌─────────────────────────────────────────────────────────────┐           │
+│  │ blueprint orchestrator · event log · issue protocol · judge │           │
+│  └─────────────────────────────────────────────────────────────┘           │
+│                                                                            │
+│  Pluggable slots (default in bundle ▸ alternatives)                        │
+│                                                                            │
+│  ┌────────────┐ ┌─────────────┐ ┌──────────┐ ┌───────────────────┐         │
+│  │ gateway    │ │ runtime     │ │ memory   │ │ registry          │         │
+│  │ Go gateway │ │ ▸ providers │ │ ▸ mem0 / │ │ ToolHive ▸        │         │
+│  │ ▸agentgw?  │ │ (L0–L3)     │ │ Graphiti │ │ mcp-context-forge │         │
+│  └────────────┘ └─────────────┘ └──────────┘ └───────────────────┘         │
+│                                                                            │
+│  ┌──────────────┐ ┌───────────┐ ┌────────────┐                             │
+│  │ sandbox      │ │ SCM       │ │ decision   │                             │
+│  │ Docker fleet │ │ GitLab CE │ │ engine     │                             │
+│  │ ▸K8s+gVisor  │ │ +GitHub   │ │ rules+Laya │                             │
+│  └──────────────┘ └───────────┘ └────────────┘                             │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The control plane — blueprint orchestration, the append-only event log,
@@ -231,3 +235,4 @@ disclosed with trailers. See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 ## License
 
 [Apache-2.0](LICENSE)
+
