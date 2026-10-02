@@ -27,12 +27,21 @@ class AdrCase(unittest.TestCase):
     def check(self) -> int:
         return adr.main(["check"])
 
+    def fill_bodies(self) -> None:
+        # anti-rot: check rejects (todo) bodies; model the real flow
+        # where a record is filled before it is committed
+        for path in adr.ADR_DIR.glob("*.md"):
+            text = path.read_text(encoding="utf-8")
+            path.write_text(text.replace("(todo)", "content"),
+                            encoding="utf-8")
+
 
 class AdrManagerTests(AdrCase):
     def test_new_creates_file_and_index(self) -> None:
         self.assertEqual(adr.main(["new", "--title", "First decision"]), 0)
         self.assertTrue((adr.ADR_DIR / "0001-first-decision.md").exists())
         self.assertIn("AD-1 — First decision", adr.INDEX.read_text(encoding="utf-8"))
+        self.fill_bodies()
         self.assertEqual(self.check(), 0)
 
     def test_supersede_is_bidirectional(self) -> None:
@@ -43,6 +52,7 @@ class AdrManagerTests(AdrCase):
         self.assertIn('status: "superseded"', old)
         self.assertIn("superseded-by: 2", old)
         self.assertIn("supersedes: [1]", new)
+        self.fill_bodies()
         self.assertEqual(self.check(), 0)
 
     def test_new_skeleton_carries_updated_field(self) -> None:
@@ -101,11 +111,21 @@ class AdrManagerTests(AdrCase):
         text = path.read_text(encoding="utf-8")
         path.write_text(text.replace('status: "accepted"', 'status: "deferred"'),
                         encoding="utf-8")
+        self.fill_bodies()
         adr.main(["index"])
         index = adr.INDEX.read_text(encoding="utf-8")
         self.assertIn("Inactive (superseded / deprecated / deferred)", index)
         self.assertIn("AD-1 — Parked design", index)
         self.assertEqual(self.check(), 0)
+
+    def test_check_ignores_todo_in_frontmatter(self) -> None:
+        adr.main(["new", "--title", "Todo in title (todo)"])
+        self.fill_bodies()
+        self.assertEqual(self.check(), 0)
+
+    def test_check_rejects_todo_bodies(self) -> None:
+        adr.main(["new", "--title", "Half written"])
+        self.assertEqual(self.check(), 1)
 
     def test_import_refuses_nonempty_directory(self) -> None:
         adr.main(["new", "--title", "Existing"])
