@@ -84,8 +84,8 @@ flowchart TD
 
   classDef inv stroke-width:3px,stroke:#d73a4a;
   classDef slot stroke-dasharray:5 5;
-  class GW,PEP,CPX,CI,KNOWDOC,MEM,REG,CONN,EB,TOPO inv;
-  class RT,SB,SCM slot;
+  class GW,PEP,CPX,CI,KNOWDOC,MEM,REG,EB,TOPO inv;
+  class RT,SB,SCM,CONN slot;
 ```
 
 Solid boxes are invariants (never pluggable); dashed boxes are slots
@@ -167,9 +167,10 @@ flowchart TD
     MCP --> MEM
     MCP --> REG
   end
-  LOOP -- "默认: 任务/sub-agent 一律 ker_start" --> MCP
+  LOOP -- "sub-agent spawning: ker_start" --> MCP
+  LOOP -- "trivial inline work stays local; platform tools via MCP" --> LOOP
   LOOP -- "memory 读写 · registry 工具调用" --> MCP
-  LOOP -. "escape ①: 本地完成(用户显式说)" .-> LOOP
+  LOOP -. "escape ①: @local (explicit pure BYO)" .-> LOOP
   LOOP -. "escape ②: worker=claude/codex(后端编排,沙盒里跑该CLI)" .-> MCP
 ```
 
