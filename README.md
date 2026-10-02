@@ -131,8 +131,9 @@ contract.
 In place:
 
 - Repository operating contract ([AGENTS.md](AGENTS.md)) and CI gate
-  (`make ci-gate`: locks, tool tests, trailers, ADR check, skill and index
-  validation, semgrep rule pack, shell lint)
+  (`make ci-gate`: branch and lockfile validation, tool tests, trailer
+  policy, ADR check, skill and index validation, semgrep rule pack, shell
+  lint; Go lint and tests join when the first Go component lands)
 - Issue-driven process: kind/area/status taxonomy (Kubernetes convention),
   templates, DCO + AI attribution policy, CodeRabbit review loop owned by
   the repo's own pr-watch tooling
@@ -183,8 +184,9 @@ learns is promoted into CI checks, memory, and tooling.
   are rejected before forwarding.
 - External skills and MCP servers are sha-pinned and license-checked in CI;
   MCP servers additionally require an admission security scan.
-- Agents act with the invoking user's delegated permissions — never a
-  service super-account: two token modes (delegated user token vs
+- (Design intent, settled in the architecture discussion #66 — not yet
+  implemented.) Agents act with the invoking user's delegated permissions
+  — never a service super-account: two token modes (delegated user token vs
   service token for sync), a policy check before every tool dispatch
   (fail-closed, human-approval as a first-class outcome), and retrieval
   trimmed by source ACLs so unauthorized content never reaches a model.
