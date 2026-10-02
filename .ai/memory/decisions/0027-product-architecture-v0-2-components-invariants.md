@@ -49,8 +49,8 @@ authn/quota/faithful-forwarding/metering; ACL-trimmed retrieval (no
 unauthorized content enters a model context); fail-closed PEP per tool
 dispatch; credentials never enter sandboxes or model context; every
 delegated call carries the invoking user's identity with the agent as
-actor (service-mode identity per §6); mandatory append-only event
-logging. Everything else is a slot behind a
+actor (service-mode identity: the agent is the subject, its owning
+blueprint the owner); mandatory append-only event logging. Everything else is a slot behind a
 small contract that carries its invariants along: model provider,
 runtime harness, memory backend (gptmem, mem0/mem3, mem-palace…),
 sandbox backend, SCM adapter, knowledge connectors, policy engine
