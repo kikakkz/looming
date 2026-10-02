@@ -67,8 +67,19 @@ class CheckDocsTests(unittest.TestCase):
     def test_gate_prereq_not_documented(self) -> None:
         text = (self.root / "AGENTS.md").read_text(encoding="utf-8")
         (self.root / "AGENTS.md").write_text(
-            text.replace("`make lint-sh`", "`make sh-lint`"), encoding="utf-8")
-        self.assertTrue(any("lint-sh" in p for p in self.problems()))
+            text.replace("- `make lint-sh`", "- lint-sh: shell lint"),
+            encoding="utf-8")
+        self.assertTrue(any("`make lint-sh`" in p for p in self.problems()))
+
+    def test_gate_prereq_prose_mention_does_not_count(self) -> None:
+        # a bare name in prose is not documentation of the command;
+        # the docs must carry the exact `make <target>` mention
+        text = (self.root / "AGENTS.md").read_text(encoding="utf-8")
+        (self.root / "AGENTS.md").write_text(
+            text.replace("- `make lint-sh` — shell lint.",
+                         "- lint-sh runs shell lint."),
+            encoding="utf-8")
+        self.assertTrue(any("`make lint-sh`" in p for p in self.problems()))
 
     def test_skill_count_claim_mismatch(self) -> None:
         (self.root / "README.md").write_text(

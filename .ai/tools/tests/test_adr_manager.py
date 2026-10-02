@@ -118,6 +118,11 @@ class AdrManagerTests(AdrCase):
         self.assertIn("AD-1 — Parked design", index)
         self.assertEqual(self.check(), 0)
 
+    def test_check_ignores_todo_in_frontmatter(self) -> None:
+        adr.main(["new", "--title", "Todo in title (todo)"])
+        self.fill_bodies()
+        self.assertEqual(self.check(), 0)
+
     def test_check_rejects_todo_bodies(self) -> None:
         adr.main(["new", "--title", "Half written"])
         self.assertEqual(self.check(), 1)

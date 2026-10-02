@@ -96,10 +96,11 @@ def check(root: Path) -> list[str]:
                 problems.append(f"{doc}: documents `make {mention}` but no "
                                 f"such Makefile target")
     agents_md = (root / "AGENTS.md").read_text(encoding="utf-8")
+    documented = set(MAKE_MENTION_RE.findall(agents_md))
     for dep in ci_gate_prereqs(makefile):
-        if dep not in agents_md:
-            problems.append(f"AGENTS.md: ci-gate prerequisite '{dep}' is "
-                            f"not named in the docs")
+        if dep not in documented:
+            problems.append(f"AGENTS.md: ci-gate prerequisite '{dep}' "
+                            f"lacks a `make {dep}` entry in the docs")
     problems += count_claims(root, docs)
     problems += wikilinks(root)
     return problems
