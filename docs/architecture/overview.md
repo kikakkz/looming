@@ -1,9 +1,9 @@
 # Architecture overview
 
 The readable companion to the decision records. Facts live in
-[AD-27](../.ai/memory/decisions/0027-product-architecture-v0-2-components-invariants.md)
-(components and invariants), [AD-28](../.ai/memory/decisions/0028-product-domain-context-map-v1.md)
-(domain context map), and [AD-29](../.ai/memory/decisions/0029-gateway-thin-slot-host.md)
+[AD-27](../../.ai/memory/decisions/0027-product-architecture-v0-2-components-invariants.md)
+(components and invariants), [AD-28](../../.ai/memory/decisions/0028-product-domain-context-map-v1.md)
+(domain context map), and [AD-29](../../.ai/memory/decisions/0029-gateway-thin-slot-host.md)
 (gateway slot shape); the normative vocabulary is in
 [glossary.md](glossary.md). Solidified from #66 (closed) — the
 diagrams below render the same v0.2 map the decisions narrate.
@@ -21,9 +21,10 @@ session protocol. **Orchestration** dispatches planner/executor/
 worker/judge roles into **model-triggered sandboxes**. **Knowledge**
 (RAG over org documents), **Memory** (review-gated experience), and
 **Registry** (admission governance for tools/MCP/skills/policy rules)
-are three separate contexts. Everything append-only — metering,
-interaction bodies, audit decision events — is owned by the
-**Records/observability** context. SCM integration and CI
+are three separate contexts. The append-only metering records,
+interaction bodies, and audit decision events are owned by the
+**Records/observability** context (the Session context separately
+owns its runtime event stream, AD-27 §3). SCM integration and CI
 orchestration connect the organization's existing engineering estate.
 
 ## Data plane — one request's journey
