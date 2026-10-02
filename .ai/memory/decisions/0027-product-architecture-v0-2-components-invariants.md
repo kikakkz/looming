@@ -95,7 +95,9 @@ in the harness, the sandbox filesystem, or model context — AD-27's
 isolation invariant and AD-6's scoping compose, not compete. Two token
 modes only: delegated
 (user token exchanged downstream; user = subject, agent = actor) and
-service (sync/background, never mixed with user-triggered calls).
+service (sync/background, never mixed with user-triggered calls;
+audited in the Agent 365 S2S shape — the agent identity is the
+subject, its owning blueprint is the owner).
 Knowledge connectors carry source ACLs as item metadata at ingest;
 retrieval-time trimming is the enforced boundary; fail closed on
 unresolvable ACLs; per-source identity mapping; event-audited.
