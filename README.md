@@ -36,8 +36,9 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 ---
 
 > Bootstrap: repository conventions, CI gates, and the architecture record
-> (AD-1 … AD-18) are in place. Components are built issue by issue; the
-> model gateway is the first component and starts with its own issue.
+> are in place (see the [decision index](.ai/memory/decisions/)). Components
+> are built issue by issue; the model gateway is the first component and
+> starts with its own issue.
 
 ---
 
@@ -76,7 +77,7 @@ already use:
 
 | Concern | What Looming provides |
 |---|---|
-| Model access | Stateless OpenAI-compatible gateway: API keys (enterprise SSO later), per-user quota, append-only interaction log, pluggable risk interception |
+| Model access | Stateless OpenAI-compatible gateway: faithful forwarding (streaming/retry semantics stay with the client), API keys (enterprise SSO later), per-user quota, append-only interaction log, pluggable risk interception |
 | Agent runtime | Provider system with capability levels L0–L3; bundle a default or bring your own Codex, Kimi Code, goose, and others |
 | Knowledge | Unified memory (org/project/user scopes, review-gated writes) plus a unified registry for MCP servers, skills, and tools |
 | Execution | Elastic sandbox pool (Kubernetes + gVisor, warm pool): no production credentials, no egress except allowlist, disposable per run |
@@ -130,17 +131,23 @@ contract.
 In place:
 
 - Repository operating contract ([AGENTS.md](AGENTS.md)) and CI gate
-  (`make ci-gate`: lockfile validation, tool tests, trailer policy)
-- Issue-driven process: kind/area taxonomy (Kubernetes convention),
-  templates, DCO + AI attribution policy
-- Agent asset directory (`.ai/`): sha-pinned external skills, repo skills,
-  memory bank with accepted decisions AD-1 … AD-18
+  (`make ci-gate`: locks, tool tests, trailers, ADR check, skill and index
+  validation, semgrep rule pack, shell lint)
+- Issue-driven process: kind/area/status taxonomy (Kubernetes convention),
+  templates, DCO + AI attribution policy, CodeRabbit review loop owned by
+  the repo's own pr-watch tooling
+- Agent asset directory (`.ai/`): sha-pinned external methodology skills,
+  8 self-authored skills, memory bank with accepted decisions
+- Methodology stack: DDD structure, TDD with complexity budgets, the
+  four-layer testing policy, and the two-plane rule (repository management
+  vs product capabilities)
 
 Decided, being built:
 
 - Model gateway (Go) — first component, issue-tracked
 - Runtime bake-off spike (opencode / OpenHands smoke, then full spike)
-- Event-stream schema — its own design issue
+- Event/session backbone — direction settled in the architecture
+  discussion (#66): Postgres as the record, Redis Streams for distribution
 
 Planned slots (see [decisions](.ai/memory/decisions.md)):
 
@@ -151,10 +158,11 @@ Planned slots (see [decisions](.ai/memory/decisions.md)):
 
 ## How Looming Works
 
-The authoritative record of the architecture is
-[.ai/memory/decisions.md](.ai/memory/decisions.md): 18 accepted decisions
-covering the gateway, sandbox and credential model, runtime provider
-system, memory governance, registry, and quality gate. Long-form documents
+The authoritative record of the architecture is the
+[decision index](.ai/memory/decisions/): accepted decisions covering the
+gateway, sandbox and credential model, runtime provider system, memory
+governance, registry, quality gate, and the two-plane tracking rule. The
+product architecture discussion lives in #66. Long-form documents
 land in [docs/](docs/) through the same issue-driven process.
 
 In one paragraph: issues are the work surface; agents run in isolated
@@ -175,6 +183,13 @@ learns is promoted into CI checks, memory, and tooling.
   are rejected before forwarding.
 - External skills and MCP servers are sha-pinned and license-checked in CI;
   MCP servers additionally require an admission security scan.
+- Agents act with the invoking user's delegated permissions — never a
+  service super-account: two token modes (delegated user token vs
+  service token for sync), a policy check before every tool dispatch
+  (fail-closed, human-approval as a first-class outcome), and retrieval
+  trimmed by source ACLs so unauthorized content never reaches a model.
+  Every tool decision is audited with both identities — who acted, via
+  which agent.
 - AI contributions are disclosed with `Assisted-by:` / `Generated-by:`
   trailers; a human signs DCO and takes responsibility for every merge.
 
