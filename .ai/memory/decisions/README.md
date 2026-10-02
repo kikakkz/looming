@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-28 — product domain context map v1](0028-product-domain-context-map-v1.md)
 - [AD-27 — Product architecture v0.2: components, invariants, surfaces](0027-product-architecture-v0-2-components-invariants.md)
 - [AD-26 — Separate repository-management and product planes](0026-separate-repository-management-and-product-planes.md)
 - [AD-25 — Testing stack policy: layers, tags, coverage](0025-testing-stack-policy-layers-tags-coverage.md)

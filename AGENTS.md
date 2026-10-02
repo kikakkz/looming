@@ -162,6 +162,10 @@ are never imported by production code.
   output is solidified and linked first, then the issue closes — no
   holding lists, no perpetual open issues
   ([.ai/skills/issue-lifecycle/SKILL.md](.ai/skills/issue-lifecycle/SKILL.md)).
+- Design work at any level runs the same top-down domain method —
+  L0 context map, L1 module design, L2 hexagonal component — before
+  code starts
+  ([.ai/skills/domain-design/SKILL.md](.ai/skills/domain-design/SKILL.md)).
 - Bots and agents follow the same rules as humans: same CI, same trailer
   policy, same issue protocol.
 
