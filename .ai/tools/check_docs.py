@@ -29,6 +29,8 @@ DOC_GLOBS = ("AGENTS.md", "README.md", ".ai/AGENTS.md")
 MAKE_MENTION_RE = re.compile(r"`make ([a-z0-9][a-z0-9-]*)`")
 COUNT_CLAIM_RE = re.compile(r"(\d+) (?:self-authored )?skills?", re.I)
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+BUDGET_LINES = 200  # always-loaded constitution cap (survey: adherence
+                    # degrades and cost inflates past this)
 AD_LINK_RE = re.compile(r"^AD-(\d+)$")
 
 
@@ -85,6 +87,33 @@ def wikilinks(root: Path) -> list[str]:
     return problems
 
 
+def size_budget(root: Path) -> list[str]:
+    """always-loaded files (index.yaml read_order) stay under the line cap"""
+    index = root / ".ai" / "index.yaml"
+    problems = []
+    if not index.is_file():
+        return problems
+    in_order, current = [], None
+    for line in index.read_text(encoding="utf-8").splitlines():
+        if line.startswith("read_order:"):
+            current = in_order
+            continue
+        if current is not None:
+            if line.startswith("  - "):
+                current.append(line.strip()[2:].strip())
+            elif line and not line.startswith(" "):
+                current = None
+    for ref in in_order:
+        path = root / ref
+        if path.is_file():
+            lines = len(path.read_text(encoding="utf-8").splitlines())
+            if lines > BUDGET_LINES:
+                problems.append(
+                    f"{ref}: {lines} lines exceeds the {BUDGET_LINES}-line "
+                    f"budget for always-loaded files")
+    return problems
+
+
 def check(root: Path) -> list[str]:
     problems: list[str] = []
     makefile = root / "Makefile"
@@ -103,6 +132,7 @@ def check(root: Path) -> list[str]:
                             f"lacks a `make {dep}` entry in the docs")
     problems += count_claims(root, docs)
     problems += wikilinks(root)
+    problems += size_budget(root)
     return problems
 
 

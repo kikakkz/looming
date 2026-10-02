@@ -1,0 +1,16 @@
+# Debt markers must carry a tracker reference (issue #75, wave 2).
+# canopy pattern: debt lives on the tracker, never forgotten in prose.
+# A TODO/FIXME without a #N reference fails; with one it is a promise
+# the tracker can enforce.
+rules:
+  - id: debt-marker-needs-issue
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      TODO/FIXME must reference an issue (#N) so the debt lives on the
+      tracker instead of rotting in prose.
+    metadata:
+      source: "agent-native survey: canopy validate-agents-md pattern"
+    patterns:
+      - pattern-regex: "(TODO|FIXME)(\\([a-z0-9-]+\\))?(?!.*#\\d+)[^\\n]*"
+      - pattern-not-regex: ".*#\\d+.*"
