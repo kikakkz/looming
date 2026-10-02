@@ -8,6 +8,11 @@
 # so this gate is strict: anything it cannot parse is an error, never
 # silently skipped.
 #
+# Co-change (check_cochange.py): any PR that changes a file this
+# index anchors must also touch this file, even when the pointer text
+# is unchanged. AD-adding PRs regenerate decisions/README.md — record
+# the pointer re-validation here (a comment update suffices).
+#
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
 #   key: value        scalar
