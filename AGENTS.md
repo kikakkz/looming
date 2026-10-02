@@ -53,6 +53,11 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
+- `make check-adr` — validate decision-record links and index freshness.
+- `make check-docs` — doc-repo consistency: documented make targets
+  exist, ci-gate prerequisites are named here, skill counts and memory
+  wikilinks resolve.
+- `make lint-sh` — shellcheck over the repo scripts.
 - `make check-skills` — validate every `.ai/skills/*/SKILL.md` against
   the Agent Skills frontmatter contract.
 - `make check-index` — validate `.ai/index.yaml`: parseable under the

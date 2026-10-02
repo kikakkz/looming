@@ -285,6 +285,9 @@ def cmd_check(_args: argparse.Namespace) -> int:
                         f"AD-{number}: AD-{target} lacks reciprocal superseded-by")
                 if other.status != "superseded":
                     errors.append(f"AD-{target}: not marked superseded by AD-{number}")
+        if "(todo)" in adr.text.lower():
+            errors.append(f"AD-{number}: body still contains (todo) — "
+                          f"fill the record before merging")
         if adr.superseded_by is not None:
             other = adrs.get(adr.superseded_by)
             if other is None:
