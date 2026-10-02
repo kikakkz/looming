@@ -88,7 +88,12 @@ middleware-chain plugin (Traefik analogy — jev/laya are one chain-link
 implementation class). Prompt analysis is offline batch, reading the
 interaction store directly, writing to memory/registry.
 
-**6. Permissions (enterprise gate).** Two token modes only: delegated
+**6. Permissions (enterprise gate).** The credential proxy owns AD-6's
+per-run, repository-scoped credentials: it mints them and binds them at
+clone/setup time (git tokens wired into the remote); they never appear
+in the harness, the sandbox filesystem, or model context — AD-27's
+isolation invariant and AD-6's scoping compose, not compete. Two token
+modes only: delegated
 (user token exchanged downstream; user = subject, agent = actor) and
 service (sync/background, never mixed with user-triggered calls).
 Knowledge connectors carry source ACLs as item metadata at ingest;
