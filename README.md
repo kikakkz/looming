@@ -142,7 +142,7 @@ In place:
   templates, DCO + AI attribution policy, CodeRabbit review loop owned by
   the repo's own pr-watch tooling
 - Agent asset directory (`.ai/`): sha-pinned external methodology skills,
-  8 self-authored skills, memory bank with accepted decisions
+  9 self-authored skills, memory bank with accepted decisions
 - Methodology stack: DDD structure, TDD with complexity budgets, the
   four-layer testing policy, and the two-plane rule (repository management
   vs product capabilities)

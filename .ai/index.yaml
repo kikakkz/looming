@@ -39,6 +39,7 @@ required_rules:
   session-bootstrap: .ai/skills/session-bootstrap/SKILL.md
   backlog: .ai/skills/backlog/SKILL.md
   small-step-iteration: .ai/skills/small-step-iteration/SKILL.md
+  issue-lifecycle: .ai/skills/issue-lifecycle/SKILL.md
 
 authoritative_sources:
   tracker: https://github.com/kikakkz/looming/issues

@@ -158,6 +158,10 @@ are never imported by production code.
   not-yet-started work files an issue labeled `status/parked` — one
   parking mechanism, no open-ended tracking issues
   ([.ai/skills/backlog/SKILL.md](.ai/skills/backlog/SKILL.md)).
+- Issues are disposable trackers with a mandatory close: durable
+  output is solidified and linked first, then the issue closes — no
+  holding lists, no perpetual open issues
+  ([.ai/skills/issue-lifecycle/SKILL.md](.ai/skills/issue-lifecycle/SKILL.md)).
 - Bots and agents follow the same rules as humans: same CI, same trailer
   policy, same issue protocol.
 
