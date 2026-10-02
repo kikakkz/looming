@@ -54,8 +54,11 @@ flowchart TD
 
   subgraph CPL["控制面 — 不变量的居所"]
     ORCH["编排器 blueprint / 状态机 / 分发"]
-    EB[("事件骨干 append-only · 必写")]
     TOPO["拓扑引导 首启向导 · 加机器"]
+  end
+
+  subgraph SUBSTRATE["跨切面 substrate — 事件骨干"]
+    EB[("事件骨干 append-only · 必写<br/>record 归 Records/观测 (AD-28)")]
   end
 
   subgraph CONS["消费面 — 事件的读者"]
