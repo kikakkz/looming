@@ -22,7 +22,7 @@ this skill encodes how they combine with this repository's artifacts.
 
 1. **Discover** — event-storm the feature: actors, commands, events,
    policies. Harvest the ubiquitous-language terms; glossary entries
-   are added in the same PR.
+   are added in the design PR.
 2. **Position** — place the new pieces on the context map. Choose the
    relationship pattern deliberately:
    - **Anti-Corruption Layer** — integrating with foreign models we
@@ -52,8 +52,9 @@ this skill encodes how they combine with this repository's artifacts.
 
 ## Done criteria
 
-- Map and glossary updated in the same PR as the code that assumes
-  them (co-change rule).
+- Map and glossary updates land in the design PR, before
+  implementation. A later implementation PR updates them only if the
+  design changes (co-change rule).
 - Every aspect in the checklist has a stated mounting point or an
   explicit "not applicable" with the reason.
 - Aggregates have their invariants written in the design doc, not
