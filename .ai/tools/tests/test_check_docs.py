@@ -43,6 +43,8 @@ class CheckDocsTests(unittest.TestCase):
         (self.root / ".ai" / "skills" / "one").mkdir(parents=True)
         (self.root / ".ai" / "skills" / "two").mkdir(parents=True)
         (self.root / ".ai" / "memory" / "decisions").mkdir(parents=True)
+        (self.root / ".ai" / "index.yaml").write_text(
+            "read_order:\n  - AGENTS.md\n", encoding="utf-8")
         (self.root / ".ai" / "memory" / "decisions.md").write_text(
             "stub", encoding="utf-8")
         (self.root / "Makefile").write_text(MAKEFILE, encoding="utf-8")
@@ -97,6 +99,20 @@ class CheckDocsTests(unittest.TestCase):
             "x", encoding="utf-8")
         problems = [p for p in self.problems() if "progress.md" in p]
         self.assertEqual(problems, [])
+
+    def test_size_budget_flags_overlong_always_loaded_file(self) -> None:
+        (self.root / "AGENTS.md").write_text(
+            "x\n" * 201, encoding="utf-8")
+        problems = [p for p in self.problems() if "exceeds" in p]
+        self.assertEqual(len(problems), 1)
+        self.assertIn("AGENTS.md", problems[0])
+
+    def test_size_budget_ignores_on_demand_files(self) -> None:
+        # only read_order files carry the always-loaded budget; on-demand
+        # content (progress log) may grow past it
+        (self.root / ".ai" / "memory" / "progress.md").write_text(
+            "x\n" * 500, encoding="utf-8")
+        self.assertFalse(any("exceeds" in p for p in self.problems()))
 
     def test_main_cli(self) -> None:
         (self.root / "README.md").write_text(

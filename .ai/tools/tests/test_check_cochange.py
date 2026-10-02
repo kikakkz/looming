@@ -24,6 +24,10 @@ read_on_demand:
   decisions: .ai/memory/decisions/
   skills: .ai/skills/
   tracker: https://example.com/issues
+
+# a comment: with a colon must not leak
+required_rules:
+  gate: Makefile
 """
 
 
@@ -47,6 +51,8 @@ class CochangeTests(unittest.TestCase):
         self.assertIn(".ai/memory/progress.md", anchors)
         self.assertNotIn(".ai/memory/decisions/", anchors)
         self.assertNotIn("https://example.com/issues", anchors)
+        # later top-level sections and their values are not anchors
+        self.assertNotIn("Makefile", anchors)
 
     def test_anchor_change_without_index_update_fails(self) -> None:
         problems = self.run_check([".ai/memory/progress.md"])
@@ -64,6 +70,11 @@ class CochangeTests(unittest.TestCase):
         # skills/ is a directory anchor: content churn is expected and
         # must not force an index edit
         self.assertEqual(self.run_check([".ai/skills/new/SKILL.md"]), [])
+
+    def test_makefile_value_is_not_an_anchor(self) -> None:
+        # required_rules.gate: Makefile must not register Makefile as an
+        # index anchor, or every Makefile change would trip the wire
+        self.assertEqual(self.run_check(["Makefile"]), [])
 
     def test_no_base_skips(self) -> None:
         self.assertEqual(cc.main(["--root", str(self.root)]), 0)

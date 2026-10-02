@@ -33,24 +33,31 @@ def index_file_anchors(root: Path) -> set[str]:
             if line.startswith(f"{section}:"):
                 in_section = True
                 continue
-            if in_section:
-                stripped = line.strip()
-                if stripped.startswith("- ") and not stripped.endswith("/"):
-                    anchors.add(stripped[2:].strip())
-                elif stripped and ":" in stripped:
-                    _, _, value = stripped.partition(":")
-                    value = value.strip()
-                    if value and not value.endswith("/") and \
-                            not value.startswith("http"):
-                        anchors.add(value)
-                elif stripped and not line.startswith(" "):
-                    in_section = False
+            if not in_section:
+                continue
+            # indentation gates everything: a non-indented line ends the
+            # section before its content can be misparsed as an entry
+            # (top-level keys like required_rules:, comment lines)
+            if not line.startswith(" "):
+                in_section = False
+                continue
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if stripped.startswith("- ") and not stripped.endswith("/"):
+                anchors.add(stripped[2:].strip())
+            elif ":" in stripped:
+                _, _, value = stripped.partition(":")
+                value = value.strip()
+                if value and not value.endswith("/") and \
+                        not value.startswith("http"):
+                    anchors.add(value)
     return anchors
 
 
 def changed_paths(root: Path, base: str) -> set[str]:
     out = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}..HEAD"],
+        ["git", "diff", "--name-only", f"{base}...HEAD"],
         capture_output=True, text=True, cwd=root, timeout=60)
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip())
