@@ -8,7 +8,7 @@
 # so this gate is strict: anything it cannot parse is an error, never
 # silently skipped.
 #
-# Co-change (check_cochange.py): any PR that adds or moves a file this
+# Co-change (check_cochange.py): any PR that changes a file this
 # index anchors must also touch this file, even when the pointer text
 # is unchanged. AD-adding PRs regenerate decisions/README.md — record
 # the pointer re-validation here (a comment update suffices).
