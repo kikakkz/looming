@@ -44,8 +44,9 @@ flowchart TD
     CI["org CI gate（闸位）+ judge（可插 runtime）<br/>judge fail case 回流 CI"]
   end
 
-  subgraph KNOW["知识层 — agent 的读物与工具"]
-    MEM["memory<br/>ACL 裁剪检索（不变量）<br/>gptmem / mem0·mem3 / mem-palace 可插"]
+  subgraph KNOW["知识层 — agent 的读物与工具（AD-28: knowledge / memory 分域）"]
+    KNOWDOC["knowledge RAG 领域文档<br/>ACL 裁剪检索（不变量）"]
+    MEM["memory 智能体经验<br/>ACL 裁剪检索（不变量）<br/>gptmem / mem0·mem3 / mem-palace 可插"]
     REG["registry 准入治理（不变量）<br/>tools / MCP / skills · 单件可插上架"]
     CONN["connectors 可插：钉钉 / 飞书 / Confluence<br/>ACL 随文档入库（不变量）"]
   end
@@ -66,9 +67,10 @@ flowchart TD
   RT -- "每次工具分发判定" --> PEP
   RT -- "取凭证" --> CPX
   RT -- "供给请求" --> SB
+  RT --> KNOWDOC
   RT --> MEM
   RT --> REG
-  CONN --> MEM
+  CONN --> KNOWDOC
   SB -- "产出以发起用户身份" --> SCM --> CI
   ORCH --> RT
   GW -- "计量" --> EB
@@ -81,7 +83,7 @@ flowchart TD
 
   classDef inv stroke-width:3px,stroke:#d73a4a;
   classDef slot stroke-dasharray:5 5;
-  class GW,PEP,CPX,CI,MEM,REG,CONN,EB,TOPO inv;
+  class GW,PEP,CPX,CI,KNOWDOC,MEM,REG,CONN,EB,TOPO inv;
   class RT,SB,SCM slot;
 ```
 
