@@ -4,10 +4,10 @@
 
 ## Active
 
+- [AD-27 — Product architecture v0.2: components, invariants, surfaces](0027-product-architecture-v0-2-components-invariants.md)
 - [AD-26 — Separate repository-management and product planes](0026-separate-repository-management-and-product-planes.md)
 - [AD-25 — Testing stack policy: layers, tags, coverage](0025-testing-stack-policy-layers-tags-coverage.md)
 - [AD-24 — TDD workflow and complexity budgets](0024-tdd-workflow-and-complexity-budgets.md)
-- [AD-23 — Go component structure: DDD layers and context map](0023-go-component-structure-ddd-layers-and.md)
 - [AD-22 — Memory governance: generation vs publication](0022-memory-governance-generation-vs-publication.md)
 - [AD-21 — Migrate decision records to one-file-per-decision ADR layout](0021-migrate-decision-records-to-one-file.md)
 - [AD-20 — Branch names carry a fixed-vocabulary prefix](0020-branch-names-carry-a-fixed-vocabulary.md)
@@ -31,5 +31,6 @@
 
 ## Inactive (superseded / deprecated / deferred)
 
+- [AD-23 — Go component structure: DDD layers and context map](0023-go-component-structure-ddd-layers-and.md) — superseded by [AD-27](0027)
 - [AD-19 — `main` is protected on GitHub](0019-main-is-protected-on-github.md) — superseded by [AD-20](0020)
 - [AD-9 — Memory governance](0009-memory-governance.md) — superseded by [AD-22](0022)

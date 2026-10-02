@@ -2,10 +2,12 @@
 number: 23
 title: "Go component structure: DDD layers and context map"
 date: "2026-10-01"
-updated: "2026-10-01"
-status: "accepted"
+updated: "2026-10-02"
+status: "superseded"
 supersedes: []
 adopted-at: "2026-10-01"
+superseded-by: 27
+superseded-at: "2026-10-02"
 ---
 
 # AD-23 — Go component structure: DDD layers and context map
