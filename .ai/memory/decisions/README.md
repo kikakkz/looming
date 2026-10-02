@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-29 — gateway thin slot host](0029-gateway-thin-slot-host.md)
 - [AD-28 — product domain context map v1](0028-product-domain-context-map-v1.md)
 - [AD-27 — Product architecture v0.2: components, invariants, surfaces](0027-product-architecture-v0-2-components-invariants.md)
 - [AD-26 — Separate repository-management and product planes](0026-separate-repository-management-and-product-planes.md)
