@@ -163,8 +163,9 @@ Planned slots (see [decisions](.ai/memory/decisions.md)):
 
 ## How Looming Works
 
-In one paragraph: a developer @mentions an agent in the CLI (IM entry
-comes later) and hands it an issue; the agent's model calls route through
+In one paragraph — the target state; the Status section above tracks
+what is operational today: a developer @mentions an agent in the CLI (IM
+entry comes later) and hands it an issue; the agent's model calls route through
 the organization's gateway, so quota, audit, and risk interception apply
 uniformly; it works in an isolated, disposable sandbox whose credentials
 are scoped to what that developer may touch — never more; it reads
