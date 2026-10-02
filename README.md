@@ -163,19 +163,20 @@ Planned slots (see [decisions](.ai/memory/decisions.md)):
 
 ## How Looming Works
 
-The authoritative record of the architecture is the
-[decision index](.ai/memory/decisions/): accepted decisions covering the
-gateway, sandbox and credential model, runtime provider system, memory
-governance, registry, quality gate, and the two-plane tracking rule. The
-product architecture discussion lives in #66. Long-form documents
-land in [docs/](docs/) through the same issue-driven process.
+In one paragraph: a developer @mentions an agent in the CLI (IM entry
+comes later) and hands it an issue; the agent's model calls route through
+the organization's gateway, so quota, audit, and risk interception apply
+uniformly; it works in an isolated, disposable sandbox whose credentials
+are scoped to what that developer may touch — never more; it reads
+organizational memory and uses only registry-approved tools; its output
+lands in the SCM as that developer's own contribution and passes the
+organization's own CI exactly like human work; a judge reviews beyond
+what deterministic checks can see, and what it learns flows back into the
+org's checks, its memory, and its tool registry.
 
-In one paragraph: issues are the work surface; agents run in isolated
-sandboxes with per-run, short-lived, repo-scoped credentials; model calls
-route through the gateway so quota, audit, and risk interception apply
-uniformly; outputs leave the sandbox only as merge requests that pass the
-same deterministic CI as human work; a judge reviews every MR, and what it
-learns is promoted into CI checks, memory, and tooling.
+The authoritative record of the architecture is the
+[decision index](.ai/memory/decisions/); the live design discussion lives
+in #66; long-form documents land in [docs/](docs/).
 
 ---
 
