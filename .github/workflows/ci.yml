@@ -25,6 +25,10 @@ jobs:
       - name: ci-gate
         run: make ci-gate
 
+      - name: Co-change tripwire (PRs only)
+        if: github.event_name == 'pull_request'
+        run: python3 .ai/tools/check_cochange.py --base "${{ github.event.pull_request.base.sha }}"
+
       - name: DCO + trailer check on PR commits
         # Check the branch commits (base..head), NOT the checked-out merge
         # commit — GitHub's ephemeral test merge never carries trailers.

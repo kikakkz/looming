@@ -30,7 +30,7 @@ NULL_SCALARS = ("", "null", "~")
 def scalar(value: str) -> str:
     """frontmatter scalar with YAML comment and null handling.
 
-    `description: # TODO` carries no scalar (the rest is a comment), and
+    `description: # <comment>` carries no scalar (the rest is a
     `description: null` / `~` are null values — none of these satisfy a
     required non-empty field.
     """
