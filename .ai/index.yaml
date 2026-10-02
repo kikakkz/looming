@@ -40,6 +40,7 @@ required_rules:
   backlog: .ai/skills/backlog/SKILL.md
   small-step-iteration: .ai/skills/small-step-iteration/SKILL.md
   issue-lifecycle: .ai/skills/issue-lifecycle/SKILL.md
+  domain-design: .ai/skills/domain-design/SKILL.md
 
 authoritative_sources:
   tracker: https://github.com/kikakkz/looming/issues
