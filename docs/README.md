@@ -17,3 +17,5 @@ Domain design (AD-28): the L0 context map and ubiquitous-language
 glossary live in [architecture/](architecture/); the repeated
 top-down method is
 [.ai/skills/domain-design/](../.ai/skills/domain-design/SKILL.md).
+Start reading at [architecture/overview.md](architecture/overview.md)
+— the narrated architecture with diagrams (solidified from #66).
