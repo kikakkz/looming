@@ -30,9 +30,12 @@ func (s frontTestLink) Evaluate(_ context.Context, _ frontdomain.LinkContext, _ 
 	return s.v, nil
 }
 
-type stubAllowlist struct{}
+type stubAllowlist struct{ err error }
 
-func (stubAllowlist) Models(_ context.Context, _ string) ([]string, error) {
+func (s stubAllowlist) Models(_ context.Context, _ string) ([]string, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	return []string{"gpt-5"}, nil
 }
 
@@ -91,6 +94,21 @@ func TestFrontRejectsUnlistedModel(t *testing.T) {
 	front.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("authenticated model denial is 403, got %d", rec.Code)
+	}
+}
+
+func TestFrontAllowlistLookupFailureIsServiceUnavailable(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	front := NewFront(stubAuthn{subject: "ker"}, stubAllowlist{err: errors.New("authority down")},
+		frontdomain.NewChain(frontTestLink{v: frontdomain.VerdictPass}), stubEngine{body: "ok"},
+		func(r *http.Request) string { return r.Header.Get("X-Test-Model") }, nil)
+	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer good-key")
+	req.Header.Set("X-Test-Model", "gpt-5")
+	rec := httptest.NewRecorder()
+	front.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("lookup failure is a 503 fault, got %d", rec.Code)
 	}
 }
 

@@ -47,7 +47,16 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	model := f.model(r)
 	models, err := f.allowlist.Models(r.Context(), subject)
-	if err != nil || frontdomain.ModelAllowed(models, model) != frontdomain.Allow {
+	if err != nil {
+		// Lookup failure is an infrastructure fault, not an
+		// authorization denial — logging it as one would poison the
+		// audit stream and hide the real problem (storm Q4).
+		f.log.ErrorContext(r.Context(), "allowlist lookup failed",
+			"subject", subject, "err", err)
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	if frontdomain.ModelAllowed(models, model) != frontdomain.Allow {
 		f.denyStatus(w, r, http.StatusForbidden, "model_permission", key, subject)
 		return
 	}
