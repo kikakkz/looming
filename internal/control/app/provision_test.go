@@ -3,9 +3,10 @@ package app
 import (
 	"context"
 	"errors"
-	"github.com/kikakkz/looming/internal/control/domain"
 	"testing"
 	"time"
+
+	"github.com/kikakkz/looming/internal/control/domain"
 )
 
 type flakyAdmin struct {
