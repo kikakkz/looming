@@ -15,6 +15,7 @@
 # AD-29 re-validated 2026-10-02: all read_order anchors resolve.
 # AD-30 re-validated 2026-10-03: all read_order anchors resolve.
 # AD-31 re-validated 2026-10-03: all read_order anchors resolve.
+# AGENTS.md move re-validated 2026-10-03 (co-change: lint-pr-body documented).
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

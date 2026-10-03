@@ -81,3 +81,45 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class HardeningTests(unittest.TestCase):
+    def test_colon_form_bare_fails(self):
+        self.assertEqual(len(violations("Refs: #82")), 1)
+
+    def test_colon_form_with_reason_ok(self):
+        self.assertEqual(
+            violations("Refs: #82 pending first component issue"), [])
+
+    def test_next_reference_bounds_reason(self):
+        body = "Refs #1 Refs #2 — deferred until phase two"
+        problems = violations(body)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("`Refs #1`", problems[0])
+
+    def test_tilde_fence_ignored(self):
+        body = "~~~\nRefs #54\n~~~\nCloses #92"
+        self.assertEqual(violations(body), [])
+
+    def test_fence_closes_only_with_same_char_longer_run(self):
+        body = "```note\nRefs #79\n`` prose continues\nCloses #92"
+        self.assertEqual(violations(body), [])
+
+    def test_short_closer_does_not_close_fence(self):
+        body = "````\nRefs #79\n```\nstill fenced\n````\nCloses #92"
+        self.assertEqual(violations(body), [])
+
+    def test_unclosed_fence_swallows_rest(self):
+        body = "```\nRefs #54"
+        self.assertEqual(violations(body), [])
+
+    def test_inline_backticks_do_not_open_fence(self):
+        body = "use `code` here\nRefs #79 — stays open until phase two"
+        self.assertEqual(violations(body), [])
+
+    def test_multiline_comment_does_not_merge_reason(self):
+        body = "Refs #79\n<!-- a\nb -->\nCloses #92"
+        self.assertEqual(len(violations(body)), 1)
+
+    def test_same_line_comment_removed(self):
+        body = "Refs #79 <!-- note -->\nCloses #92"
+        self.assertEqual(len(violations(body)), 1)
