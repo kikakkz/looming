@@ -51,9 +51,10 @@ years later without reading the whole thread.
 
 ## Close reasons
 
-`closed-by-PR` / `closed-as-solidified` / `closed-superseded` (point
-at the canonical AD or issue) / `closed-duplicate` / `closed-quiet`
-(parked decay, per the backlog skill).
+`closed-by-PR` / `closed-as-solidified` / `closed-deferred` (trigger
+stated; re-entry at intake time, per the backlog skill and AD-31) /
+`closed-superseded` (point at the canonical AD or issue) /
+`closed-duplicate` / `closed-quiet` (inactive; reopening is cheap).
 
 ## Holding lists are banned
 
@@ -64,7 +65,7 @@ closes when the distribution lands.
 
 ## Staleness
 
-`status/parked` re-affirmation is the backlog skill's job (monthly
-glance, k8s stale semantics). Any non-parked issue untouched for a
-release cycle is either advanced or `closed-quiet` — the tracker is
-the intake, not the archive.
+An open issue untouched for a release cycle is either advanced or
+`closed-quiet` — the tracker is the intake, not the archive. There is
+no parked state to re-affirm (AD-31): deferred work is already closed
+with its trigger, and its re-entry rides intake, not a schedule.
