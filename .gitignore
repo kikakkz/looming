@@ -26,3 +26,6 @@ coverage/
 .env.*
 *.pem
 *.key
+
+# Go test artifacts
+coverage.out

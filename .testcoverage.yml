@@ -1,8 +1,12 @@
 # Coverage thresholds (AD-25), checked by go-test-coverage.
-# The CI gate lands with the first Go component; until then
-# `make test-coverage` reports without failing.
+# Profile path is relative to the repo root.
 profile: coverage.out
 threshold:
   file: 80
   package: 80
   total: 80
+exclude:
+  paths:
+    # cmd packages are manual-DI wiring only (AD-23); their behaviour
+    # is covered by the component tests and later integration slices.
+    - cmd/gateway/main.go

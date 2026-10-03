@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-33 — gateway dependency matrix v0](0033-gateway-dependency-matrix-v0.md)
 - [AD-32 — gateway L1 enforcement placement](0032-gateway-l1-enforcement-placement.md)
 - [AD-31 — deferred-closed issues, intake-time re-entry](0031-deferred-closed-issues-intake-time-re.md)
 - [AD-30 — reliability by construction, no correction layers](0030-reliability-by-construction-no-correction-layers.md)
