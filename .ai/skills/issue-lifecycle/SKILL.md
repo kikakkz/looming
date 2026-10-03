@@ -23,6 +23,25 @@ this skill exists because of that review finding).
 - **bug** — closed by the fixing PR, or closed-not-planned with the
   reason stated in the thread.
 
+## Merge-time checklist (the closer owes this)
+
+The merge is **not complete** until every issue referenced in the PR
+body is processed — closure is part of the merge action, never a
+later cleanup (AD-30: reliability is by construction; there is no
+correction layer).
+
+- PR bodies prefer `Closes #N` whenever the issue should close at
+  merge. Write `Closes` by default; downgrade to `Refs` only when the
+  issue must stay open, and say why in the PR body.
+- After merging a PR that only `Refs` an issue: immediately either
+  close the issue with the closing comment (its work landed) or
+  comment why it stays open (genuinely unfinished). Never leave a
+  merged-PR reference silent — that residue is how tracker rot
+  starts (the #83 miss was exactly this).
+- Bots and agents merging PRs follow the same checklist — the merger
+  owns the follow-up, not the issue author. An automated merge loop
+  that skips this step is an incomplete merge.
+
 ## Closing comment (mandatory)
 
 Before closing, one comment: what was produced or decided, where it
