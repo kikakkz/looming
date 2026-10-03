@@ -38,6 +38,11 @@ closed-deferred. Solidified at <AD-N / doc path>.
 Re-enter when: <the concrete trigger>.
 ```
 
+The `Solidified at` link is mandatory even for one-sentence ideas: the
+issue is a disposable tracker and cannot serve as the durable record.
+If the idea is not worth one durable sentence in an AD or doc, it is
+dropped (closed-not-planned), not deferred.
+
 The trigger is the contract. "When someone has time" is not a
 trigger; "when the PEP shape design starts" is. If the work cannot be
 given a trigger, it is not real enough to track — drop it (AD-30: no

@@ -18,7 +18,10 @@ maintainer rejected both: a pile of open issues with no trigger date,
 no owner, and no conclusion is tracker rot, and a periodic sweep to
 reap it is a correction layer — prohibited by AD-30. An issue's
 conclusion must be one of: fixed, feature delivered, solidified, or
-deferred. Research backed the instinct: [Shape Up, "Bets, Not
+deferred. (AD-30's clarification (a), which kept the parked-issue
+re-affirmation glance, is void as of this decision — the remainder of
+AD-30 stands; AD records are immutable except status flips, so the
+narrowing is recorded here.) Research backed the instinct: [Shape Up, "Bets, Not
 Backlogs"](https://basecamp.com/shapeup/2.1-chapter-07) discards
 unbet work and re-pitches it at intake time ("No backlogs. Backlogs
 are a big weight we don't need to carry."); k8s's culture is
