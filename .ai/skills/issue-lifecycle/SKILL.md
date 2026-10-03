@@ -53,7 +53,8 @@ years later without reading the whole thread.
 
 `closed-by-PR` / `closed-as-solidified` / `closed-deferred` (trigger
 stated; re-entry at intake time, per the backlog skill and AD-31) /
-`closed-superseded` (point at the canonical AD or issue) /
+`closed-not-planned` (dropped — not worth a durable record, per AD-31)
+/ `closed-superseded` (point at the canonical AD or issue) /
 `closed-duplicate` / `closed-quiet` (inactive; reopening is cheap).
 
 ## Holding lists are banned

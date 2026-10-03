@@ -17,8 +17,9 @@ backlog skill added a monthly re-affirmation glance on top. The
 maintainer rejected both: a pile of open issues with no trigger date,
 no owner, and no conclusion is tracker rot, and a periodic sweep to
 reap it is a correction layer — prohibited by AD-30. An issue's
-conclusion must be one of: fixed, feature delivered, solidified, or
-deferred. (AD-30's clarification (a), which kept the parked-issue
+conclusion must be one of: fixed, feature delivered, solidified,
+deferred, or **dropped** (not worth a durable record — closed
+`closed-not-planned`). (AD-30's clarification (a), which kept the parked-issue
 re-affirmation glance, is void as of this decision — the remainder of
 AD-30 stands; AD records are immutable except status flips, so the
 narrowing is recorded here.) Research backed the instinct: [Shape Up, "Bets, Not
