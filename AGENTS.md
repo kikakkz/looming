@@ -44,7 +44,13 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 ## Commands
 
 - `make ci-gate` — run the full local gate (branch name, locks, tool
-  tests, trailer checks, ADR check, shell lint, semgrep rules).
+  tests, trailer checks, ADR check, shell lint, semgrep rules,
+  PR-body lint).
+- `make lint-pr-body` — PR-body lint (AD-30 prevention, #92): every
+  `Refs #N` must state on the same line why the issue stays open;
+  `Closes`/`Fixes` need no reason. Skips without a PR body — in CI
+  the `pull_request` job feeds it via `PR_BODY`; locally pass
+  `PR_BODY="$(cat body.md)" make lint-pr-body`.
 - `make check-branch` — validate the current branch name against the
   naming rule before push (same rule as the `branch-name` CI check). Run
   `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
