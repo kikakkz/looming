@@ -1,10 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-pr-body test-unit test-coverage
+.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-coverage
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
-ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-pr-body test-unit
+ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit
 
 check-skills:
 	python3 .ai/tools/check_skills.py
@@ -68,6 +68,11 @@ lint-go:
 # a note; the pull_request job in ci.yml feeds the body via PR_BODY.
 lint-pr-body:
 	@python3 .ai/tools/check_pr_body.py
+
+# AD-23 matrix enforcement (.go-arch-lint.yml); AD-33 extended it for
+# the gateway. Warns and skips when the tool is missing locally.
+lint-arch:
+	@if command -v go-arch-lint >/dev/null 2>&1; then 		go-arch-lint check; 	else 		echo "go-arch-lint: not installed, skipped (CI installs it)"; 	fi
 
 test-unit:
 	@if [ ! -f go.mod ]; then \

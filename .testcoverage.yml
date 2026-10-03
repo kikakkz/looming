@@ -1,6 +1,5 @@
-# Coverage thresholds (AD-25), checked by go-test-coverage.
-# The CI gate lands with the first Go component; until then
-# `make test-coverage` reports without failing.
+# AD-25: coverage >= 80% at file, package, and total granularity
+# (go-test-coverage). Profile path is relative to the repo root.
 profile: coverage.out
 threshold:
   file: 80

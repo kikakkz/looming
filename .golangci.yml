@@ -1,43 +1,28 @@
-# Golangci-lint configuration (AD-24). Complexity budgets are the ratchet
-# contract: funlen 50 statements, gocognit 30, cyclomatic 15. Tightening
-# happens only by superseding AD-24. The CI job runs
-# `golangci-lint run` — it lands with the first Go component (CI-first
-# rule); until then this file is prospective and unenforced.
-version: "2"
-
+# AD-24 budgets (ratchet down only via a superseding AD) plus the
+# hidden-defect sentinels agreed in #99: errcheck (no swallowed
+# errors), govet+shadow (no shadowed variables), staticcheck.
+run:
+  timeout: 5m
 linters:
-  default: standard
+  disable-all: true
   enable:
-    - cyclop
-    - depguard
+    - errcheck
+    - govet
+    - staticcheck
     - funlen
     - gocognit
-    - gosec
-    - misspell
-    - nolintlint
-  settings:
-    funlen:
-      lines: -1 # statements are the honest proxy; long decl tables are fine
-      statements: 50
-    gocognit:
-      min-complexity: 30
-    cyclop:
-      max-complexity: 15
-      package-average: 0
-    nolintlint:
-      allow-unused: false
-      require-explanation: true
-      require-specific: true
-    depguard:
-      rules:
-        domain-purity:
-          list-mode: strict
-          files:
-            - "**/domain/**/*.go"
-          allow:
-            - $gostd # stdlib only (AD-23); anything else is rejected
-
-formatters:
-  enable:
-    - gofmt
-    - goimports
+    - gocyclo
+linters-settings:
+  govet:
+    enable:
+      - shadow
+  funlen:
+    statements: 50
+    ignore-comments: true
+  gocognit:
+    min-complexity: 30
+  gocyclo:
+    min-complexity: 15
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,31 +1,35 @@
-# Dependency rules between Go capability components (AD-23).
-# The CI job that runs `go-arch-lint check` lands with the first Go
-# component (CI-first rule); until then this file is prospective and
-# unenforced. Any new component or allowed dependency requires a
-# superseding decision record in the same PR.
-version: 1
-workdir: .
+# AD-23 dependency matrix, extended for the gateway by AD-33 (same-PR
+# rule). Version 3 schema (go-arch-lint v1.19): dependencies not
+# declared under deps: are rejected. internal/ visibility plus this
+# matrix are the two gates on package coupling.
+version: 3
+
+allow:
+  depOnAnyVendor: true # pinned deps live in go.mod; matrix governs
+                       # component coupling, the job it exists for
+
+excludeFiles:
+  - "^.*_test\\.go$" # test doubles legitimately cross seams
 
 components:
-  gateway-dp:
-    in: internal/gateway/dp
-  gateway-cp:
-    in: internal/gateway/cp
-  cicd:
-    in: internal/cicd
-  agentruntime:
-    in: internal/agentruntime
-  registry:
-    in: internal/registry
+  engineplane:    { in: internal/engineplane }
+  front-domain:   { in: internal/front/domain }
+  front-port:     { in: internal/front/port }
+  front-app:      { in: internal/front/app }
+  control-domain: { in: internal/control/domain }
+  control-app:    { in: internal/control/app }
+  engine-default: { in: internal/engine/default }
+  cmd:            { in: cmd/gateway }
 
 deps:
-  gateway-dp:
-    mayDependOn: []
-  gateway-cp:
-    mayDependOn: []
-  cicd:
-    mayDependOn: []
-  agentruntime:
-    mayDependOn: []
-  registry:
-    mayDependOn: []
+  front-app:
+    mayDependOn: [engineplane, front-domain, front-port]
+
+  control-app:
+    mayDependOn: [control-domain]
+
+  engine-default:
+    mayDependOn: [engineplane]
+
+  cmd:
+    mayDependOn: [engineplane, front-app, control-app, engine-default]

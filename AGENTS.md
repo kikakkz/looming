@@ -51,6 +51,9 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   `Closes`/`Fixes` need no reason. Skips without a PR body — in CI
   the `pull_request` job feeds it via `PR_BODY`; locally pass
   `PR_BODY="$(cat body.md)" make lint-pr-body`.
+- `make lint-arch` — AD-23 dependency-matrix enforcement via
+  go-arch-lint (`.go-arch-lint.yml`, AD-33 for the gateway); deps not
+  listed are rejected. Warns and skips when the tool is missing.
 - `make check-branch` — validate the current branch name against the
   naming rule before push (same rule as the `branch-name` CI check). Run
   `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
