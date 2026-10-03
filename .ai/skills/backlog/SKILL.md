@@ -60,7 +60,9 @@ Creating a new issue or planning new work **is** the re-entry check:
    retains labels on reopen; a later completed close must not match
    the intake query as a false deferred).
 3. Scope changed → file the new issue and reference the old one; the
-   old stays closed (context, not tracker).
+   old stays closed (context, not tracker) and **loses the
+   `kind/deferred` label** — the new issue now carries the trigger;
+   the old one must not match future intake searches.
 
 This rides an event the flow already guarantees — intake — so no
 periodic sweep exists or is needed.
