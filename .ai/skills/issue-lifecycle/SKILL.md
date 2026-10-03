@@ -30,6 +30,14 @@ body is processed — closure is part of the merge action, never a
 later cleanup (AD-30: reliability is by construction; there is no
 correction layer).
 
+- **At PR creation, immediately opt the PR into auto-merge
+  (squash).** Auto-merge is per-PR: the repo setting only permits it,
+  and an unopted PR waits forever no matter how green it gets. With
+  it on, a full-review approval + green CI + resolved conversations
+  merge without any polling; CHANGES_REQUESTED suspends, and a fresh
+  approval resumes. After each findings round, `@coderabbitai
+  resolve` clears addressed threads so approval triggers the merge
+  immediately.
 - PR bodies prefer `Closes #N` whenever the issue should close at
   merge. Write `Closes` by default; downgrade to `Refs` only when the
   issue must stay open, and say why in the PR body.
