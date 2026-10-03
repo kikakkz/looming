@@ -123,3 +123,20 @@ class HardeningTests(unittest.TestCase):
     def test_same_line_comment_removed(self):
         body = "Refs #79 <!-- note -->\nCloses #92"
         self.assertEqual(len(violations(body)), 1)
+
+class CommonMarkTests(unittest.TestCase):
+    def test_blockquote_fence_opens(self):
+        body = "> ```\n> Refs #54\n> ```\nCloses #92"
+        self.assertEqual(violations(body), [])
+
+    def test_backtick_in_info_string_is_not_a_fence(self):
+        body = "```py`thon\nRefs #79\n```"
+        self.assertEqual(len(violations(body)), 1)
+
+    def test_comment_inside_fence_is_literal(self):
+        body = "```\n<!--\n```\nRefs #79\n-->"
+        self.assertEqual(len(violations(body)), 1)
+
+    def test_comment_outside_fence_still_removed(self):
+        body = "<!-- Refs #54 -->\nCloses #92"
+        self.assertEqual(violations(body), [])

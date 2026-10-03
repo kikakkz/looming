@@ -29,44 +29,63 @@ import re
 import sys
 
 REF_RE = re.compile(r"(?i)\b(closes|fixes|refs|references)\s*:?\s*#(\d+)")
-COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-OPEN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+BLOCKQUOTE_RE = re.compile(r"^ {0,3}(?:>[ \t]?)+")
 LEADERS_RE = re.compile(r"^[\s:：;；,，—–\-–(/（]+")
 REASON_MIN = 10
 
 
-def _strip_comments(text: str) -> str:
-    """Remove HTML comments, preserving their newlines."""
+def _strip_noise(text: str) -> str:
+    """Blank fenced blocks and remove HTML comments in one pass.
 
-    def repl(match: re.Match) -> str:
-        return "\n" * match.group(0).count("\n")
-
-    return COMMENT_RE.sub(repl, text)
-
-
-def _strip_fences(text: str) -> str:
-    """Blank out fenced code blocks (CommonMark-close rules)."""
+    Per CommonMark: fence contents are literal (comment markers inside
+    a fence are not comments); a backtick fence whose info string
+    contains a backtick is not a fence at all; blockquote prefixes are
+    normalized before fence detection; removed comments preserve their
+    newlines so lines never merge.
+    """
     out: list[str] = []
-    char = ""
-    length = 0
+    fence_char = ""
+    fence_len = 0
+    in_comment = False
     for line in text.splitlines():
-        if char:
-            closing = re.match(r"^ {0,3}(%s{%d,})\s*$" % (re.escape(char), length), line)
+        if fence_char:
+            closing = re.match(
+                r"^ {0,3}(%s{%d,})\s*$" % (re.escape(fence_char), fence_len), line)
             if closing:
-                char, length = "", 0
+                fence_char = ""
             out.append("")
             continue
-        m = OPEN_FENCE_RE.match(line)
-        if m:
-            char, length = m.group(1)[0], len(m.group(1))
+        view = BLOCKQUOTE_RE.sub("", line)
+        opener = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", view)
+        if opener and not (opener.group(1)[0] == "`" and "`" in opener.group(2)):
+            fence_char, fence_len = opener.group(1)[0], len(opener.group(1))
             out.append("")
-        else:
-            out.append(line)
+            continue
+        buf = ""
+        rest = line
+        while rest:
+            if in_comment:
+                k = rest.find("-->")
+                if k == -1:
+                    rest = ""
+                else:
+                    rest = rest[k + 3:]
+                    in_comment = False
+            else:
+                k = rest.find("<!--")
+                if k == -1:
+                    buf += rest
+                    rest = ""
+                else:
+                    buf += rest[:k]
+                    rest = rest[k + 4:]
+                    in_comment = True
+        out.append(buf)
     return "\n".join(out)
 
 
 def violations(body: str) -> list[str]:
-    text = _strip_fences(_strip_comments(body))
+    text = _strip_noise(body)
     problems = []
     for line in text.splitlines():
         matches = list(REF_RE.finditer(line))
