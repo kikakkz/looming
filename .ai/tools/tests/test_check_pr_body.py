@@ -140,3 +140,48 @@ class CommonMarkTests(unittest.TestCase):
     def test_comment_outside_fence_still_removed(self):
         body = "<!-- Refs #54 -->\nCloses #92"
         self.assertEqual(violations(body), [])
+
+class ContractTests(unittest.TestCase):
+    def test_prose_mention_is_not_a_classification(self):
+        body = "This follows the Refs #79 discussion and closes nothing."
+        self.assertEqual(violations(body), [])
+
+    def test_quote_mention_is_not_a_classification(self):
+        body = "> Refs #54\n\nCloses #92"
+        self.assertEqual(violations(body), [])
+
+    def test_list_item_reference_line_enforced(self):
+        body = "- Refs #79\n- Closes #92"
+        self.assertEqual(len(violations(body)), 1)
+
+    def test_quoted_reference_line_not_enforced(self):
+        body = "> Refs #79 — quoted content is a mention"
+        self.assertEqual(violations(body), [])
+
+    def test_backtick_in_info_string_is_ordinary_text(self):
+        body = "```py`thon\nRefs #79\n```"
+        # not a fence -> the Refs line is a reference line and fails
+        self.assertEqual(len(violations(body)), 1)
+
+    def test_comment_opener_inside_code_span_ignored(self):
+        body = "Use `<!--` to open\nRefs #79 — stays open until phase two"
+        self.assertEqual(violations(body), [])
+
+    def test_closer_normalized_in_blockquote(self):
+        body = "> ```\n> example\n> ```\nRefs #79 — stays open until phase two"
+        self.assertEqual(violations(body), [])
+
+    def test_unclosed_quote_fence_dies_with_quote(self):
+        body = "> ```\n> example\nRefs #79\n```"
+        # fence dies at the quote boundary; Refs #79 line is now scanned
+        self.assertEqual(len(violations(body)), 1)
+
+    def test_fence_in_list_item_detected(self):
+        body = "- ```\n  Refs #54 — hidden in rendered code\n  ```\nCloses #92"
+        self.assertEqual(violations(body), [])
+
+    def test_comment_inside_fence_is_literal(self):
+        body = "```\n<!--\n```\nRefs #79\n-->"
+        # fence closes at the second ```; the trailing --> is prose,
+        # and Refs #79 on its own line is a bare reference line
+        self.assertEqual(len(violations(body)), 1)
