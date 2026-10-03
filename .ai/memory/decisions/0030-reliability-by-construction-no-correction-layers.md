@@ -33,8 +33,9 @@ For issue closure specifically, the defense stack is:
 
 1. **At creation, prevention** — PR bodies classify every issue
    reference: `Closes #N`, or `Refs #N` with the stay-open reason
-   stated. Bare silent `Refs` is out of process (a body lint in CI
-   makes it mechanically detectable before merge).
+   stated. Bare silent `Refs` is out of process; a body lint in CI
+   is planned to make it mechanically detectable before merge
+   (follow-up issue, not yet enforced).
 2. **At merge, closure is part of the action** — the merge is not
    complete until every referenced issue is processed: `Closes`
    issues auto-close; each justified `Refs` is immediately closed
