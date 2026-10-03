@@ -1,3 +1,13 @@
+---
+number: 32
+title: "gateway L1 enforcement placement"
+date: "2026-10-03"
+updated: "2026-10-03"
+status: "accepted"
+supersedes: []
+adopted-at: "2026-10-03"
+---
+
 # AD-32 — gateway L1 enforcement placement
 
 ## Context
