@@ -35,9 +35,12 @@ correction layer).
   and an unopted PR waits forever no matter how green it gets. With
   it on, a full-review approval + green CI + resolved conversations
   merge without any polling; CHANGES_REQUESTED suspends, and a fresh
-  approval resumes. After each findings round, `@coderabbitai
-  resolve` clears addressed threads so approval triggers the merge
-  immediately.
+  approval resumes. After each findings round: disposition every open
+  thread first (fix it, or record an accepted residual per the triage
+  rule), then `@coderabbitai resolve` clears them so the fresh
+  approval triggers the merge. The command resolves **all** CodeRabbit
+  threads — resolving a still-valid finding to unblock auto-merge is
+  out of process (PR #96 review finding).
 - PR bodies prefer `Closes #N` whenever the issue should close at
   merge. Write `Closes` by default; downgrade to `Refs` only when the
   issue must stay open, and say why in the PR body.
