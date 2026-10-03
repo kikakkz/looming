@@ -11,7 +11,7 @@ method for deriving and refining this map is
 | # | Context | Core aggregates | Owns | Explicitly does not own |
 |---|---------|-----------------|------|--------------------------|
 | 1 | Identity & access | User, Org, ApiKey, Quota, BlueprintIdentity | identity lifecycle, quota policy, ACL subjects | request-time enforcement (stateless gateways enforce, never decide) |
-| 2 | Model gateway | Route, ProviderConfig | faithful forwarding, metering **emission**, interception middleware chain | stored meter records; any session state |
+| 2 | Model gateway | EnginePlane contract, identity/engine **projections** | front layer: authn fan-in, model-permission enforcement (fail-closed), interception chain, credential injection, metering **emission**; cp: caches + EnginePlane.Admin channel | routing config and quota execution (engine instance); Quota policy and IdentityMap authority (Identity & access); record stores (Records) |
 | 3 | Session | Session, EventStream, Approval | durable runtime identity, append-only runtime event stream, approval rendering | long-term record storage (→ #9) |
 | 4 | Orchestration | Blueprint, Run, Task | planner/executor/worker/judge dispatch, run state machines | sandbox internals (→ #5); policy rules (→ #8) |
 | 5 | Sandbox | Sandbox, Pool, Image | model-triggered provisioning, lifecycle, resource limits | credentials (credential proxy, AD-27 §6) |

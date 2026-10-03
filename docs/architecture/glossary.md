@@ -24,8 +24,14 @@ changes that need them.
 | **MemoryItem** | A review-gated memory entry at org/project/user scope. |
 | **KnowledgeBase** | A RAG-style domain-knowledge collection; items carry source ACLs at ingest. |
 | **Registry admission** | The review/approval/A-B workflow that admits tools, MCP servers, skills, and policy rules. |
-| **Quota** | A per-user/org consumption policy owned by Identity & access; enforced statelessly at the gateway. |
+| **Quota** | A per-user/org consumption policy owned by Identity & access; executed by the engine instance (native budgets); displayed uniformly from MeterRecords (AD-32). |
 | **ScmProvider** | The SCM-integration context: issues, review threads, CI status, merge control, webhooks. |
 | **FailCase** | A CI gate's failing case; judge-derived fail cases land here (judge→CI loop). |
 | **Credential proxy** | The only minter/holder of AD-6 scoped credentials; tokens never enter sandboxes or model context. |
 | **Bundle** | The single deployable packaging of all components; topology wizard at first boot. |
+| **Front layer** | The always-present Looming-owned component all gateway traffic passes through: authn fan-in, model-permission enforcement, interception chain, credential injection, event emission. Never routes, never executes quota (AD-32). |
+| **Engine slot** | The replaceable forwarding half of a gateway instance (default thin implementation / LiteLLM / Kong); configured to pass through; owns routing config and quota mechanics. |
+| **EnginePlane** | The engine slot contract: `Forward` (northbound OpenAI-compatible endpoint, plain proxying) + `Admin` (ProvisionKey / SetBudget / RevokeKey / GetUsage). |
+| **IdentityMap** | The identity-context aggregate mapping a Looming key to its per-engine shadow credential; provisioned at key creation; cached read-only in the gateway. |
+| **Provisioning** | Creating the engine-side shadow credential for a Looming key (Journey 2); a first-class lifecycle state, not an error (SCIM semantics). |
+| **Projection** | A read-only copy of another context's data (engine config, identity caches); refreshed by events or call-through; never a write authority. |

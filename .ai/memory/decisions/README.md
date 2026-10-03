@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-32 — gateway L1 enforcement placement](0032-gateway-l1-enforcement-placement.md)
 - [AD-31 — deferred-closed issues, intake-time re-entry](0031-deferred-closed-issues-intake-time-re.md)
 - [AD-30 — reliability by construction, no correction layers](0030-reliability-by-construction-no-correction-layers.md)
 - [AD-29 — gateway thin slot host](0029-gateway-thin-slot-host.md)
