@@ -33,12 +33,6 @@ bot): re-affirm what still matters by commenting or removing the
 label; close what has gone quiet. Parking is a promise to revisit,
 not a shelf to forget.
 
-The same glance sweeps one more residue class: open issues whose
-linked PR has already merged (GitHub: issue → Development panel, or
-`linked:pr` search). Each gets a closing comment or a deliberate
-downgrade — merged-and-still-open is the loudest staleness signal the
-tracker produces.
-
 ## Why one mechanism
 
 A parking-lot issue made parked work invisible to queries and needed

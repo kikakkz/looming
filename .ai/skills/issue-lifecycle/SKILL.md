@@ -25,6 +25,11 @@ this skill exists because of that review finding).
 
 ## Merge-time checklist (the closer owes this)
 
+The merge is **not complete** until every issue referenced in the PR
+body is processed — closure is part of the merge action, never a
+later cleanup (AD-30: reliability is by construction; there is no
+correction layer).
+
 - PR bodies prefer `Closes #N` whenever the issue should close at
   merge. Write `Closes` by default; downgrade to `Refs` only when the
   issue must stay open, and say why in the PR body.
@@ -34,7 +39,8 @@ this skill exists because of that review finding).
   merged-PR reference silent — that residue is how tracker rot
   starts (the #83 miss was exactly this).
 - Bots and agents merging PRs follow the same checklist — the merger
-  owns the follow-up, not the issue author.
+  owns the follow-up, not the issue author. An automated merge loop
+  that skips this step is an incomplete merge.
 
 ## Closing comment (mandatory)
 
