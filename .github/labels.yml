@@ -23,7 +23,4 @@
 - { name: "area/ci", color: "5319e7", description: "CI gates and repo tooling" }
 - { name: "area/docs", color: "5319e7", description: "Documentation" }
 - { name: "area/ai-assets", color: "5319e7", description: ".ai/ contents: skills, locks, memory bank" }
-
-# status: lifecycle position (kubernetes lifecycle/ lesson — parked work
-# must be a queryable state, not only an issue's content)
-- { name: "status/parked", color: "c2e0c6", description: "Real issue, deliberately not being worked now; re-affirm at the monthly hygiene glance or it goes stale" }
+- { name: "kind/deferred", color: "c2e0c6", description: "Closed with a stated Re-enter-when trigger; findable via the intake-time query (AD-31)" }
