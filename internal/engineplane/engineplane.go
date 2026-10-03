@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Package engineplane is the engine slot contract (AD-32): every
 // pluggable engine exposes a Forward face (northbound OpenAI-compatible
 // endpoint, plain proxying) and an Admin face (provisioning operations).

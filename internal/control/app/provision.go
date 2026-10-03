@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Package app holds the gateway control plane: read-only projection
 // caches (identity, engine config) and the provisioning channel. It
 // owns no policy data — every cache is a projection with a named

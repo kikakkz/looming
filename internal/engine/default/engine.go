@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Package default is the engine slot's default thin implementation
 // (AD-29): payload-preserving forwarding plus admin operations backed
 // by its own config store. Slice 0 implements the Admin face against

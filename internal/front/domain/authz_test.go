@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package domain
 
 import (
@@ -14,6 +15,7 @@ func TestModelAllowed(t *testing.T) {
 		want      Decision
 	}{
 		{"listed", list, "gpt-5", Allow},
+		{"unsorted list still matches", []string{"zeta", "gpt-5", "alpha"}, "gpt-5", Allow},
 		{"unlisted", list, "claude-3", Deny},
 		{"empty list denies all", nil, "gpt-5", Deny},
 		{"empty model denied", list, "", Deny},

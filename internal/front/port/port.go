@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Package port defines the interfaces the front layer orchestrates.
 // These are consumer-side ports (hexagonal): implementations are
 // adapters over the identity context, its cache projection, or the

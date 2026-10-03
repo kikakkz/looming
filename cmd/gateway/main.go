@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Command gateway wires the slice-0 skeleton. Real serving lands with
 // the forwarding slice; this main exists so the hexagon has an entry
 // point and manual DI stays the pattern (no frameworks).

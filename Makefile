@@ -4,7 +4,7 @@ SHELL := /bin/bash
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
-ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit
+ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-coverage
 
 check-skills:
 	python3 .ai/tools/check_skills.py

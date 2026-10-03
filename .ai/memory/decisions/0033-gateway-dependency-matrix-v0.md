@@ -12,10 +12,10 @@ adopted-at: "2026-10-03"
 
 ## Context
 
-AD-23 declares the bounded-context dependency matrix
-(`.go-arch-lint.yml`, "one root go.mod", the `internal/<capability>/`
-four-package shape) and requires extending the map via a superseding
-AD in the same PR. The gateway L1 design (docs/architecture/gateway-l1.md,
+AD-27 (which superseded AD-23) carries the dependency-matrix
+rule forward: `.go-arch-lint.yml` declares the allowed edges, one root
+`go.mod` holds the module, capabilities live under `internal/`, and
+extending the map requires a superseding AD in the same PR. The gateway L1 design (docs/architecture/gateway-l1.md,
 #98) fixed the module split and its three boundary rules; slice 0 (#99)
 is the first code under the matrix. The V0 names `gateway/dp` and
 `gateway/cp` map onto the L1 modules as `front` and `control`.

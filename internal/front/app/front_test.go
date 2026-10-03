@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package app
 
 import (
@@ -88,8 +89,8 @@ func TestFrontRejectsUnlistedModel(t *testing.T) {
 	req.Header.Set("X-Test-Model", "claude-3")
 	rec := httptest.NewRecorder()
 	front.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("want 401, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("authenticated model denial is 403, got %d", rec.Code)
 	}
 }
 

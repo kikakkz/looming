@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Package domain holds the control plane's pure rules: revision
 // semantics live with the cache; backoff and failure signalling live
 // here (docs/component-patterns.md #4: no silent drops).

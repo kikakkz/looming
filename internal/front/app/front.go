@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package app
 
 import (
@@ -47,7 +48,7 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	model := f.model(r)
 	models, err := f.allowlist.Models(r.Context(), subject)
 	if err != nil || frontdomain.ModelAllowed(models, model) != frontdomain.Allow {
-		f.deny(w, r, "model_permission", key, subject)
+		f.denyStatus(w, r, http.StatusForbidden, "model_permission", key, subject)
 		return
 	}
 	lc := frontdomain.LinkContext{Subject: subject, Model: model}
@@ -63,9 +64,16 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *Front) deny(w http.ResponseWriter, r *http.Request, layer, key, subject string) {
+	f.denyStatus(w, r, http.StatusUnauthorized, layer, key, subject)
+}
+
+// denyStatus separates authn failures (401 — unauthenticated, per the
+// AD-32 northbound sameness rule) from authenticated authorisation
+// denials (403 — model permission).
+func (f *Front) denyStatus(w http.ResponseWriter, r *http.Request, status int, layer, key, subject string) {
 	f.log.InfoContext(r.Context(), "request denied",
-		"layer", layer, "key_sha", hashKey(key), "subject", subject)
-	http.Error(w, "unauthorized", http.StatusUnauthorized)
+		"layer", layer, "status", status, "key_sha", hashKey(key), "subject", subject)
+	http.Error(w, http.StatusText(status), status)
 }
 
 func bearerToken(r *http.Request) string {

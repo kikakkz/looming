@@ -1,7 +1,12 @@
-# AD-25: coverage >= 80% at file, package, and total granularity
-# (go-test-coverage). Profile path is relative to the repo root.
+# Coverage thresholds (AD-25), checked by go-test-coverage.
+# Profile path is relative to the repo root.
 profile: coverage.out
 threshold:
   file: 80
   package: 80
   total: 80
+exclude:
+  paths:
+    # cmd packages are manual-DI wiring only (AD-23); their behaviour
+    # is covered by the component tests and later integration slices.
+    - cmd/gateway/main.go
