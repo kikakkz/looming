@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/kikakkz/looming/internal/engineplane"
+	"github.com/kikakkz/looming/gateway/internal/engineplane"
 )
 
 // Engine is the default engine: admin face functional, forward face

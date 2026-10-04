@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kikakkz/looming/internal/control/domain"
+	"github.com/kikakkz/looming/gateway/internal/control/domain"
 )
 
 type flakyAdmin struct {

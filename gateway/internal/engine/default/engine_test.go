@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kikakkz/looming/internal/engineplane"
+	"github.com/kikakkz/looming/gateway/internal/engineplane"
 )
 
 func TestProvisionKeyIsIdempotent(t *testing.T) {

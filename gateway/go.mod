@@ -1,4 +1,4 @@
-module github.com/kikakkz/looming
+module github.com/kikakkz/looming/gateway
 
 go 1.22
 

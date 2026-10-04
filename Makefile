@@ -54,11 +54,13 @@ lint-semgrep:
 # Go targets follow the same warn-and-skip policy as shellcheck: missing
 # tools or a missing go.mod skip loudly instead of failing. The CI job
 # that turns these red lands with the first Go component (CI-first rule).
+# Go checks run inside the gateway component (polyglot layout, AD-34):
+# language-specific tools stay under the component they serve.
 lint-go:
-	@if [ ! -f go.mod ]; then \
-		echo "lint-go: no go.mod yet, skipped (lands with the first Go component)"; \
+	@if [ ! -f gateway/go.mod ]; then \
+		echo "lint-go: no gateway/go.mod, skipped"; \
 	elif command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
+		cd gateway && golangci-lint run ./...; \
 	else \
 		echo "golangci-lint: not installed, skipped (CI installs it)"; \
 	fi
@@ -72,22 +74,28 @@ lint-pr-body:
 # AD-23 matrix enforcement (.go-arch-lint.yml); AD-33 extended it for
 # the gateway. Warns and skips when the tool is missing locally.
 lint-arch:
-	@if command -v go-arch-lint >/dev/null 2>&1; then 		go-arch-lint check; 	else 		echo "go-arch-lint: not installed, skipped (CI installs it)"; 	fi
+	@if [ ! -f gateway/go.mod ]; then \
+		echo "lint-arch: no gateway/go.mod, skipped"; \
+	elif command -v go-arch-lint >/dev/null 2>&1; then \
+		cd gateway && go-arch-lint check; \
+	else \
+		echo "go-arch-lint: not installed, skipped (CI installs it)"; \
+	fi
 
 test-unit:
-	@if [ ! -f go.mod ]; then \
-		echo "test-unit: no go.mod yet, skipped (lands with the first Go component)"; \
+	@if [ ! -f gateway/go.mod ]; then \
+		echo "test-unit: no gateway/go.mod, skipped"; \
 	elif command -v gotestsum >/dev/null 2>&1; then \
-		gotestsum --format testname -- -race ./...; \
+		cd gateway && gotestsum --format testname -- -race ./...; \
 	else \
-		go test -race ./...; \
+		cd gateway && go test -race ./...; \
 	fi
 
 test-coverage:
-	@if [ ! -f go.mod ]; then \
-		echo "test-coverage: no go.mod yet, skipped (lands with the first Go component)"; \
+	@if [ ! -f gateway/go.mod ]; then \
+		echo "test-coverage: no gateway/go.mod, skipped"; \
 	elif command -v go >/dev/null 2>&1; then \
-		go test -covermode=atomic -coverprofile=coverage.out ./... && \
+		cd gateway && go test -covermode=atomic -coverprofile=coverage.out ./... && \
 		if command -v go-test-coverage >/dev/null 2>&1; then \
 			go-test-coverage -config=.testcoverage.yml; \
 		else \

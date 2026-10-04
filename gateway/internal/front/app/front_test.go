@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kikakkz/looming/internal/engineplane"
-	frontdomain "github.com/kikakkz/looming/internal/front/domain"
+	"github.com/kikakkz/looming/gateway/internal/engineplane"
+	frontdomain "github.com/kikakkz/looming/gateway/internal/front/domain"
 	"go.uber.org/goleak"
 )
 

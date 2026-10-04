@@ -10,7 +10,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/kikakkz/looming/internal/control/domain"
+	"github.com/kikakkz/looming/gateway/internal/control/domain"
 )
 
 // Provisioner drives Journey 2's engine writes. Engine calls land in
