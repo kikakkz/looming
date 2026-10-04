@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -43,8 +44,13 @@ func run(log *slog.Logger) error {
 		listen = ":8080"
 	}
 
-	engine := defaultengine.NewWithUpstream(upstream)
+	upstreamAuth := os.Getenv("GATEWAY_UPSTREAM_AUTH")
+	if upstreamAuth != "" && upstream.Scheme != "https" {
+		return &configError{name: "GATEWAY_UPSTREAM must be https when GATEWAY_UPSTREAM_AUTH is set"}
+	}
+	engine := defaultengine.NewWithUpstream(upstream, upstreamAuth)
 	queue := adapter.NewChanQueue(queueSize())
+	go adapter.DrainInteractions(context.Background(), queue, log)
 	front := frontapp.NewFront(
 		adapter.StaticAuthenticator{Keys: parseKeys(os.Getenv("GATEWAY_KEYS"))},
 		adapter.StaticAllowlist{ModelsBySubject: parseAllowlists(os.Getenv("GATEWAY_ALLOWLISTS"))},

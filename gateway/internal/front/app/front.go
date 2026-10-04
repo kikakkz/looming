@@ -70,12 +70,26 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	// The extractor restored the body (port contract); tee a bounded
-	// copy for the interaction transcript before the engine consumes it.
+	// The extractor restored the body (port contract). Read it fully
+	// for forwarding; the transcript keeps a capped copy only — the
+	// upstream must receive every byte regardless of the cap.
 	var reqBody []byte
 	if f.queue != nil && f.transcriptCap > 0 {
-		reqBody, _ = io.ReadAll(http.MaxBytesReader(nil, r.Body, int64(f.transcriptCap)))
-		r.Body = io.NopCloser(bytes.NewReader(reqBody))
+		full, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(full))
+		r.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(full)), nil
+		}
+		if len(full) > f.transcriptCap {
+			reqBody = append([]byte(nil), full[:f.transcriptCap]...)
+		} else {
+			reqBody = full
+		}
 	}
 	models, err := f.allowlist.Models(r.Context(), subject)
 	if err != nil {

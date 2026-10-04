@@ -30,7 +30,7 @@ func sliceOneFront(t *testing.T, upstream *url.URL) (*Front, *adapter.ChanQueue,
 		adapter.StaticAuthenticator{Keys: map[string]string{"good-key": "ker"}},
 		adapter.StaticAllowlist{ModelsBySubject: map[string][]string{"ker": {"gpt-5"}}},
 		frontdomain.NewChain(),
-		defaultengine.NewWithUpstream(upstream),
+		defaultengine.NewWithUpstream(upstream, ""),
 		adapter.BodyModelExtractor{},
 		nil,
 		WithRecording(queue, meters, 1<<20),
@@ -58,7 +58,9 @@ func TestPayloadPreservingEndToEnd(t *testing.T) {
 	const wantResp = "data: {\"id\":\"1\"}\n\ndata: [DONE]\n\n"
 
 	var upstreamGot []byte
+	var upstreamAuth string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamAuth = r.Header.Get("Authorization")
 		upstreamGot, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -80,6 +82,9 @@ func TestPayloadPreservingEndToEnd(t *testing.T) {
 	if string(upstreamGot) != wantReq {
 		t.Fatalf("request body NOT preserved upstream:\nwant %q\ngot  %q", wantReq, upstreamGot)
 	}
+	if upstreamAuth != "" {
+		t.Fatalf("gateway token must never travel upstream, got %q", upstreamAuth)
+	}
 	if rec.Body.String() != wantResp {
 		t.Fatalf("response body NOT preserved:\nwant %q\ngot  %q", wantResp, rec.Body.String())
 	}
@@ -97,6 +102,31 @@ func TestPayloadPreservingEndToEnd(t *testing.T) {
 	defer meters.mu.Unlock()
 	if len(*meters.meters) != 1 || (*meters.meters)[0].Outcome != "completed" {
 		t.Fatalf("completed call must meter exactly once: %+v", *meters.meters)
+	}
+}
+
+func TestUnreachableUpstreamIs502AndNotMetered(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	dead, _ := url.Parse("http://127.0.0.1:1")
+	front, queue, meters := sliceOneFront(t, dead)
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5"}`))
+	req.Header.Set("Authorization", "Bearer good-key")
+	rec := httptest.NewRecorder()
+	front.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("unreachable upstream must surface 502, got %d", rec.Code)
+	}
+	meters.mu.Lock()
+	defer meters.mu.Unlock()
+	if len(*meters.meters) != 0 {
+		t.Fatalf("calls that never reached a model must not meter (AD-32 #5): %+v", *meters.meters)
+	}
+	select {
+	case body := <-queue.C:
+		t.Fatalf("failed calls must not emit interactions: %+v", body)
+	default:
 	}
 }
 

@@ -35,10 +35,11 @@ func New() *Engine {
 }
 
 // NewWithUpstream creates an engine whose forward face proxies to the
-// given upstream base URL.
-func NewWithUpstream(upstream *url.URL) *Engine {
+// given upstream base URL. upstreamAuth is the credential the upstream
+// expects (empty strips Authorization — the gateway token never leaves).
+func NewWithUpstream(upstream *url.URL, upstreamAuth string) *Engine {
 	e := New()
-	e.proxy = NewForwardProxy(upstream)
+	e.proxy = NewForwardProxy(upstream, upstreamAuth)
 	return e
 }
 
