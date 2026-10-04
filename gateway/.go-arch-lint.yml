@@ -7,6 +7,8 @@ version: 3
 allow:
   depOnAnyVendor: true # pinned deps live in go.mod; matrix governs
                        # component coupling, the job it exists for
+  deepScan: false    # DI-pattern noise: adapters implementing ports
+                     # consumed by app are the hexagon, not a violation
 
 excludeFiles:
   - "^.*_test\\.go$" # test doubles legitimately cross seams
@@ -16,6 +18,7 @@ components:
   front-domain:   { in: internal/front/domain }
   front-port:     { in: internal/front/port }
   front-app:      { in: internal/front/app }
+  front-adapter:  { in: internal/front/adapter }
   control-domain: { in: internal/control/domain }
   control-app:    { in: internal/control/app }
   engine-default: { in: internal/engine/default }
@@ -25,6 +28,12 @@ deps:
   front-app:
     mayDependOn: [engineplane, front-domain, front-port]
 
+  front-port:
+    mayDependOn: [front-domain]
+
+  front-adapter:
+    mayDependOn: [front-domain, front-port]
+
   control-app:
     mayDependOn: [control-domain]
 
@@ -32,4 +41,4 @@ deps:
     mayDependOn: [engineplane]
 
   cmd:
-    mayDependOn: [engineplane, front-app, control-app, engine-default]
+    mayDependOn: [engineplane, front-domain, front-app, front-adapter, control-app, engine-default]

@@ -8,21 +8,25 @@ package defaultengine
 import (
 	"context"
 	"errors"
-	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"sync"
 
 	"github.com/kikakkz/looming/gateway/internal/engineplane"
 )
 
-// Engine is the default engine: admin face functional, forward face
-// pending its slice. Idempotent ProvisionKey per subject.
+// Engine is the default engine: admin face functional, forward face a
+// payload-preserving reverse proxy (forwarder.go). Idempotent
+// ProvisionKey per subject.
 type Engine struct {
 	mu     sync.Mutex
 	keys   map[string]engineplane.CredentialRef // subject → ref
 	budget map[engineplane.CredentialRef]engineplane.QuotaSpec
 	next   int
+	proxy  *httputil.ReverseProxy
 }
 
+// New creates an engine without forwarding (admin-only).
 func New() *Engine {
 	return &Engine{
 		keys:   map[string]engineplane.CredentialRef{},
@@ -30,13 +34,17 @@ func New() *Engine {
 	}
 }
 
+// NewWithUpstream creates an engine whose forward face proxies to the
+// given upstream base URL. upstreamAuth is the credential the upstream
+// expects (empty strips Authorization — the gateway token never leaves).
+func NewWithUpstream(upstream *url.URL, upstreamAuth string) *Engine {
+	e := New()
+	e.proxy = NewForwardProxy(upstream, upstreamAuth)
+	return e
+}
+
 var _ engineplane.EngineAdmin = (*Engine)(nil)
 var _ engineplane.Forwarder = (*Engine)(nil)
-
-// Forward is not implemented in slice 0.
-func (e *Engine) Forward(_ context.Context, _ http.ResponseWriter, _ *http.Request) error {
-	return engineplane.ErrNotImplemented
-}
 
 // ProvisionKey is idempotent per subject: repeats return the existing
 // credential (Journey 2 contract, gateway-l1 §6).
