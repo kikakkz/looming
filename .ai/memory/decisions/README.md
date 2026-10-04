@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-35 — identity model — flat RBAC](0035-identity-model-flat-rbac.md)
 - [AD-34 — polyglot component layout](0034-polyglot-component-layout.md)
 - [AD-33 — gateway dependency matrix v0](0033-gateway-dependency-matrix-v0.md)
 - [AD-32 — gateway L1 enforcement placement](0032-gateway-l1-enforcement-placement.md)
