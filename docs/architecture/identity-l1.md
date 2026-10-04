@@ -16,7 +16,7 @@ Principal (kind: human | service)
   ├─ LoomingKey   (hash at rest; issued plaintext shown once; one-way revoke)
   ├─ Quota        (amount/window; engine budgets are its projection)
   └─ Roles ──► Permissions (effective set = union)
-IdentityMap       (principal/key → engine credential REFERENCE only)
+IdentityMap       (LoomingKey → engine credential REFERENCE only)
 RegistrationPolicy (admin-only | invite | self-register-with-approval)
 ```
 
