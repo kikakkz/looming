@@ -35,3 +35,8 @@ changes that need them.
 | **IdentityMap** | The identity-context aggregate mapping a Looming key to its per-engine shadow credential; provisioned at key creation; cached read-only in the gateway. |
 | **Provisioning** | Creating the engine-side shadow credential for a Looming key (Journey 2); a first-class lifecycle state, not an error (SCIM semantics). |
 | **Projection** | A read-only copy of another context's data (engine config, identity caches); refreshed by events or call-through; never a write authority. |
+| **Principal** | The only identity primitive in flat RBAC (AD-35): kind human or service; carries roles, keys, quota. |
+| **Role / Permission** | Role = named permission bundle (builtin admin/member); permission = fine-grained string (`gateway:use`, `model:use:<id>`, …). |
+| **LoomingKey** | A principal's API key; stored hashed, shown once at issuance, revoked one-way. |
+| **RegistrationPolicy** | The deployment's onboarding rule: admin-only, invite, or self-register-with-approval. |
+| **Guide page** | The gateway's public onboarding page: bootstrap-generated steps, served unauthenticated (toggle by `access.public`). |
