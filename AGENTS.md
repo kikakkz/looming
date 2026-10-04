@@ -52,7 +52,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   the `pull_request` job feeds it via `PR_BODY`; locally pass
   `PR_BODY="$(cat body.md)" make lint-pr-body`.
 - `make lint-arch` — AD-23 dependency-matrix enforcement via
-  go-arch-lint (`.go-arch-lint.yml`, AD-33 for the gateway); deps not
+  go-arch-lint (`gateway/.go-arch-lint.yml`, AD-33/AD-34 for the gateway); deps not
   listed are rejected. Warns and skips when the tool is missing.
 - `make check-branch` — validate the current branch name against the
   naming rule before push (same rule as the `branch-name` CI check). Run
@@ -75,10 +75,11 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make lint-semgrep` — validate the custom rule fixtures
   (`semgrep --test`) and scan `.ai/tools` with the rule pack
   (`.ai/semgrep/rules`); warns and skips when semgrep is missing locally.
-- `make lint-go` — golangci-lint (complexity budgets, AD-24); warns and
-  skips when golangci-lint or go.mod is missing locally.
+- `make lint-go` — golangci-lint in `gateway/` (complexity budgets,
+  AD-24); warns and skips when golangci-lint or `gateway/go.mod` is missing.
 - `make test-unit` — Go unit tests with `-race`; falls back to plain
-  `go test` without gotestsum; skips when go.mod is missing.
+  `go test` in `gateway/` without gotestsum; skips when
+  `gateway/go.mod` is missing.
 - `make test-coverage` — coverage profile plus the go-test-coverage
   threshold check (`.testcoverage.yml`, AD-25) when installed.
 
@@ -89,21 +90,24 @@ records; this section is the checkable contract. Enforcing CI jobs land
 with the first Go component (CI-first rule); configs are already in the
 repo.
 
-**Structure (AD-23).** One root `go.mod`. Every capability lives under
-`internal/<capability>/` in four packages: `app/` (use-case
-orchestration), `domain/` (pure model and business rules), `port/`
-(interfaces), `adapter/` (driving and driven implementations).
-`cmd/<binary>/` holds only `main` wiring.
+**Structure (AD-23, component-scoped by AD-34).** Each Go component
+owns one `go.mod` inside its directory (`gateway/go.mod`, …). Every
+capability lives under `<component>/internal/<capability>/` in four
+packages: `app/` (use-case orchestration), `domain/` (pure model and
+business rules), `port/` (interfaces), `adapter/` (driving and driven
+implementations). `<component>/cmd/<binary>/` holds only `main`
+wiring. The repo root stays language-neutral; other languages claim
+their own top-level component directories.
 
 **Architecture (AD-23).** The bounded contexts and their dependency
-matrix are declared in `.go-arch-lint.yml`; dependencies not listed
+matrix are declared in `gateway/.go-arch-lint.yml`; dependencies not listed
 there are rejected by the linter. V0 contexts: `gateway/dp`,
 `gateway/cp`, `cicd`, `agentruntime`, `registry` — all independent.
 Extending the map requires a superseding AD in the same PR.
 
 **TDD and complexity (AD-24).** Red-green-refactor; the failing test
 lands before the implementation, in the same PR. Budgets enforced by
-`.golangci.yml`: ≤ 50 statements per function (funlen), gocognit ≤ 30,
+`gateway/.golangci.yml`: ≤ 50 statements per function (funlen), gocognit ≤ 30,
 cyclomatic ≤ 15. Budgets only ratchet down, via a superseding AD-24.
 Every `//nolint` names its linter, explains itself, and must be in use
 (nolintlint).
@@ -114,14 +118,16 @@ disk, or wall-clock), `integration` (testcontainers-go; GitLab CE via
 Regression protection is replay/fixture tests inside the unit and
 integration layers, added with every bug fix. Assertions: testify +
 go-cmp. Coverage ≥ 80% at file, package, and total granularity
-(go-test-coverage, `.testcoverage.yml`). A skipped test cites its
+(go-test-coverage, `gateway/.testcoverage.yml`). A skipped test cites its
 `kind/flake` issue number; test-only helpers live under `tests/` and
 are never imported by production code.
 
 ## Directory map
 
-- `cmd/` — component entrypoints (one directory per binary; empty until the
-  gateway issue lands).
+- `gateway/` — the model-gateway component (Go): `go.mod`, `cmd/`,
+  `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33),
+  and the Go tool configs. First component; others claim their own
+  top-level directories as they land (AD-34).
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
   tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap

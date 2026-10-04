@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kikakkz/looming/internal/engineplane"
-	frontdomain "github.com/kikakkz/looming/internal/front/domain"
-	"github.com/kikakkz/looming/internal/front/port"
+	"github.com/kikakkz/looming/gateway/internal/engineplane"
+	frontdomain "github.com/kikakkz/looming/gateway/internal/front/domain"
+	"github.com/kikakkz/looming/gateway/internal/front/port"
 )
 
 // ModelExtractor pulls the requested model id from the request. Real

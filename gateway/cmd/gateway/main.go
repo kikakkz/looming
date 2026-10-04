@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/kikakkz/looming/internal/control/app"
-	defaultengine "github.com/kikakkz/looming/internal/engine/default"
+	"github.com/kikakkz/looming/gateway/internal/control/app"
+	defaultengine "github.com/kikakkz/looming/gateway/internal/engine/default"
 )
 
 func main() {
