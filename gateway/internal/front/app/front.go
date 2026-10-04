@@ -2,7 +2,9 @@
 package app
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -12,27 +14,43 @@ import (
 	"github.com/kikakkz/looming/gateway/internal/front/port"
 )
 
-// ModelExtractor pulls the requested model id from the request. Real
-// body parsing lands with the forwarding slice; the seam exists now so
-// the pipeline is testable end to end.
-type ModelExtractor func(*http.Request) string
-
 // Front is the front layer pipeline (gateway-l1 §3 journey 1). The
 // order is architecture: Authenticate → ModelAllowed → chain → forward.
 type Front struct {
-	authn     port.Authenticator
-	allowlist port.SubjectAllowlist
-	chain     *frontdomain.Chain
-	engine    engineplane.Forwarder
-	model     ModelExtractor
-	log       *slog.Logger
+	authn         port.Authenticator
+	allowlist     port.SubjectAllowlist
+	chain         *frontdomain.Chain
+	engine        engineplane.Forwarder
+	model         port.ModelExtractor
+	queue         port.InteractionQueue
+	meter         port.MeterSink
+	transcriptCap int
+	log           *slog.Logger
 }
 
-func NewFront(a port.Authenticator, al port.SubjectAllowlist, c *frontdomain.Chain, e engineplane.Forwarder, m ModelExtractor, log *slog.Logger) *Front {
+// FrontOption tunes the pipeline; NewFront keeps the slice-0 signature
+// workable while the recorder hooks arrive.
+type FrontOption func(*Front)
+
+// WithRecording attaches the interaction queue and meter sink and sets
+// the transcript capture cap (0 disables capture).
+func WithRecording(q port.InteractionQueue, m port.MeterSink, transcriptCap int) FrontOption {
+	return func(f *Front) {
+		f.queue = q
+		f.meter = m
+		f.transcriptCap = transcriptCap
+	}
+}
+
+func NewFront(a port.Authenticator, al port.SubjectAllowlist, c *frontdomain.Chain, e engineplane.Forwarder, m port.ModelExtractor, log *slog.Logger, opts ...FrontOption) *Front {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Front{authn: a, allowlist: al, chain: c, engine: e, model: m, log: log}
+	f := &Front{authn: a, allowlist: al, chain: c, engine: e, model: m, log: log}
+	for _, opt := range opts {
+		opt(f)
+	}
+	return f
 }
 
 // ServeHTTP runs the pipeline. Every denial is a DecisionEvent-shaped
@@ -45,7 +63,20 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.deny(w, r, "authn", key, "")
 		return
 	}
-	model := f.model(r)
+	model, err := f.model.Extract(r)
+	if err != nil {
+		f.log.InfoContext(r.Context(), "request denied",
+			"layer", "malformed_body", "status", http.StatusBadRequest, "key_sha", hashKey(key))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	// The extractor restored the body (port contract); tee a bounded
+	// copy for the interaction transcript before the engine consumes it.
+	var reqBody []byte
+	if f.queue != nil && f.transcriptCap > 0 {
+		reqBody, _ = io.ReadAll(http.MaxBytesReader(nil, r.Body, int64(f.transcriptCap)))
+		r.Body = io.NopCloser(bytes.NewReader(reqBody))
+	}
 	models, err := f.allowlist.Models(r.Context(), subject)
 	if err != nil {
 		// Lookup failure is an infrastructure fault, not an
@@ -65,10 +96,45 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.deny(w, r, "interception", key, subject)
 		return
 	}
-	// Forwarding mechanics belong to the engine slot (AD-32).
-	if err := f.engine.Forward(r.Context(), w, r); err != nil {
+	// Forwarding mechanics belong to the engine slot (AD-32). The
+	// recorder tees the response for the async interaction emit
+	// (storm Q3): capture bounded, never block the data plane.
+	cw := w
+	if f.queue != nil && f.transcriptCap > 0 {
+		cw = WrapResponse(w, f.transcriptCap)
+	}
+	if err := f.engine.Forward(r.Context(), cw, r); err != nil {
 		f.log.ErrorContext(r.Context(), "engine forward failed", "subject", subject, "err", err)
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	f.emit(subject, model, reqBody, r, cw)
+}
+
+// emit assembles the InteractionBody and meters the completed call.
+// Denials never reach here — metering is usage-only (AD-32 #5).
+func (f *Front) emit(subject, model string, reqBody []byte, r *http.Request, w http.ResponseWriter) {
+	if f.queue == nil && f.meter == nil {
+		return
+	}
+	var respBody []byte
+	var truncated bool
+	if cw, ok := w.(*CapturingWriter); ok {
+		respBody, truncated = cw.Transcript()
+	}
+	if f.queue != nil {
+		f.queue.Enqueue(r.Context(), frontdomain.InteractionBody{
+			Subject:      subject,
+			Model:        model,
+			RequestBody:  reqBody,
+			ResponseBody: respBody,
+			Truncated:    truncated,
+		})
+	}
+	if f.meter != nil {
+		f.meter.Record(r.Context(), frontdomain.MeterRecord{
+			Subject: subject, Model: model, Outcome: "completed",
+		})
 	}
 }
 

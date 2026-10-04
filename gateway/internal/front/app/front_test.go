@@ -47,13 +47,19 @@ func (s stubEngine) Forward(_ context.Context, w http.ResponseWriter, _ *http.Re
 	return err
 }
 
+type headerExtractor struct{}
+
+func (headerExtractor) Extract(r *http.Request) (string, error) {
+	return r.Header.Get("X-Test-Model"), nil
+}
+
 func newTestFront(engineBody string) *Front {
 	return NewFront(
 		stubAuthn{subject: "ker"},
 		stubAllowlist{},
 		frontdomain.NewChain(frontTestLink{v: frontdomain.VerdictPass}),
 		stubEngine{body: engineBody},
-		func(r *http.Request) string { return r.Header.Get("X-Test-Model") },
+		headerExtractor{},
 		nil,
 	)
 }
@@ -101,7 +107,7 @@ func TestFrontAllowlistLookupFailureIsServiceUnavailable(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	front := NewFront(stubAuthn{subject: "ker"}, stubAllowlist{err: errors.New("authority down")},
 		frontdomain.NewChain(frontTestLink{v: frontdomain.VerdictPass}), stubEngine{body: "ok"},
-		func(r *http.Request) string { return r.Header.Get("X-Test-Model") }, nil)
+		headerExtractor{}, nil)
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer good-key")
 	req.Header.Set("X-Test-Model", "gpt-5")
@@ -119,7 +125,7 @@ func TestFrontEngineFailureIsBadGateway(t *testing.T) {
 	})
 	front := NewFront(stubAuthn{subject: "ker"}, stubAllowlist{},
 		frontdomain.NewChain(frontTestLink{v: frontdomain.VerdictPass}), broken,
-		func(r *http.Request) string { return r.Header.Get("X-Test-Model") }, nil)
+		headerExtractor{}, nil)
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer good-key")
 	req.Header.Set("X-Test-Model", "gpt-5")

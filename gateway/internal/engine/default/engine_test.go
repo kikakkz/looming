@@ -30,6 +30,22 @@ func TestProvisionKeyIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestSetBudgetOnKnownAndUnknownCredential(t *testing.T) {
+	e := New()
+	unknown := engineplane.CredentialRef("nope")
+	if err := e.SetBudget(context.Background(), unknown, engineplane.QuotaSpec{Amount: 5}); err == nil {
+		t.Fatal("unknown credential must error")
+	}
+	ref, _ := e.ProvisionKey(context.Background(), "ker", engineplane.QuotaSpec{Amount: 1})
+	if err := e.SetBudget(context.Background(), ref, engineplane.QuotaSpec{Amount: 42}); err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := e.Usage(context.Background(), ref)
+	if rep.Limit != 42 {
+		t.Fatalf("budget not applied: %d", rep.Limit)
+	}
+}
+
 func TestRevokeForcesReprovision(t *testing.T) {
 	e := New()
 	ref, _ := e.ProvisionKey(context.Background(), "ker", engineplane.QuotaSpec{Amount: 1})
