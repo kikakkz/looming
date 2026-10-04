@@ -45,7 +45,7 @@ shape:
   (plaintext shown once at issuance); active → revoked is one-way.
 - **Quota** — per-principal resource policy, separate from
   authorization; engine-side budgets are its projection (AD-32).
-- **IdentityMap** — principal/key → engine credential reference only;
+- **IdentityMap** — LoomingKey → engine credential reference only (the key is the unit of provisioning and revocation; two keys of one principal never share an engine credential);
   plaintext credentials never enter this context (credential proxy).
 - **RegistrationPolicy** — per-deployment: admin-only | invite |
   self-register-with-approval (self-register produces a pending

@@ -37,9 +37,11 @@ configures local agents → use → `looming usage`.
 IdentityMap) — revoked keys are 401 immediately-ish (cache event +
 TTL bound).
 
-**Engine provisioning** (Journey 2): KeyIssued/approved → provision
-engine credential via the adapter (EnginePlane.Admin) → IdentityMap
-records the reference. Revocation propagates symmetrically.
+**Engine provisioning** (Journey 2): the engine credential belongs to
+the **LoomingKey**, not the principal — the key is the unit of
+revocation, and two keys of one principal must be revocable
+independently. Provisioning is idempotent per `(loom_key, engine)`;
+revocation propagates symmetrically to that key's credential only.
 
 ## 4. Aggregates and ownership
 
@@ -48,7 +50,7 @@ records the reference. Revocation propagates symmetrically.
 | Principal | one identity primitive; service kind carries blueprint ref; status: pending → active → disabled |
 | LoomingKey | hash-only at rest; prefix + checksum for typo detection; one-way revoke; per-principal rate limit on issuance |
 | Quota | per-principal; window semantics owned here, execution in engine (AD-32) |
-| IdentityMap | references only — no plaintext credentials (credential proxy owns those, AD-27 §6) |
+| IdentityMap | maps **LoomingKey** (not principal) → engine credential reference; no plaintext credentials (credential proxy owns those, AD-27 §6) |
 | RegistrationPolicy | exactly one active policy; policy change is audited |
 | Role/Permission | builtin roles immutable; custom roles are additive; permission namespace per component |
 
