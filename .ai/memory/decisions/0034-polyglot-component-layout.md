@@ -37,7 +37,7 @@ Five rules govern the repository layout:
    layers) is component-scoped law, unchanged in content.
 2. **`platform/<lang>/` is the language-internal shared home, and it
    only exists at two or more same-language consumers** (the same
-   contract-from-N-implementations discipline as AD-27 §2). Until
+   contract-from-N-implementations discipline as AD-27). Until
    then shared code lives inside its first consumer.
 3. **`contracts/` — language-neutral IDL (protobuf / JSON Schema /
    OpenAPI) — appears when a second language needs a shape the first
