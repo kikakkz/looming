@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -108,5 +109,60 @@ func TestForwardUnreachableUpstreamIsAnError(t *testing.T) {
 	}
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("want 502, got %d", rec.Code)
+	}
+}
+
+// TestConcurrentFailuresStayRequestLocal reproduces the shared-proxy
+// ErrorHandler race: only requests whose upstream actually failed may
+// report ErrUpstream. Mixed paths run concurrently under -race.
+func TestConcurrentFailuresStayRequestLocal(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/fail") {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("upstream needs hijacker")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			_ = conn.Close() // abrupt: transport error on the client side
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer upstream.Close()
+
+	u, _ := url.Parse(upstream.URL)
+	engine := NewWithUpstream(u, "")
+
+	const workers = 24
+	var wg sync.WaitGroup
+	errs := make([]error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			path := "/ok"
+			if i%2 == 0 {
+				path = "/fail"
+			}
+			req := httptest.NewRequest("POST", path, strings.NewReader("{}"))
+			rec := httptest.NewRecorder()
+			errs[i] = engine.Forward(req.Context(), rec, req)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		failed := i%2 == 0
+		if failed && !errors.Is(err, ErrUpstream) {
+			t.Fatalf("request %d (failing path) must report ErrUpstream, got %v", i, err)
+		}
+		if !failed && err != nil {
+			t.Fatalf("request %d (healthy path) must succeed, got %v", i, err)
+		}
 	}
 }

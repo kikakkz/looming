@@ -39,6 +39,12 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if upstream.Scheme != "http" && upstream.Scheme != "https" {
+		return &configError{name: "GATEWAY_UPSTREAM must be http or https"}
+	}
+	if upstream.Host == "" {
+		return &configError{name: "GATEWAY_UPSTREAM must include a host"}
+	}
 	listen := os.Getenv("GATEWAY_LISTEN")
 	if listen == "" {
 		listen = ":8080"
