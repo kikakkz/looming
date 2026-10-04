@@ -21,20 +21,18 @@ func TestDrainInteractionsConsumesUntilContextEnds(t *testing.T) {
 		close(done)
 	}()
 	q.Enqueue(context.Background(), domain.InteractionBody{Subject: "ker", Model: "gpt-5"})
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case <-q.C:
-			t.Fatal("drained item must not remain in the queue")
-		case <-time.After(10 * time.Millisecond):
-		case <-deadline:
+
+	deadline := time.Now().Add(2 * time.Second)
+	for len(q.C) > 0 {
+		if time.Now().After(deadline) {
 			t.Fatal("queue was not drained in time")
 		}
-		if len(q.C) == 0 {
-			goto drained
-		}
+		time.Sleep(5 * time.Millisecond)
 	}
-drained:
+	if len(q.C) != 0 {
+		t.Fatal("item must be consumed")
+	}
+
 	cancel()
 	select {
 	case <-done:
