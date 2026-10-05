@@ -1,5 +1,5 @@
-# Coverage thresholds (AD-25), checked by go-test-coverage.
-# Profile path is relative to the component root.
+# Coverage thresholds (AD-25), checked by go-test-coverage against the
+# unit-layer profile. Profile path is relative to the component root.
 profile: coverage.out
 threshold:
   file: 80
@@ -10,3 +10,13 @@ exclude:
     # cmd packages are manual-DI wiring only (AD-23); their behaviour
     # is covered by the component tests and later integration slices.
     - cmd/identityd/main.go
+    # Driven adapters, the migration runner, and the integration test
+    # helper carry no unit tests by design (AD-25 layering): the
+    # integration layer (make test-integration, testcontainers postgres)
+    # is their coverage home. Counting them in the unit profile would
+    # score them zero by construction.
+    - internal/principal/adapter
+    - internal/policy/adapter
+    - internal/authn/adapter
+    - migrations
+    - tests

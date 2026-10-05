@@ -6,6 +6,9 @@ import (
 	"crypto/sha256"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateToken(t *testing.T) {
@@ -59,18 +62,11 @@ func TestValidateAt(t *testing.T) {
 func TestRevoke(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	tok := &Token{ExpiresAt: now.Add(time.Hour)}
-	if err := tok.Revoke(now); err != nil {
-		t.Fatalf("Revoke: %v", err)
-	}
-	if tok.RevokedAt == nil || !tok.RevokedAt.Equal(now) {
-		t.Fatalf("RevokedAt must be set, got %+v", tok.RevokedAt)
-	}
-	if err := tok.Revoke(now); err != ErrTokenRevoked {
-		t.Fatalf("double revoke must fail with ErrTokenRevoked, got %v", err)
-	}
-	if err := tok.ValidateAt(now.Add(30 * time.Minute)); err != ErrTokenRevoked {
-		t.Fatalf("revoked token must not validate, got %v", err)
-	}
+	require.NoError(t, tok.Revoke(now))
+	require.NotNil(t, tok.RevokedAt)
+	assert.True(t, tok.RevokedAt.Equal(now))
+	assert.ErrorIs(t, tok.Revoke(now), ErrTokenRevoked)
+	assert.ErrorIs(t, tok.ValidateAt(now.Add(30*time.Minute)), ErrTokenRevoked)
 }
 
 func timePtrAt(t time.Time) *time.Time { return &t }

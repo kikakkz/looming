@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidUsername(t *testing.T) {
@@ -40,9 +42,7 @@ func TestValidUsername(t *testing.T) {
 func TestNewRegistrationDefaults(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	p, err := NewRegistration("id-1", "ker", KindHuman, "Ker", "hash", StatusPending, now)
-	if err != nil {
-		t.Fatalf("NewRegistration: %v", err)
-	}
+	require.NoError(t, err)
 	want := &Principal{
 		ID:           "id-1",
 		Username:     "ker",
@@ -63,15 +63,9 @@ func TestNewRegistrationDefaults(t *testing.T) {
 func TestNewRegistrationWithRoles(t *testing.T) {
 	now := time.Now()
 	p, err := NewRegistration("id-1", "root", KindHuman, "", "", StatusActive, now, WithRoles([]string{RoleAdmin}))
-	if err != nil {
-		t.Fatalf("NewRegistration: %v", err)
-	}
-	if diff := cmp.Diff([]string{RoleAdmin}, p.Roles); diff != "" {
-		t.Fatalf("roles mismatch (-want +got):\n%s", diff)
-	}
-	if p.Status != StatusActive {
-		t.Fatalf("want active, got %s", p.Status)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, []string{RoleAdmin}, p.Roles)
+	assert.Equal(t, StatusActive, p.Status)
 }
 
 func TestNewRegistrationRejectsBadInput(t *testing.T) {
@@ -150,21 +144,11 @@ func TestStatusTransitions(t *testing.T) {
 func TestSetStatusDispatch(t *testing.T) {
 	now := time.Now()
 	p := &Principal{Status: StatusActive}
-	if err := p.SetStatus(StatusDisabled, now); err != nil {
-		t.Fatalf("SetStatus(disable): %v", err)
-	}
-	if p.Status != StatusDisabled {
-		t.Fatalf("want disabled, got %s", p.Status)
-	}
-	if err := p.SetStatus(StatusActive, now); err != nil {
-		t.Fatalf("SetStatus(active): %v", err)
-	}
-	if p.Status != StatusActive {
-		t.Fatalf("want active, got %s", p.Status)
-	}
-	if err := p.SetStatus(StatusPending, now); err == nil {
-		t.Fatal("SetStatus(pending) must be rejected")
-	}
+	require.NoError(t, p.SetStatus(StatusDisabled, now))
+	assert.Equal(t, StatusDisabled, p.Status)
+	require.NoError(t, p.SetStatus(StatusActive, now))
+	assert.Equal(t, StatusActive, p.Status)
+	assert.Error(t, p.SetStatus(StatusPending, now))
 }
 
 func TestHasRole(t *testing.T) {

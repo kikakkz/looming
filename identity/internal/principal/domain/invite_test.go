@@ -44,6 +44,13 @@ func TestGenerateInviteShortRandomness(t *testing.T) {
 	}
 }
 
+func TestGenerateInviteRejectsNonPositiveTTL(t *testing.T) {
+	_, _, err := GenerateInvite("admin-1", 0, bytes.NewReader(make([]byte, 32)), time.Now())
+	if err == nil {
+		t.Fatal("zero ttl must fail")
+	}
+}
+
 func TestInviteConsume(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
