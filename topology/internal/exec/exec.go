@@ -87,26 +87,26 @@ func (LocalRunner) Run(ctx context.Context, name string, args []string, stdin []
 	return stdout.Bytes(), nil
 }
 
-// Executor converges one host's compose project through a Runner.
+// Executor converges one host's compose project through a Runner. The
+// compose project name travels with each Ensure call (the topology
+// plane fixes it to render.Project; tests use throwaway projects).
 type Executor struct {
-	runner  Runner
-	project string
+	runner Runner
 }
 
-// NewExecutor wires the executor; project is the compose project name
-// (render.Project — "looming").
-func NewExecutor(r Runner, project string) *Executor {
-	return &Executor{runner: r, project: project}
+// NewExecutor wires the executor.
+func NewExecutor(r Runner) *Executor {
+	return &Executor{runner: r}
 }
 
 // Ensure ships composeYAML to the host and converges the project:
-// `docker compose -p <project> -f - up -d` with the YAML on stdin, so
-// nothing is written to the remote filesystem. SSH hosts run with
+// `docker compose -p <projectName> -f - up -d` with the YAML on stdin,
+// so nothing is written to the remote filesystem. SSH hosts run with
 // DOCKER_HOST=ssh://<user>@<address>. Render-diff convergence decides
 // whether to call Ensure at all — the executor itself is
 // unconditional, and reports changed=true when the converge ran.
-func (e *Executor) Ensure(ctx context.Context, h Host, composeYAML string) (bool, error) {
-	args := []string{"compose", "-p", e.project, "-f", "-", "up", "-d"}
+func (e *Executor) Ensure(ctx context.Context, h Host, projectName, composeYAML string) (bool, error) {
+	args := []string{"compose", "-p", projectName, "-f", "-", "up", "-d"}
 	var env []string
 	if h.SSHUser != "" {
 		env = append(env, "DOCKER_HOST=ssh://"+h.SSHUser+"@"+h.Address)

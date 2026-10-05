@@ -299,9 +299,9 @@ func TestApplyFirstBootConvergesEveryHost(t *testing.T) {
 	// State plane: probe, up, two readiness polls, then provision over
 	// the maintenance URL; the component URL derives from the env_file.
 	assert.Len(t, w.provisions, 1)
-	assert.Equal(t, "postgres://postgres:s3cret@127.0.0.1:5432/postgres", w.provisions[0].adminURL)
-	assert.Equal(t, "postgres://postgres:s3cret@127.0.0.1:5432/topology", w.provisions[0].databaseURL)
-	assert.Equal(t, []string{"postgres://postgres:s3cret@127.0.0.1:5432/topology"}, w.opens)
+	assert.Equal(t, "postgres://postgres:s3cret@127.0.0.1:5432/postgres?sslmode=disable", w.provisions[0].adminURL)
+	assert.Equal(t, "postgres://postgres:s3cret@127.0.0.1:5432/topology?sslmode=disable", w.provisions[0].databaseURL)
+	assert.Equal(t, []string{"postgres://postgres:s3cret@127.0.0.1:5432/topology?sslmode=disable"}, w.opens)
 
 	// Both hosts changed; results follow the renderer's sorted host
 	// order (app-1 before gw-1). The ssh host's ensure carried

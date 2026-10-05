@@ -52,9 +52,9 @@ func (f *fakeRunner) Run(_ context.Context, name string, args []string, stdin []
 
 func TestEnsureLocalRunsComposeUpWithStdin(t *testing.T) {
 	runner := &fakeRunner{}
-	ex := exec.NewExecutor(runner, "looming")
+	ex := exec.NewExecutor(runner)
 
-	changed, err := ex.Ensure(context.Background(), exec.Host{ID: "gw-1", Address: "10.0.0.11"}, "name: looming\n")
+	changed, err := ex.Ensure(context.Background(), exec.Host{ID: "gw-1", Address: "10.0.0.11"}, "looming", "name: looming\n")
 	require.NoError(t, err)
 	assert.True(t, changed)
 
@@ -68,10 +68,10 @@ func TestEnsureLocalRunsComposeUpWithStdin(t *testing.T) {
 
 func TestEnsureSSHInjectsDockerHostEnv(t *testing.T) {
 	runner := &fakeRunner{}
-	ex := exec.NewExecutor(runner, "looming")
+	ex := exec.NewExecutor(runner)
 
 	_, err := ex.Ensure(context.Background(),
-		exec.Host{ID: "app-1", Address: "10.0.0.12", SSHUser: "root"}, "services: {}\n")
+		exec.Host{ID: "app-1", Address: "10.0.0.12", SSHUser: "root"}, "looming", "services: {}\n")
 	require.NoError(t, err)
 
 	require.Len(t, runner.calls, 1)
@@ -82,9 +82,9 @@ func TestEnsureSSHInjectsDockerHostEnv(t *testing.T) {
 func TestEnsureFailureSurfacesStderr(t *testing.T) {
 	runner := &fakeRunner{stderr: []string{"no configuration file provided: not found"}}
 	runner.failFrom = 1
-	ex := exec.NewExecutor(runner, "looming")
+	ex := exec.NewExecutor(runner)
 
-	_, err := ex.Ensure(context.Background(), exec.Host{ID: "gw-1", Address: "10.0.0.11"}, "x")
+	_, err := ex.Ensure(context.Background(), exec.Host{ID: "gw-1", Address: "10.0.0.11"}, "looming", "x")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `converge host "gw-1"`)
 	assert.Contains(t, err.Error(), "no configuration file provided",

@@ -94,7 +94,7 @@ var fixedClock = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 
 func TestPostgresURL(t *testing.T) {
 	u := postgresURL(stateCreds{user: "postgres", password: "p@ss:w/rd"}, 5433, "topology")
-	assert.Equal(t, "postgres://postgres:p%40ss%3Aw%2Frd@127.0.0.1:5433/topology", u,
+	assert.Equal(t, "postgres://postgres:p%40ss%3Aw%2Frd@127.0.0.1:5433/topology?sslmode=disable", u,
 		"credentials are URL-escaped")
 }
 
@@ -146,7 +146,7 @@ func TestEnsureStatePlaneSkipsUpWhenRunning(t *testing.T) {
 		Port:    5432,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "postgres://postgres:pw@127.0.0.1:5432/topology", got)
+	assert.Equal(t, "postgres://postgres:pw@127.0.0.1:5432/topology?sslmode=disable", got)
 	assert.Equal(t, 2, runner.calls, "probe + readiness only: compose up is skipped on a healthy container")
-	assert.Equal(t, []string{"postgres://postgres:pw@127.0.0.1:5432/topology"}, provisioned)
+	assert.Equal(t, []string{"postgres://postgres:pw@127.0.0.1:5432/topology?sslmode=disable"}, provisioned)
 }

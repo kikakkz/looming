@@ -82,11 +82,11 @@ func parsePostgresEnvFile(readFile func(string) ([]byte, error), path string) (s
 	return creds, nil
 }
 
-// composeArgs builds the docker-compose invocation: fixed project,
-// config always from stdin (nothing is written to disk, locally or
-// over the SSH tunnel).
-func composeArgs(rest ...string) []string {
-	return append([]string{"compose", "-p", render.Project, "-f", "-"}, rest...)
+// composeArgs builds the docker-compose invocation: the pipeline's
+// project, config always from stdin (nothing is written to disk,
+// locally or over the SSH tunnel).
+func (p *Pipeline) composeArgs(rest ...string) []string {
+	return append([]string{"compose", "-p", p.deps.Project, "-f", "-"}, rest...)
 }
 
 // ensureStatePlane converges the bundle Postgres and returns the
@@ -115,7 +115,7 @@ func (p *Pipeline) ensureStatePlane(ctx context.Context, sp config.StatePostgres
 		return "", err
 	}
 	if !running {
-		if _, err := p.deps.Runner.Run(ctx, "docker", composeArgs("up", "-d"), []byte(compose), nil); err != nil {
+		if _, err := p.deps.Runner.Run(ctx, "docker", p.composeArgs("up", "-d"), []byte(compose), nil); err != nil {
 			return "", fmt.Errorf("state plane: compose up: %w", err)
 		}
 	}
@@ -137,7 +137,7 @@ func (p *Pipeline) ensureStatePlane(ctx context.Context, sp config.StatePostgres
 // the container id when healthy and nothing otherwise.
 func (p *Pipeline) postgresContainerRunning(ctx context.Context, compose string) (bool, error) {
 	out, err := p.deps.Runner.Run(ctx, "docker",
-		composeArgs("ps", "-q", "--status", "running", postgresReadyService),
+		p.composeArgs("ps", "-q", "--status", "running", postgresReadyService),
 		[]byte(compose), nil)
 	if err != nil {
 		return false, fmt.Errorf("state plane: probe postgres container: %w", err)
@@ -149,7 +149,7 @@ func (p *Pipeline) postgresContainerRunning(ctx context.Context, compose string)
 // linear backoff (the Sleep seam keeps unit tests off the clock). A
 // container that never accepts connections fails the apply.
 func (p *Pipeline) waitPostgresReady(ctx context.Context, compose, user string) error {
-	args := composeArgs("exec", "-T", postgresReadyService, "pg_isready", "-U", user)
+	args := p.composeArgs("exec", "-T", postgresReadyService, "pg_isready", "-U", user)
 	for attempt := 1; attempt <= postgresWaitAttempts; attempt++ {
 		if _, err := p.deps.Runner.Run(ctx, "docker", args, []byte(compose), nil); err == nil {
 			return nil
@@ -173,9 +173,16 @@ func (p *Pipeline) waitPostgresReady(ctx context.Context, compose, user string) 
 
 // postgresURL builds the connection URL for one database on the
 // bundle Postgres. Host is the loopback: the state plane is local by
-// definition in phase 1 (apply runs on the first host).
+// definition in phase 1 (apply runs on the first host). The bundle
+// cluster is created with SSL off (plain trusted network, phase-1
+// envelope), so the derived URLs pin sslmode=disable rather than
+// probing — the pgtest precedent.
 func postgresURL(creds stateCreds, port int, database string) string {
 	hostPort := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	auth := url.UserPassword(creds.user, creds.password)
-	return (&url.URL{Scheme: "postgres", User: auth, Host: hostPort, Path: database}).String()
+	u := &url.URL{Scheme: "postgres", User: auth, Host: hostPort, Path: database}
+	q := u.Query()
+	q.Set("sslmode", "disable")
+	u.RawQuery = q.Encode()
+	return u.String()
 }

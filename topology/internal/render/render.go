@@ -132,14 +132,15 @@ func envName(prefix, key string) string {
 }
 
 // postgresService builds the bundle-postgres service map from the
-// state config.
+// state config. The host publishes sp.Port; the container side is
+// Postgres's fixed 5432.
 func postgresService(sp StatePostgres) map[string]any {
 	return map[string]any{
-		"image":     sp.Image,
-		"env_file":  []string{sp.EnvFile},
-		"ports":     []string{fmt.Sprintf("%d:%d", sp.Port, sp.Port)},
-		"volumes":   []string{fmt.Sprintf("%s:%s", sp.DataDir, postgresDataTarget)},
-		"restart":   "unless-stopped",
+		"image":    sp.Image,
+		"env_file": []string{sp.EnvFile},
+		"ports":    []string{fmt.Sprintf("%d:5432", sp.Port)},
+		"volumes":  []string{fmt.Sprintf("%s:%s", sp.DataDir, postgresDataTarget)},
+		"restart":  "unless-stopped",
 	}
 }
 

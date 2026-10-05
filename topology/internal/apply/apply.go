@@ -49,10 +49,14 @@ type Stores struct {
 // Deps is the pipeline's seam surface — everything that touches the
 // outside world, so unit tests run the full matrix without docker,
 // postgres, the filesystem, or the wall clock. StdDeps wires the
-// production implementations.
+// production implementations. Project is the compose project name
+// every host converges under (render.Project in production;
+// integration tests use throwaway projects).
 type Deps struct {
 	// Runner executes docker CLI invocations (state plane + executor).
 	Runner exec.Runner
+	// Project names the compose project; empty means render.Project.
+	Project string
 	// Clock and Sleep back the pg_isready wait without wall-clock
 	// assumptions in tests.
 	Clock func() time.Time
@@ -72,6 +76,7 @@ type Deps struct {
 func StdDeps(runner exec.Runner) Deps {
 	return Deps{
 		Runner:      runner,
+		Project:     render.Project,
 		Clock:       time.Now,
 		Sleep:       time.Sleep,
 		ReadFile:    os.ReadFile,
@@ -176,8 +181,13 @@ type Pipeline struct {
 	deps Deps
 }
 
-// NewPipeline wires the pipeline over the given dependencies.
+// NewPipeline wires the pipeline over the given dependencies. An
+// empty Project falls back to render.Project, the production compose
+// project name.
 func NewPipeline(deps Deps) *Pipeline {
+	if deps.Project == "" {
+		deps.Project = render.Project
+	}
 	return &Pipeline{deps: deps}
 }
 
@@ -319,7 +329,7 @@ func (p *Pipeline) render(cfg *config.Config, topo domain.Topology, plan plan) (
 // host is attempted; failures are recorded per host and reported, not
 // propagated (partial-failure convergence).
 func (p *Pipeline) convergeHosts(ctx context.Context, stores Stores, cfg *config.Config, revision int64, artifacts []render.Artifact) *Result {
-	executor := exec.NewExecutor(p.deps.Runner, render.Project)
+	executor := exec.NewExecutor(p.deps.Runner)
 	hostByID := make(map[string]config.Host, len(cfg.Hosts))
 	for _, h := range cfg.Hosts {
 		hostByID[h.ID] = h
@@ -353,7 +363,7 @@ func (p *Pipeline) convergeOneHost(ctx context.Context, stores Stores, executor 
 		return hr
 	}
 	host := exec.Host{ID: cfgHost.ID, Address: cfgHost.Address, SSHUser: cfgHost.SSHUser}
-	if _, err := executor.Ensure(ctx, host, artifact.Compose); err != nil {
+	if _, err := executor.Ensure(ctx, host, p.deps.Project, artifact.Compose); err != nil {
 		hr.Err = err
 		return hr
 	}
