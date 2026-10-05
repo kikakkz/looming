@@ -1,0 +1,5 @@
+# Build-context hygiene for the identityd image: tests and coverage
+# artifacts never belong in a build.
+coverage*.out
+Dockerfile
+.dockerignore

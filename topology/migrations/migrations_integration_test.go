@@ -59,7 +59,7 @@ func TestUpFailsOnDirtyMigrationState(t *testing.T) {
 	}
 }
 
-var phase1Tables = []string{"topology", "hosts", "placements", "join_tokens", "guide"}
+var phase1Tables = []string{"topology", "hosts", "placements", "join_tokens", "guide", "render_artifacts"}
 
 func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()

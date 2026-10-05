@@ -128,7 +128,7 @@ cites its `kind/flake` issue number; test-only helpers live under
   `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33),
   and the Go tool configs. First component (AD-34).
 - `identity/` — the identity component (Go, AD-34): principals, registration policy, local authn (design: `docs/architecture/identity-l1.md`, AD-35).
-- `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T0 (#107) is a library skeleton, the service process lands with T2.
+- `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1 (#107) added the `apply` converge pipeline (config loader, renderer, executor, `cmd/looming-ctl` — placement temporary pending #108), the service process lands with T2.
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
   tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap
