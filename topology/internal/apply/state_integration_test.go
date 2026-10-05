@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,9 @@ import (
 
 	"github.com/kikakkz/looming/topology/internal/config"
 	"github.com/kikakkz/looming/topology/internal/exec"
+	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
 	"github.com/kikakkz/looming/topology/internal/render"
+	"github.com/kikakkz/looming/topology/internal/topology/domain"
 )
 
 // countingRunner delegates to the real LocalRunner and counts compose
@@ -159,4 +162,88 @@ func TestEnsureStatePlaneRealDocker(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(pingCtx,
 		`SELECT revision FROM topology WHERE id = 'singleton'`).Scan(&revision))
 	assert.Equal(t, int64(1), revision, "the existing database is untouched by re-ensure")
+}
+
+// TestStdWiringAgainstRealPostgres exercises apply's composition-root
+// helpers for real against the state-plane container: the store
+// construction's happy and unreachable paths, and the provisioner's
+// probe/migrate failures. (Folded into the same container boot to keep
+// the integration suite's wall-clock in check.)
+func TestStdWiringAgainstRealPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration: real docker required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	dir, err := os.MkdirTemp("", "looming-state-it-")
+	require.NoError(t, err)
+	envFile := filepath.Join(dir, "postgres.env")
+	require.NoError(t, os.WriteFile(envFile, []byte("POSTGRES_PASSWORD=it-secret\n"), 0o600))
+	sp := config.StatePostgres{
+		Image:   "postgres:16-alpine",
+		EnvFile: envFile,
+		DataDir: filepath.Join(dir, "postgres"),
+		Port:    freePort(t),
+	}
+	project := itProject(t)
+
+	composeDoc, err := render.StateCompose(render.StatePostgres{
+		Image:   sp.Image,
+		EnvFile: sp.EnvFile,
+		DataDir: sp.DataDir,
+		Port:    sp.Port,
+	})
+	require.NoError(t, err)
+
+	runner := &countingRunner{inner: exec.LocalRunner{}}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cleanupCancel()
+		_, _ = runner.Run(cleanupCtx, "docker",
+			[]string{"compose", "-p", project, "-f", "-", "down", "-v"},
+			[]byte(composeDoc), nil)
+		_, _ = runner.Run(cleanupCtx, "docker",
+			[]string{"run", "--rm", "-v", dir + ":/mnt", "--entrypoint", "chmod",
+				sp.Image, "-R", "a+rwX", "/mnt"}, nil, nil)
+		_ = os.RemoveAll(dir)
+	})
+
+	pipeline := NewPipeline(Deps{
+		Runner:      runner,
+		Project:     project,
+		Clock:       time.Now,
+		Sleep:       time.Sleep,
+		ReadFile:    os.ReadFile,
+		OpenStores:  openPostgresStores,
+		ProvisionDB: provisionTopologyDB,
+	})
+	databaseURL, err := pipeline.ensureStatePlane(ctx, sp)
+	require.NoError(t, err)
+
+	// Store construction, happy path: the real adapters answer their
+	// error contracts against a live database.
+	stores, err := openPostgresStores(ctx, databaseURL)
+	require.NoError(t, err)
+	_, err = stores.Topology.Current(ctx)
+	assert.ErrorIs(t, err, domain.ErrNoTopology)
+	_, err = stores.Registry.ByID(ctx, "00000000-0000-0000-0000-000000000000")
+	assert.ErrorIs(t, err, hostdomain.ErrNotFound)
+
+	// Store construction, unreachable: the ping failure must surface.
+	_, err = openPostgresStores(ctx, "postgres://postgres:it-secret@127.0.0.1:1/topology?sslmode=disable")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ping topology store")
+
+	// Provision, probe failure: a dead maintenance port fails the probe.
+	adminURL := strings.Replace(databaseURL, "/topology", "/postgres", 1)
+	err = provisionTopologyDB(ctx, "postgres://postgres:it-secret@127.0.0.1:1/postgres?sslmode=disable", databaseURL)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe")
+
+	// Provision, migrate failure: the maintenance connection is live
+	// (topology already exists, so no CREATE) but the target URL is not.
+	err = provisionTopologyDB(ctx, adminURL, "postgres://postgres:it-secret@127.0.0.1:1/topology?sslmode=disable")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "migrate")
 }

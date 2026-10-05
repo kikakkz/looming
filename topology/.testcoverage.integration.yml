@@ -1,10 +1,13 @@
 # Integration-layer thresholds (AD-25), checked by go-test-coverage
 # against the integration-tagged profile that make test-integration
 # produces (coverage-integration.out). The unit profile excludes the
-# driven adapters, the migration runner, and the integration helper;
-# here the adapters and the migration runner are exercised for real, so
-# only the helper — whose code runs inside other packages' test binaries,
-# so its coverage never records — is excluded.
+# driven adapters, the migration runner, the ctl wiring, and the
+# integration helper; here the adapters, the migration runner, and
+# apply's composition-root wiring are exercised for real, so only the
+# cmd wiring file (AD-25 cmd rule — run() is covered at the unit layer,
+# main() only by execution) and the helper — whose code runs inside
+# other packages' test binaries, so its coverage never records — are
+# excluded.
 profile: coverage-integration.out
 threshold:
   file: 80
@@ -12,4 +15,5 @@ threshold:
   total: 80
 exclude:
   paths:
+    - cmd/looming-ctl/main.go
     - tests

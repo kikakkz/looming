@@ -133,30 +133,36 @@ func newApply(stdout io.Writer, log *slog.Logger) *cobra.Command {
 
 // printSummary renders the human-facing apply result: the revision,
 // per-host converge outcomes, and — in dry-run — the compose files
-// themselves.
+// themselves. Writes are best-effort by definition (a closed pipe must
+// not fail the converge that already happened).
 func printSummary(w io.Writer, result *apply.Result, dryRun bool) {
+	line := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(w, format+"\n", args...)
+	}
+
 	if dryRun {
-		fmt.Fprintln(w, "dry-run: rendered compose files (no docker, no database writes)")
+		line("dry-run: rendered compose files (no docker, no database writes)")
 		for _, artifact := range result.Artifacts {
-			fmt.Fprintf(w, "--- %s (%s) ---\n%s", artifact.HostID, artifact.Hash, artifact.Compose)
+			line("--- %s (%s) ---", artifact.HostID, artifact.Hash)
+			_, _ = fmt.Fprint(w, artifact.Compose)
 		}
-		fmt.Fprintln(w, "next: re-run without --dry-run to converge; T2 adds `token create` + pull-join and the initial-admin invite flow")
+		line("next: re-run without --dry-run to converge; T2 adds `token create` + pull-join and the initial-admin invite flow")
 		return
 	}
 
-	fmt.Fprintf(w, "topology revision %d\n", result.Revision)
+	line("topology revision %d", result.Revision)
 	for _, host := range result.Hosts {
 		switch {
 		case host.Err != nil:
-			fmt.Fprintf(w, "host %s: FAILED: %v\n", host.HostID, host.Err)
+			line("host %s: FAILED: %v", host.HostID, host.Err)
 		case host.Changed:
-			fmt.Fprintf(w, "host %s: changed (compose converge ran)\n", host.HostID)
+			line("host %s: changed (compose converge ran)", host.HostID)
 		default:
-			fmt.Fprintf(w, "host %s: skipped (unchanged)\n", host.HostID)
+			line("host %s: skipped (unchanged)", host.HostID)
 		}
 	}
 	// T1 deliberately stops here: the initial-admin invite printing
 	// lands with T2 (it needs the identity interaction channel), and
 	// pull-join tokens are T2's surface as well.
-	fmt.Fprintln(w, "next: T2 adds `token create` + pull-join and the initial-admin invite flow")
+	line("next: T2 adds `token create` + pull-join and the initial-admin invite flow")
 }

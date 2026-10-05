@@ -40,7 +40,7 @@ placements:
 func writeCfg(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "topology.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
 }
 

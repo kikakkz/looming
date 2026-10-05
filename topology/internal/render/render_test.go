@@ -27,8 +27,9 @@ func golden(t *testing.T, name string, in render.Input) []render.Artifact {
 
 	path := filepath.Join("testdata", name+".golden")
 	if *update {
-		require.NoError(t, os.WriteFile(path, []byte(artifacts[0].Compose), 0o644))
+		require.NoError(t, os.WriteFile(path, []byte(artifacts[0].Compose), 0o600))
 	}
+	//nolint:gosec // testdata path constructed from the test's own name.
 	want, err := os.ReadFile(path)
 	require.NoError(t, err, "golden missing? run with -update after eyeballing")
 	assert.Equal(t, string(want), artifacts[0].Compose,

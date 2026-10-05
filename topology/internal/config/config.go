@@ -179,6 +179,7 @@ var (
 // Any failure — unreadable file, YAML syntax, unknown key, or an
 // invariant violation — is one config error with file context.
 func Load(path string) (*Config, error) {
+	//nolint:gosec // the path is the operator-supplied CLI argument; reading exactly what was named is the command's job.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, &Error{File: path, Err: ErrUnreadableFile, Msg: err.Error()}
@@ -215,12 +216,10 @@ func Load(path string) (*Config, error) {
 		}}
 	}
 	for _, h := range raw.Hosts {
-		cfg.Hosts = append(cfg.Hosts, Host{ID: h.ID, Address: h.Address, SSHUser: h.SSHUser, Labels: h.Labels})
+		cfg.Hosts = append(cfg.Hosts, Host(h))
 	}
 	for _, p := range raw.Placements {
-		cfg.Placements = append(cfg.Placements, Placement{
-			Component: p.Component, Host: p.Host, Ports: p.Ports, Config: p.Config,
-		})
+		cfg.Placements = append(cfg.Placements, Placement(p))
 	}
 
 	if err := cfg.validate(&node); err != nil {

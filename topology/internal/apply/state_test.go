@@ -150,3 +150,76 @@ func TestEnsureStatePlaneSkipsUpWhenRunning(t *testing.T) {
 	assert.Equal(t, 2, runner.calls, "probe + readiness only: compose up is skipped on a healthy container")
 	assert.Equal(t, []string{"postgres://postgres:pw@127.0.0.1:5432/topology?sslmode=disable"}, provisioned)
 }
+
+// scriptedSequence serves canned responses in order (internal-package
+// sibling of the external fakeRunner).
+type scriptedSequence struct {
+	responses []sequenceStep
+	calls     int
+}
+
+type sequenceStep struct {
+	stdout string
+	err    error
+}
+
+func (s *scriptedSequence) Run(context.Context, string, []string, []byte, []string) ([]byte, error) {
+	step := s.responses[s.calls]
+	s.calls++
+	return []byte(step.stdout), step.err
+}
+
+func statePlaneDeps(r exec.Runner) Deps {
+	return Deps{
+		Runner:   r,
+		Clock:    func() time.Time { return fixedClock },
+		Sleep:    func(time.Duration) {},
+		ReadFile: readOK("POSTGRES_PASSWORD=pw\n"),
+		ProvisionDB: func(context.Context, string, string) error {
+			return nil
+		},
+	}
+}
+
+var statePostgresFixture = config.StatePostgres{
+	Image:   "postgres:16-alpine",
+	EnvFile: "/etc/looming/postgres.env",
+	DataDir: "/var/lib/looming/postgres",
+	Port:    5432,
+}
+
+func TestEnsureStatePlaneProbeError(t *testing.T) {
+	r := &scriptedSequence{responses: []sequenceStep{
+		{err: errors.New("docker daemon unavailable")},
+	}}
+	p := NewPipeline(statePlaneDeps(r))
+
+	_, err := p.ensureStatePlane(context.Background(), statePostgresFixture)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe postgres container")
+}
+
+func TestEnsureStatePlaneComposeUpError(t *testing.T) {
+	r := &scriptedSequence{responses: []sequenceStep{
+		{stdout: ""}, // ps: not running
+		{err: &exec.ExitError{Name: "docker", Code: 1, Stderr: "bind: address already in use"}},
+	}}
+	p := NewPipeline(statePlaneDeps(r))
+
+	_, err := p.ensureStatePlane(context.Background(), statePostgresFixture)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "compose up")
+	assert.Contains(t, err.Error(), "address already in use")
+}
+
+func TestWaitPostgresReadyNonExitErrorStopsImmediately(t *testing.T) {
+	r := &scriptedSequence{responses: []sequenceStep{
+		{err: errors.New("docker exec failed to start")},
+	}}
+	p := NewPipeline(statePlaneDeps(r))
+
+	err := p.waitPostgresReady(context.Background(), "name: looming\n", "postgres")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pg_isready probe")
+	assert.Equal(t, 1, r.calls, "a non-exit failure is not retried: the container is broken, not slow")
+}

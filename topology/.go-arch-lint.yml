@@ -9,9 +9,18 @@
 # (registered machine aggregate). The two capabilities stay independent:
 # topology-app validates placements against the *declared* host IDs given
 # as declare input — host existence in the registry is T1 apply's
-# orchestration concern (register hosts, then declare). No cmd component
-# yet: the service process lands with T2 (join endpoint) and the apply
-# CLI is #108's surface.
+# orchestration concern (register hosts, then declare).
+#
+# T1 (#107) adds the converge pipeline around them: config (the
+# versioned topology.yaml loader), render (topology → per-host compose,
+# topology-l1 §6 Renderer port, phase-1 docker backend), exec (the
+# executor channel: docker CLI, local + DOCKER_HOST=ssh backends), and
+# apply (the pipeline orchestrating load → state plane → declare →
+# render → per-host converge; owns the composition root's StdDeps
+# wiring and the deterministic YAML-id → uuid database-id mapping).
+# apply is the only package that may fan out to both capabilities'
+# adapters. The admin CLI lands as cmd/looming-ctl for T1 — a noted
+# temporary placement pending #108's CLI layout decision.
 version: 3
 
 allow:
@@ -32,6 +41,11 @@ components:
   host-port:          { in: internal/host/port }
   host-app:           { in: internal/host/app }
   host-adapter:       { in: internal/host/adapter }
+  config:             { in: internal/config }
+  render:             { in: internal/render }
+  exec:               { in: internal/exec }
+  apply:              { in: internal/apply }
+  cmd:                { in: cmd/looming-ctl }
   migrations:         { in: migrations }
   tests:              { in: tests/pgtest }
 
@@ -53,6 +67,18 @@ deps:
 
   host-adapter:
     mayDependOn: [host-domain, host-port]
+
+  config:
+    mayDependOn: [render, topology-domain]
+
+  render:
+    mayDependOn: [topology-domain]
+
+  apply:
+    mayDependOn: [config, render, exec, topology-domain, topology-port, topology-app, topology-adapter, host-domain, host-port, host-adapter, migrations]
+
+  cmd:
+    mayDependOn: [apply, exec]
 
   tests:
     mayDependOn: [migrations]

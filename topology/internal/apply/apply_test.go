@@ -208,14 +208,6 @@ func newWorld(t *testing.T, script []scriptedCall, readFiles map[string]string) 
 	return w
 }
 
-func (w *world) postFile(path string) string {
-	content, ok := w.readFiles[path]
-	if !ok {
-		panic("readFile not scripted for " + path)
-	}
-	return content
-}
-
 func (w *world) readFile(path string) ([]byte, error) {
 	content, ok := w.readFiles[path]
 	if !ok {
@@ -262,7 +254,7 @@ placements:
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "topology.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
 }
 
@@ -478,4 +470,152 @@ func TestApplyConfigErrorAbortsBeforeAnySideEffect(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, w.runner.calls)
 	assert.Empty(t, w.opens)
+}
+
+func TestApplyOpenStoresErrorAborts(t *testing.T) {
+	w := newWorld(t, pgUpScript(), map[string]string{stateEnvFile: stateEnvFileContent})
+	w.pipeline = apply.NewPipeline(apply.Deps{
+		Runner:   w.runner,
+		Clock:    func() time.Time { return fixedNow },
+		Sleep:    func(time.Duration) {},
+		ReadFile: w.readFile,
+		OpenStores: func(context.Context, string) (apply.Stores, error) {
+			return apply.Stores{}, errors.New("connection refused")
+		},
+		ProvisionDB: func(context.Context, string, string) error { return nil },
+	})
+
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+}
+
+type failingRegistry struct{ *fakeRegistry }
+
+func (failingRegistry) Register(context.Context, *hostdomain.Host) (*hostdomain.Host, error) {
+	return nil, errors.New("registry down")
+}
+
+func TestApplyRegisterHostsErrorAborts(t *testing.T) {
+	w := newWorld(t, pgUpScript(), map[string]string{stateEnvFile: stateEnvFileContent})
+	stores := *w.stores
+	stores.Registry = failingRegistry{w.registry}
+	w.pipeline = apply.NewPipeline(apply.Deps{
+		Runner:   w.runner,
+		Clock:    func() time.Time { return fixedNow },
+		Sleep:    func(time.Duration) {},
+		ReadFile: w.readFile,
+		OpenStores: func(context.Context, string) (apply.Stores, error) {
+			return stores, nil
+		},
+		ProvisionDB: func(context.Context, string, string) error { return nil },
+	})
+
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "register host")
+	assert.Contains(t, err.Error(), "registry down")
+}
+
+type failingSaveStore struct{ *fakeStore }
+
+func (failingSaveStore) Save(context.Context, domain.Topology) error {
+	return errors.New("disk full")
+}
+
+func TestApplyDeclareErrorAborts(t *testing.T) {
+	w := newWorld(t, pgUpScript(), map[string]string{stateEnvFile: stateEnvFileContent})
+	stores := *w.stores
+	stores.Topology = failingSaveStore{w.topology}
+	w.pipeline = apply.NewPipeline(apply.Deps{
+		Runner:   w.runner,
+		Clock:    func() time.Time { return fixedNow },
+		Sleep:    func(time.Duration) {},
+		ReadFile: w.readFile,
+		OpenStores: func(context.Context, string) (apply.Stores, error) {
+			return stores, nil
+		},
+		ProvisionDB: func(context.Context, string, string) error { return nil },
+	})
+
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
+}
+
+// erroringArtifacts fails Current or Save as scripted.
+type erroringArtifacts struct {
+	inner   *fakeArtifacts
+	current error
+	save    error
+}
+
+func (e *erroringArtifacts) Current(ctx context.Context, hostID, kind string) (domain.RenderArtifact, error) {
+	if e.current != nil {
+		return domain.RenderArtifact{}, e.current
+	}
+	return e.inner.Current(ctx, hostID, kind)
+}
+
+func (e *erroringArtifacts) Save(ctx context.Context, a domain.RenderArtifact) error {
+	if e.save != nil {
+		return e.save
+	}
+	return e.inner.Save(ctx, a)
+}
+
+func TestConvergeArtifactReadErrorIsPerHost(t *testing.T) {
+	w := newWorld(t, pgUpScript(), map[string]string{stateEnvFile: stateEnvFileContent})
+	artifacts := &erroringArtifacts{inner: newFakeArtifacts(), current: errors.New("db unavailable")}
+	stores := *w.stores
+	stores.Artifacts = artifacts
+	w.pipeline = apply.NewPipeline(apply.Deps{
+		Runner:   w.runner,
+		Clock:    func() time.Time { return fixedNow },
+		Sleep:    func(time.Duration) {},
+		ReadFile: w.readFile,
+		OpenStores: func(context.Context, string) (apply.Stores, error) {
+			return stores, nil
+		},
+		ProvisionDB: func(context.Context, string, string) error { return nil },
+	})
+
+	res, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.NoError(t, err)
+	require.True(t, res.Failed())
+	for _, h := range res.Hosts {
+		require.Error(t, h.Err)
+		assert.Contains(t, h.Err.Error(), "db unavailable")
+	}
+}
+
+func TestConvergeArtifactSaveErrorReportsConvergedButUnanchored(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // ensure app-1
+		scriptedCall{}, // ensure gw-1
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+	artifacts := &erroringArtifacts{inner: newFakeArtifacts(), save: errors.New("artifact write failed")}
+	stores := *w.stores
+	stores.Artifacts = artifacts
+	w.pipeline = apply.NewPipeline(apply.Deps{
+		Runner:   w.runner,
+		Clock:    func() time.Time { return fixedNow },
+		Sleep:    func(time.Duration) {},
+		ReadFile: w.readFile,
+		OpenStores: func(context.Context, string) (apply.Stores, error) {
+			return stores, nil
+		},
+		ProvisionDB: func(context.Context, string, string) error { return nil },
+	})
+
+	res, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.NoError(t, err)
+	require.True(t, res.Failed())
+	for _, h := range res.Hosts {
+		require.Error(t, h.Err)
+		assert.False(t, h.Changed, "the error carries the outcome; changed stays false")
+		assert.Contains(t, h.Err.Error(), "persist artifact after successful converge")
+	}
+	// The converge itself ran: docker up -d was issued for both hosts.
+	assert.Len(t, w.composeUpCalls(), 3, "state plane + two ensures")
 }

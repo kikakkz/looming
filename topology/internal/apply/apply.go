@@ -11,26 +11,20 @@ package apply
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver for the store connections
 
 	"github.com/kikakkz/looming/topology/internal/config"
 	"github.com/kikakkz/looming/topology/internal/exec"
-	hostadapter "github.com/kikakkz/looming/topology/internal/host/adapter"
 	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
 	hostport "github.com/kikakkz/looming/topology/internal/host/port"
 	"github.com/kikakkz/looming/topology/internal/render"
-	topologyadapter "github.com/kikakkz/looming/topology/internal/topology/adapter"
 	"github.com/kikakkz/looming/topology/internal/topology/app"
 	"github.com/kikakkz/looming/topology/internal/topology/domain"
 	topologyport "github.com/kikakkz/looming/topology/internal/topology/port"
-	"github.com/kikakkz/looming/topology/migrations"
 )
 
 // DatabaseName is the bundle Postgres database the topology component
@@ -69,67 +63,6 @@ type Deps struct {
 	// ProvisionDB creates the topology database when missing (over the
 	// maintenance connection) and applies the embedded migrations.
 	ProvisionDB func(ctx context.Context, adminURL, databaseURL string) error
-}
-
-// StdDeps returns Deps with every seam wired to its production
-// implementation, parametrized only by the command runner.
-func StdDeps(runner exec.Runner) Deps {
-	return Deps{
-		Runner:      runner,
-		Project:     render.Project,
-		Clock:       time.Now,
-		Sleep:       time.Sleep,
-		ReadFile:    os.ReadFile,
-		OpenStores:  openPostgresStores,
-		ProvisionDB: provisionTopologyDB,
-	}
-}
-
-// openPostgresStores connects to the topology database and constructs
-// the postgres adapters — the composition root's store wiring.
-func openPostgresStores(ctx context.Context, databaseURL string) (Stores, error) {
-	db, err := sql.Open("pgx", databaseURL)
-	if err != nil {
-		return Stores{}, fmt.Errorf("apply: open topology store: %w", err)
-	}
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return Stores{}, fmt.Errorf("apply: ping topology store: %w", err)
-	}
-	return Stores{
-		Topology:  topologyadapter.NewStore(db),
-		Registry:  hostadapter.NewRegistry(db),
-		Artifacts: topologyadapter.NewArtifactStore(db),
-	}, nil
-}
-
-// provisionTopologyDB creates the topology database over the
-// maintenance connection when it does not exist yet, then applies the
-// embedded migrations. Both steps are idempotent, so every apply may
-// call it: second and later applies find the database and the schema
-// migrated and change nothing.
-func provisionTopologyDB(ctx context.Context, adminURL, databaseURL string) error {
-	db, err := sql.Open("pgx", adminURL)
-	if err != nil {
-		return fmt.Errorf("apply: open maintenance connection: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	var exists int
-	err = db.QueryRowContext(ctx, `SELECT 1 FROM pg_database WHERE datname = $1`, DatabaseName).Scan(&exists)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", DatabaseName)); err != nil {
-			return fmt.Errorf("apply: create %s database: %w", DatabaseName, err)
-		}
-	case err != nil:
-		return fmt.Errorf("apply: probe %s database: %w", DatabaseName, err)
-	}
-
-	if err := migrations.Up(databaseURL); err != nil {
-		return fmt.Errorf("apply: migrate %s database: %w", DatabaseName, err)
-	}
-	return nil
 }
 
 // Input is one apply run: the config file, whether to stop after the
@@ -222,8 +155,8 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 		return nil, err
 	}
 
-	if err := p.registerHosts(ctx, stores, cfg, plan); err != nil {
-		return nil, err
+	if regErr := p.registerHosts(ctx, stores, cfg, plan); regErr != nil {
+		return nil, regErr
 	}
 
 	topo, err := p.declare(ctx, stores, cfg, plan)
@@ -363,8 +296,8 @@ func (p *Pipeline) convergeOneHost(ctx context.Context, stores Stores, executor 
 		return hr
 	}
 	host := exec.Host{ID: cfgHost.ID, Address: cfgHost.Address, SSHUser: cfgHost.SSHUser}
-	if _, err := executor.Ensure(ctx, host, p.deps.Project, artifact.Compose); err != nil {
-		hr.Err = err
+	if _, ensureErr := executor.Ensure(ctx, host, p.deps.Project, artifact.Compose); ensureErr != nil {
+		hr.Err = ensureErr
 		return hr
 	}
 

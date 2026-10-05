@@ -153,3 +153,13 @@ func TestLocalRunnerHelperProcess(t *testing.T) {
 	}
 	os.Exit(2)
 }
+
+func TestLocalRunnerMissingBinaryIsNotAnExitError(t *testing.T) {
+	runner := exec.LocalRunner{}
+	_, err := runner.Run(context.Background(), "looming-binary-that-does-not-exist-xyz", nil, nil, nil)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "exit",
+		"spawn failures carry no exit status — they name the missing binary")
+	var exitErr *exec.ExitError
+	assert.False(t, errors.As(err, &exitErr))
+}

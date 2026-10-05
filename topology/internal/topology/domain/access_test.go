@@ -3,6 +3,7 @@
 package domain_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,4 +74,11 @@ func TestAccessValidateCatchesHandBuiltValues(t *testing.T) {
 	assert.ErrorIs(t, domain.Access{Mode: "open", Transport: "direct", Endpoint: "ip"}.Validate(), domain.ErrInvalidAccessMode)
 	assert.ErrorIs(t, domain.Access{Mode: "public", Transport: "vip", Endpoint: "ip"}.Validate(), domain.ErrTransportNotPhase1)
 	assert.ErrorIs(t, domain.Access{Mode: "public", Transport: "direct", Endpoint: "https"}.Validate(), domain.ErrInvalidEndpoint)
+}
+
+func TestNewAccessRejectsUnknownTransport(t *testing.T) {
+	_, err := domain.NewAccess("public", "teleport", "ip")
+	if !errors.Is(err, domain.ErrTransportNotPhase1) {
+		t.Fatalf("unknown transport must fail with ErrTransportNotPhase1, got %v", err)
+	}
 }
