@@ -509,8 +509,12 @@ func (c *Config) validateState(doc *yaml.Node) error {
 		return c.fail(line, ErrInvalidState, "state.postgres.image is required")
 	case sp.EnvFile == "":
 		return c.fail(line, ErrInvalidState, "state.postgres.env_file is required (POSTGRES_PASSWORD lives there; apply never generates credentials)")
+	case !filepath.IsAbs(sp.EnvFile):
+		return c.fail(line, ErrInvalidState, "state.postgres.env_file %q must be an absolute path", sp.EnvFile)
 	case sp.DataDir == "":
 		return c.fail(line, ErrInvalidState, "state.postgres.data_dir is required")
+	case !filepath.IsAbs(sp.DataDir):
+		return c.fail(line, ErrInvalidState, "state.postgres.data_dir %q must be an absolute path", sp.DataDir)
 	case sp.Port < 1 || sp.Port > 65535:
 		return c.fail(line, ErrInvalidState, "state.postgres.port is %d, outside 1..65535", sp.Port)
 	}

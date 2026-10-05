@@ -305,6 +305,30 @@ placements:
 			wantErr: config.ErrInvalidPlacement, contains: "absolute path", line: 6,
 		},
 		{
+			name: "state postgres relative env_file",
+			yaml: `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+state:
+  postgres: {image: "postgres:16-alpine", env_file: "postgres.env", data_dir: "/var/lib/looming/postgres", port: 5432}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`,
+			wantErr: config.ErrInvalidState, contains: "absolute path",
+		},
+		{
+			name: "state postgres relative data_dir",
+			yaml: `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+state:
+  postgres: {image: "postgres:16-alpine", env_file: "/etc/looming/postgres.env", data_dir: "postgres-data", port: 5432}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`,
+			wantErr: config.ErrInvalidState, contains: "absolute path",
+		},
+		{
 			name: "state postgres missing env_file",
 			yaml: `
 version: 1
