@@ -2,6 +2,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -60,6 +61,29 @@ func writeAuthError(w http.ResponseWriter, status int, code string) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{"code": code, "message": code},
+	})
+}
+
+// requireBootstrapKey guards the one-shot first-admin endpoint with the
+// IDENTITY_BOOTSTRAP_KEY shared secret: the operator-side
+// `looming-ctl apply` is the only legitimate caller (topology-l1 §4).
+// Scheme is strict `Authorization: Bootstrap <key>` and the comparison
+// is constant-time (CWE-208). When the key is unconfigured the route
+// stays mounted but reports bootstrap_disabled (503) — deployments
+// that already have an admin never need the key, so its absence is not
+// a boot-time misconfiguration.
+func requireBootstrapKey(key string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if key == "" {
+			writeAuthError(w, http.StatusServiceUnavailable, "bootstrap_disabled")
+			return
+		}
+		raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bootstrap ")
+		if !ok || subtle.ConstantTimeCompare([]byte(raw), []byte(key)) != 1 {
+			writeAuthError(w, http.StatusUnauthorized, "unauthenticated")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

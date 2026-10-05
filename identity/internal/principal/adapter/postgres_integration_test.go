@@ -177,7 +177,7 @@ func TestPrincipalRepositoryBlocksDisablingLastActiveAdmin(t *testing.T) {
 func TestInviteRepositoryLifecycle(t *testing.T) {
 	repo := adapter.NewInviteRepository(pgtest.NewDB(t))
 	ctx := context.Background()
-	_, tok, err := domain.GenerateInvite("admin-1", time.Hour, newDeterministicRand(), testTime)
+	_, tok, err := domain.GenerateInvite("admin-1", time.Hour, newDeterministicRand(1), testTime)
 	if err != nil {
 		t.Fatalf("GenerateInvite: %v", err)
 	}
@@ -214,6 +214,7 @@ func TestInviteRepositoryLifecycle(t *testing.T) {
 
 // deterministicRand feeds GenerateInvite without crypto/rand: the
 // integration layer does not need token unpredictability, only shape.
+// The seed keeps distinct invites from colliding on token_hash.
 type deterministicRand struct{ buf []byte }
 
 func (d *deterministicRand) Read(p []byte) (int, error) {
@@ -221,6 +222,252 @@ func (d *deterministicRand) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newDeterministicRand() *deterministicRand {
-	return &deterministicRand{buf: make([]byte, 32)}
+func newDeterministicRand(seed byte) *deterministicRand {
+	buf := make([]byte, 32)
+	buf[0] = seed
+	return &deterministicRand{buf: buf}
+}
+
+func TestInviteRepositorySourceAndEmailRoundTrip(t *testing.T) {
+	repo := adapter.NewInviteRepository(pgtest.NewDB(t))
+	ctx := context.Background()
+
+	// Admin invite: source defaults to 'admin', no email binding.
+	_, adminTok, err := domain.GenerateInvite("admin-1", time.Hour, newDeterministicRand(2), testTime)
+	if err != nil {
+		t.Fatalf("GenerateInvite: %v", err)
+	}
+	if err := repo.Create(ctx, adminTok); err != nil {
+		t.Fatalf("Create admin invite: %v", err)
+	}
+	got, err := repo.ByHash(ctx, adminTok.TokenHash)
+	if err != nil {
+		t.Fatalf("ByHash admin invite: %v", err)
+	}
+	if got.Source != domain.InviteSourceAdmin || got.Email != "" {
+		t.Fatalf("admin invite must roundtrip source %q and empty email, got %q/%q",
+			domain.InviteSourceAdmin, got.Source, got.Email)
+	}
+
+	// Bootstrap invite: source and bound email persist.
+	_, bootTok, err := domain.GenerateBootstrapInvite("ops@example.com", time.Hour, newDeterministicRand(3), testTime)
+	if err != nil {
+		t.Fatalf("GenerateBootstrapInvite: %v", err)
+	}
+	if err := repo.Create(ctx, bootTok); err != nil {
+		t.Fatalf("Create bootstrap invite: %v", err)
+	}
+	got, err = repo.ByHash(ctx, bootTok.TokenHash)
+	if err != nil {
+		t.Fatalf("ByHash bootstrap invite: %v", err)
+	}
+	if got.Source != domain.InviteSourceBootstrap || got.Email != "ops@example.com" {
+		t.Fatalf("bootstrap invite must roundtrip source+email, got %q/%q", got.Source, got.Email)
+	}
+}
+
+func TestInviteRepositoryExistsBySource(t *testing.T) {
+	repo := adapter.NewInviteRepository(pgtest.NewDB(t))
+	ctx := context.Background()
+
+	exists, err := repo.ExistsBySource(ctx, domain.InviteSourceBootstrap)
+	if err != nil || exists {
+		t.Fatalf("fresh database: want (false, nil), got (%v, %v)", exists, err)
+	}
+	_, adminTok, err := domain.GenerateInvite("admin-1", time.Hour, newDeterministicRand(4), testTime)
+	if err != nil {
+		t.Fatalf("GenerateInvite: %v", err)
+	}
+	if err := repo.Create(ctx, adminTok); err != nil {
+		t.Fatalf("Create admin invite: %v", err)
+	}
+	exists, err = repo.ExistsBySource(ctx, domain.InviteSourceBootstrap)
+	if err != nil || exists {
+		t.Fatalf("admin-only database: want (false, nil), got (%v, %v)", exists, err)
+	}
+	_, bootTok, err := domain.GenerateBootstrapInvite("ops@example.com", time.Hour, newDeterministicRand(5), testTime)
+	if err != nil {
+		t.Fatalf("GenerateBootstrapInvite: %v", err)
+	}
+	if err := repo.Create(ctx, bootTok); err != nil {
+		t.Fatalf("Create bootstrap invite: %v", err)
+	}
+	exists, err = repo.ExistsBySource(ctx, domain.InviteSourceBootstrap)
+	if err != nil || !exists {
+		t.Fatalf("after bootstrap mint: want (true, nil), got (%v, %v)", exists, err)
+	}
+	exists, err = repo.ExistsBySource(ctx, domain.InviteSourceAdmin)
+	if err != nil || !exists {
+		t.Fatalf("admin source must be found too, want (true, nil), got (%v, %v)", exists, err)
+	}
+}
+
+func TestInviteRepositoryBootstrapOneShotEnforcedByIndex(t *testing.T) {
+	repo := adapter.NewInviteRepository(pgtest.NewDB(t))
+	ctx := context.Background()
+
+	_, first, err := domain.GenerateBootstrapInvite("ops@example.com", time.Hour, newDeterministicRand(6), testTime)
+	if err != nil {
+		t.Fatalf("GenerateBootstrapInvite: %v", err)
+	}
+	if err := repo.Create(ctx, first); err != nil {
+		t.Fatalf("Create first bootstrap invite: %v", err)
+	}
+	// The partial unique index backstops the app-level window check: a
+	// concurrent second mint fails with ErrConflict (mapped to 409
+	// bootstrap_closed at the app layer).
+	_, second, err := domain.GenerateBootstrapInvite("second@example.com", time.Hour, newDeterministicRand(7), testTime)
+	if err != nil {
+		t.Fatalf("GenerateBootstrapInvite second: %v", err)
+	}
+	if err := repo.Create(ctx, second); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("second bootstrap mint must fail with ErrConflict, got %v", err)
+	}
+	// Admin invites are unaffected by the bootstrap one-shot index.
+	for i, seed := range []byte{8, 9} {
+		_, adminTok, err := domain.GenerateInvite("admin-1", time.Hour, newDeterministicRand(seed), testTime.Add(time.Duration(i)*time.Minute))
+		if err != nil {
+			t.Fatalf("GenerateInvite: %v", err)
+		}
+		if err := repo.Create(ctx, adminTok); err != nil {
+			t.Fatalf("admin invite %d must still be mintable: %v", i, err)
+		}
+	}
+}
+
+func TestPrincipalRepositoryCreateWithInviteConsume(t *testing.T) {
+	// Each subtest boots its own database: the partial unique index
+	// enforces one bootstrap voucher per database, so the scenarios
+	// cannot share a container.
+	newBootstrapInvite := func(t *testing.T, email string, seed byte) (*adapter.Repository, *adapter.InviteRepository, *domain.InviteToken) {
+		t.Helper()
+		db := pgtest.NewDB(t)
+		repo := adapter.NewRepository(db)
+		invites := adapter.NewInviteRepository(db)
+		_, tok, err := domain.GenerateBootstrapInvite(email, time.Hour, newDeterministicRand(seed), testTime)
+		if err != nil {
+			t.Fatalf("GenerateBootstrapInvite: %v", err)
+		}
+		if err := invites.Create(context.Background(), tok); err != nil {
+			t.Fatalf("invite Create: %v", err)
+		}
+		return repo, invites, tok
+	}
+
+	t.Run("consume and create land together", func(t *testing.T) {
+		repo, invites, tok := newBootstrapInvite(t, "first@example.com", 10)
+		ctx := context.Background()
+		p := newPrincipal("root-one", domain.StatusActive)
+		if err := repo.CreateWithInviteConsume(ctx, p, tok.TokenHash, testTime.Add(time.Minute)); err != nil {
+			t.Fatalf("CreateWithInviteConsume: %v", err)
+		}
+		stored, err := invites.ByHash(ctx, tok.TokenHash)
+		if err != nil {
+			t.Fatalf("ByHash: %v", err)
+		}
+		if stored.UsedAt == nil {
+			t.Fatal("the invite must be consumed by the atomic registration")
+		}
+	})
+
+	t.Run("lost consume race fails without a principal", func(t *testing.T) {
+		repo, invites, tok := newBootstrapInvite(t, "second@example.com", 11)
+		ctx := context.Background()
+		if err := invites.MarkUsed(ctx, tok.TokenHash, testTime); err != nil {
+			t.Fatalf("pre-consume: %v", err)
+		}
+		p := newPrincipal("root-two", domain.StatusActive)
+		err := repo.CreateWithInviteConsume(ctx, p, tok.TokenHash, testTime.Add(time.Minute))
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("want ErrConflict for an already-used invite, got %v", err)
+		}
+		if _, err := repo.ByUsername(ctx, "root-two"); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("a lost race must not create a principal, got %v", err)
+		}
+	})
+
+	t.Run("username conflict keeps the voucher consumable", func(t *testing.T) {
+		repo, invites, tok := newBootstrapInvite(t, "third@example.com", 12)
+		ctx := context.Background()
+		if err := repo.Create(ctx, newPrincipal("root-three", domain.StatusActive)); err != nil {
+			t.Fatalf("seed username: %v", err)
+		}
+		conflict := newPrincipal("root-three", domain.StatusActive)
+		err := repo.CreateWithInviteConsume(ctx, conflict, tok.TokenHash, testTime.Add(time.Minute))
+		if !errors.Is(err, domain.ErrUsernameTaken) {
+			t.Fatalf("want ErrUsernameTaken, got %v", err)
+		}
+		stored, err := invites.ByHash(ctx, tok.TokenHash)
+		if err != nil {
+			t.Fatalf("ByHash: %v", err)
+		}
+		if stored.UsedAt != nil {
+			t.Fatal("a rolled-back insert must leave the voucher unconsumed")
+		}
+		// The retried registration with a fresh username consumes it.
+		retry := newPrincipal("root-three-b", domain.StatusActive)
+		if err := repo.CreateWithInviteConsume(ctx, retry, tok.TokenHash, testTime.Add(2*time.Minute)); err != nil {
+			t.Fatalf("retry after username conflict: %v", err)
+		}
+	})
+
+	t.Run("insert failure rolls the consume back", func(t *testing.T) {
+		repo, invites, tok := newBootstrapInvite(t, "fourth@example.com", 13)
+		ctx := context.Background()
+		broken := newPrincipal("root-four", domain.StatusActive)
+		broken.ID = "not-a-uuid" // rejected by the uuid column after the consume UPDATE
+		err := repo.CreateWithInviteConsume(ctx, broken, tok.TokenHash, testTime.Add(time.Minute))
+		if err == nil || errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrUsernameTaken) {
+			t.Fatalf("the invalid insert must surface as its own error, got %v", err)
+		}
+		stored, err := invites.ByHash(ctx, tok.TokenHash)
+		if err != nil {
+			t.Fatalf("ByHash: %v", err)
+		}
+		if stored.UsedAt != nil {
+			t.Fatal("a failed insert must roll the consume back — the voucher is the only recovery path")
+		}
+		if _, err := repo.ByUsername(ctx, "root-four"); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("no principal may survive a rolled-back registration, got %v", err)
+		}
+	})
+
+	t.Run("unreachable database surfaces its error", func(t *testing.T) {
+		repo, _, tok := newBootstrapInvite(t, "fifth@example.com", 14)
+		canceled, cancel := context.WithCancel(context.Background())
+		cancel()
+		err := repo.CreateWithInviteConsume(canceled, newPrincipal("root-five", domain.StatusActive), tok.TokenHash, testTime)
+		if err == nil || errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrUsernameTaken) {
+			t.Fatalf("a dead database must surface as its own error, got %v", err)
+		}
+	})
+}
+
+func TestPrincipalRepositoryExistsAdmin(t *testing.T) {
+	repo := adapter.NewRepository(pgtest.NewDB(t))
+	ctx := context.Background()
+
+	exists, err := repo.ExistsAdmin(ctx)
+	if err != nil || exists {
+		t.Fatalf("empty table: want (false, nil), got (%v, %v)", exists, err)
+	}
+	member := newPrincipal("ker", domain.StatusActive)
+	if err := repo.Create(ctx, member); err != nil {
+		t.Fatalf("Create member: %v", err)
+	}
+	exists, err = repo.ExistsAdmin(ctx)
+	if err != nil || exists {
+		t.Fatalf("member-only table: want (false, nil), got (%v, %v)", exists, err)
+	}
+	admin := newPrincipal("root", domain.StatusPending)
+	admin.Roles = []string{domain.RoleAdmin}
+	if err := repo.Create(ctx, admin); err != nil {
+		t.Fatalf("Create admin: %v", err)
+	}
+	// The window rule counts any principal carrying the admin role,
+	// regardless of status — a pending admin still closed it.
+	exists, err = repo.ExistsAdmin(ctx)
+	if err != nil || !exists {
+		t.Fatalf("pending admin must still exist for the window, want (true, nil), got (%v, %v)", exists, err)
+	}
 }

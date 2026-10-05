@@ -40,6 +40,7 @@ func newTestMux(pol *fakePolicy) (*http.ServeMux, *fakeInvites) {
 		PrincipalID: "admin-1",
 		Roles:       []string{"admin"},
 	}, http.HandlerFunc(h.CreateInviteAdmin)).ServeHTTP)
+	mux.HandleFunc("POST /v1/bootstrap/invite", h.CreateBootstrapInvite)
 	return mux, invites
 }
 
@@ -365,6 +366,111 @@ func TestHTTPInviteConsumedByRegistration(t *testing.T) {
 		`{"username":"bob","password":"`+goodPassword+`","invite_token":"`+token+`"}`)
 	if rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_invite" {
 		t.Fatalf("consumed invite must be invalid_invite, got %d %q", rec.Code, errCode(t, rec))
+	}
+}
+
+func TestHTTPCreateBootstrapInvite(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
+	rec := do(t, mux, http.MethodPost, "/v1/bootstrap/invite", `{"email":"ops@example.com"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	token, _ := body["token"].(string)
+	expires, _ := body["expires_at"].(string)
+	path, _ := body["invite_url_path"].(string)
+	if token == "" || expires == "" {
+		t.Fatalf("bootstrap invite response must carry token and expires_at, got %v", body)
+	}
+	if _, err := time.Parse(time.RFC3339, expires); err != nil {
+		t.Fatalf("expires_at must be RFC3339, got %q", expires)
+	}
+	if path != "/v1/self/register" {
+		t.Fatalf("invite_url_path must name the registration endpoint, got %q", path)
+	}
+
+	// The one-shot window closes after the first mint.
+	rec = do(t, mux, http.MethodPost, "/v1/bootstrap/invite", `{"email":"second@example.com"}`)
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "bootstrap_closed" {
+		t.Fatalf("second bootstrap invite must be 409 bootstrap_closed, got %d %q", rec.Code, errCode(t, rec))
+	}
+}
+
+func TestHTTPCreateBootstrapInviteRejectsBadEmail(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
+	for _, body := range []string{`{}`, `{"email":""}`, `{"email":"nope"}`} {
+		rec := do(t, mux, http.MethodPost, "/v1/bootstrap/invite", body)
+		if rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_request" {
+			t.Fatalf("body %s: want 400 invalid_request, got %d %q", body, rec.Code, errCode(t, rec))
+		}
+	}
+}
+
+func TestHTTPBootstrapInviteClosedOnceAdminExists(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
+	rec := do(t, mux, http.MethodPost, "/v1/admin/principals",
+		`{"username":"root","password":"`+goodPassword+`","kind":"human","roles":["admin"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("provision admin: %d (%s)", rec.Code, rec.Body.String())
+	}
+	rec = do(t, mux, http.MethodPost, "/v1/bootstrap/invite", `{"email":"ops@example.com"}`)
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "bootstrap_closed" {
+		t.Fatalf("want 409 bootstrap_closed, got %d %q", rec.Code, errCode(t, rec))
+	}
+}
+
+func TestHTTPRegisterWithBootstrapInviteUnderAdminOnly(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
+	rec := do(t, mux, http.MethodPost, "/v1/bootstrap/invite", `{"email":"ops@example.com"}`)
+	token, _ := decodeBody(t, rec)["token"].(string)
+	if token == "" {
+		t.Fatalf("bootstrap invite must return a raw token, got %s", rec.Body.String())
+	}
+
+	rec = do(t, mux, http.MethodPost, "/v1/self/register",
+		`{"username":"root","password":"`+goodPassword+`","invite_token":"`+token+`","email":"ops@example.com"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("bootstrap registration under admin-only must succeed: %d (%s)", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	if body["status"] != "active" {
+		t.Fatalf("bootstrap registration starts active, got %v", body)
+	}
+	// The register response is minimal by contract; the principal view
+	// carries the granted roles.
+	rec = do(t, mux, http.MethodGet, "/v1/self/me", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me after bootstrap registration: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if diff := cmp.Diff([]any{"admin", "member"}, decodeBody(t, rec)["roles"]); diff != "" {
+		t.Fatalf("bootstrap registration grants admin+member (-want +got):\n%s", diff)
+	}
+
+	// One-time: the same voucher never registers a second principal.
+	rec = do(t, mux, http.MethodPost, "/v1/self/register",
+		`{"username":"root2","password":"`+goodPassword+`","invite_token":"`+token+`","email":"ops@example.com"}`)
+	if rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_invite" {
+		t.Fatalf("consumed bootstrap invite must be invalid_invite, got %d %q", rec.Code, errCode(t, rec))
+	}
+}
+
+func TestHTTPRegisterBootstrapInviteEmailMismatch(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
+	rec := do(t, mux, http.MethodPost, "/v1/bootstrap/invite", `{"email":"ops@example.com"}`)
+	token, _ := decodeBody(t, rec)["token"].(string)
+	if token == "" {
+		t.Fatalf("bootstrap invite must return a raw token, got %s", rec.Body.String())
+	}
+	rec = do(t, mux, http.MethodPost, "/v1/self/register",
+		`{"username":"root","password":"`+goodPassword+`","invite_token":"`+token+`","email":"other@example.com"}`)
+	if rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_request" {
+		t.Fatalf("email mismatch must be 400 invalid_request, got %d %q", rec.Code, errCode(t, rec))
+	}
+	// The voucher survives the rejected attempt.
+	rec = do(t, mux, http.MethodPost, "/v1/self/register",
+		`{"username":"root","password":"`+goodPassword+`","invite_token":"`+token+`","email":"ops@example.com"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("registration with the bound email must succeed after a mismatch: %d (%s)", rec.Code, rec.Body.String())
 	}
 }
 

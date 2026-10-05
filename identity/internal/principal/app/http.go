@@ -35,6 +35,8 @@ type registerRequest struct {
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
 	InviteToken string `json:"invite_token"`
+	// Email is matched against a bootstrap invite's binding.
+	Email string `json:"email"`
 }
 
 type provisionRequest struct {
@@ -51,6 +53,10 @@ type statusRequest struct {
 
 type inviteRequest struct {
 	TTL string `json:"ttl"`
+}
+
+type bootstrapInviteRequest struct {
+	Email string `json:"email"`
 }
 
 // RegisterSelf handles POST /v1/self/register.
@@ -193,6 +199,35 @@ func (h *Handler) CreateInviteAdmin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// bootstrapRegisterPath is the contract value the first-admin flow
+// prints: the invitee POSTs the voucher (plus their credentials and
+// the bound email) to this registration endpoint.
+const bootstrapRegisterPath = "/v1/self/register"
+
+// CreateBootstrapInvite handles POST /v1/bootstrap/invite (topology-l1
+// §4 first-admin mechanism). The route is guarded by the Bootstrap-key
+// middleware in cmd (IDENTITY_BOOTSTRAP_KEY); the one-shot window is a
+// domain rule, closed with 409 once an admin exists or a bootstrap
+// invite was minted. The raw token is returned exactly once —
+// looming-ctl apply prints it and the operator carries it to the
+// mailbox.
+func (h *Handler) CreateBootstrapInvite(w http.ResponseWriter, r *http.Request) {
+	var req bootstrapInviteRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	raw, tok, err := h.svc.CreateBootstrapInvite(r.Context(), req.Email, 0)
+	if err != nil {
+		writeUseCaseError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"token":           raw,
+		"expires_at":      tok.ExpiresAt.UTC().Format(time.RFC3339),
+		"invite_url_path": bootstrapRegisterPath,
+	})
+}
+
 // --- helpers ---
 
 func pageParams(r *http.Request) (limit, offset int) {
@@ -272,18 +307,19 @@ func classifyUseCaseError(err error) (status int, code string, safe bool) {
 	switch {
 	case errors.Is(err, ErrSelfRegistrationForbidden):
 		return http.StatusForbidden, "registration_forbidden", false
-	case errors.Is(err, ErrPasswordTooShort):
-		return http.StatusBadRequest, "invalid_request", true
-	case errors.Is(err, domain.ErrInvalidUsername):
-		return http.StatusBadRequest, "invalid_request", true
-	case errors.Is(err, domain.ErrDisplayNameTooLong):
-		return http.StatusBadRequest, "invalid_request", true
-	case errors.Is(err, domain.ErrInvalidKind):
+	case errors.Is(err, ErrPasswordTooShort),
+		errors.Is(err, ErrInvalidEmail),
+		errors.Is(err, domain.ErrInvalidUsername),
+		errors.Is(err, domain.ErrDisplayNameTooLong),
+		errors.Is(err, domain.ErrInvalidKind),
+		errors.Is(err, domain.ErrInviteEmailMismatch):
 		return http.StatusBadRequest, "invalid_request", true
 	case errors.Is(err, domain.ErrInvalidStatus):
 		return http.StatusBadRequest, "invalid_status", true
 	case errors.Is(err, domain.ErrInvalidInvite):
 		return http.StatusBadRequest, "invalid_invite", false
+	case errors.Is(err, domain.ErrBootstrapClosed):
+		return http.StatusConflict, "bootstrap_closed", false
 	case errors.Is(err, domain.ErrUsernameTaken):
 		return http.StatusConflict, "username_taken", false
 	case errors.Is(err, domain.ErrInvalidTransition):
