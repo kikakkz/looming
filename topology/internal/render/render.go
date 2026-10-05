@@ -105,28 +105,40 @@ type StatePostgres struct {
 // placement set (HostIDs are operator-facing YAML host ids, not uuids).
 // State/StateHostID are nil/"" when the config carries no state
 // section — then no bundle-postgres service is rendered.
+// EnvFiles carries operator-prepared per-placement env files — the
+// phase-1 secret channel, keyed "host\x00component"; secret values
+// ride in those files, never in the rendered inline environment.
 type Input struct {
 	StateHostID string
 	State       *StatePostgres
 	Hosts       []Host
 	Placements  []domain.ComponentPlacement
+	EnvFiles    map[string]string
 }
 
 // Artifact is one host's rendered compose file plus the content hash
-// render-diff convergence compares.
+// render-diff convergence compares. Empty marks a declared host with
+// nothing to run (no placements, not the state host): the pipeline
+// converges it by removing the host's compose project entirely, so a
+// host that loses its last placement does not keep orphaned
+// containers.
 type Artifact struct {
 	HostID  string
 	Compose string
 	Hash    string
+	Empty   bool
 }
 
 // configKeyPattern constrains placement config keys to what safely
 // becomes an env name after uppercasing and -/. → _.
 var configKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
-// envName maps a config key to its env name under the component's
-// prefix: lowercased keys uppercased, separators normalized to _.
-func envName(prefix, key string) string {
+// EnvName maps a config key to its env name under the component's
+// prefix: separators normalized to _ and uppercased, so "db-url",
+// "db.url", and "db_url" collide by construction — callers validate
+// the collision away (render errors at render time, config with line
+// context).
+func EnvName(prefix, key string) string {
 	replacer := strings.NewReplacer("-", "_", ".", "_")
 	return prefix + "_" + strings.ToUpper(replacer.Replace(key))
 }
@@ -146,11 +158,16 @@ func postgresService(sp StatePostgres) map[string]any {
 
 // placementService builds one placed component's service map from its
 // contract. Errors name the placement so apply can report them with
-// host context.
-func placementService(p domain.ComponentPlacement, c Contract) (map[string]any, error) {
+// host context. envFile, when non-empty, is the operator-prepared
+// env_file the service loads — the phase-1 secret channel (values stay
+// out of the rendered artifact's inline environment).
+func placementService(p domain.ComponentPlacement, c Contract, envFile string) (map[string]any, error) {
 	svc := map[string]any{
 		"build":   map[string]any{"context": c.BuildDir},
 		"restart": "unless-stopped",
+	}
+	if envFile != "" {
+		svc["env_file"] = []string{envFile}
 	}
 
 	ports := make([]string, 0, len(p.Ports))
@@ -182,7 +199,11 @@ func placementService(p domain.ComponentPlacement, c Contract) (map[string]any, 
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		env[envName(c.EnvPrefix, key)] = p.Config[key]
+		name := EnvName(c.EnvPrefix, key)
+		if _, dup := env[name]; dup {
+			return nil, fmt.Errorf("%w: %q on %q maps to %s, and collides with an earlier entry", ErrInvalidConfigKey, key, p.Component, name)
+		}
+		env[name] = p.Config[key]
 	}
 	if len(env) > 0 {
 		svc["environment"] = env
@@ -264,20 +285,25 @@ func Render(in Input) ([]Artifact, error) {
 			if !ok {
 				return nil, fmt.Errorf("%w: %q (phase-1: %s)", ErrUnknownComponent, p.Component, strings.Join(Allowlist(), ", "))
 			}
-			svc, err := placementService(p, c)
+			svc, err := placementService(p, c, in.EnvFiles[p.HostID+"\x00"+p.Component])
 			if err != nil {
 				return nil, err
 			}
 			services[p.Component] = svc
 		}
-		if len(services) == 0 {
-			continue
+		empty := len(services) == 0
+		if empty {
+			// A declared-but-idle host still gets an artifact: the
+			// compose document is the converge unit, and its hash is
+			// what render-diff compares before tearing the project
+			// down.
+			services = map[string]any{}
 		}
 		compose, err := composeDocument(services)
 		if err != nil {
 			return nil, err
 		}
-		artifacts = append(artifacts, Artifact{HostID: hostID, Compose: compose, Hash: Hash(compose)})
+		artifacts = append(artifacts, Artifact{HostID: hostID, Compose: compose, Hash: Hash(compose), Empty: empty})
 	}
 	return artifacts, nil
 }

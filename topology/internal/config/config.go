@@ -14,7 +14,9 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -117,13 +119,16 @@ type Host struct {
 }
 
 // Placement declares one component on one host: the named ports it
-// claims and free-form config entries that render into the component's
-// documented env prefix.
+// claims, free-form config entries that render into the component's
+// documented env prefix, and an optional operator-prepared env file —
+// the phase-1 secret channel (values stay out of the rendered inline
+// environment and out of the artifact's persisted content).
 type Placement struct {
 	Component string
 	Host      string
 	Ports     map[string]int
 	Config    map[string]string
+	EnvFile   string
 }
 
 // raw mirrors the YAML shape for strict decoding: unknown keys are
@@ -165,6 +170,7 @@ type rawPlacement struct {
 	Host      string            `yaml:"host"`
 	Ports     map[string]int    `yaml:"ports"`
 	Config    map[string]string `yaml:"config"`
+	EnvFile   string            `yaml:"env_file"`
 }
 
 // portNamePattern and hostIDPattern constrain the vocabulary other
@@ -391,6 +397,10 @@ func (c *Config) validatePlacements(doc *yaml.Node) error {
 		declared[h.ID] = true
 	}
 	seen := map[string]int{}
+	hostPorts := map[string]map[int]int{} // host -> port -> placement index (-1 = state plane)
+	if c.State != nil && len(c.Hosts) > 0 {
+		hostPorts[c.Hosts[0].ID] = map[int]int{c.State.Postgres.Port: -1}
+	}
 	for i, p := range c.Placements {
 		line := 0
 		if i < len(lines) {
@@ -411,27 +421,67 @@ func (c *Config) validatePlacements(doc *yaml.Node) error {
 				p.Component, p.Host, lines[prev])
 		}
 		seen[pair] = i
-		if contract.ListenPort != "" {
-			if _, ok := p.Ports[contract.ListenPort]; !ok {
-				return c.fail(line, ErrInvalidPlacement, "%q needs its %q port (%s wiring)",
-					p.Component, contract.ListenPort, contract.ListenEnv)
-			}
+		if msg := placementPortChecks(i, p, contract, hostPorts, lines); msg != "" {
+			return c.fail(line, ErrInvalidPlacement, "%s", msg)
 		}
-		for name, port := range p.Ports {
-			if !portNamePattern.MatchString(name) {
-				return c.fail(line, ErrInvalidPlacement, "port name %q on %q is not [a-z0-9_]", name, p.Component)
-			}
-			if port < 1 || port > 65535 {
-				return c.fail(line, ErrInvalidPlacement, "port %q on %q is %d, outside 1..65535", name, p.Component, port)
-			}
-		}
-		for key := range p.Config {
-			if !renderConfigKey(key) {
-				return c.fail(line, ErrInvalidPlacement, "config key %q on %q cannot become an env name", key, p.Component)
-			}
+		if msg := placementConfigChecks(p, contract); msg != "" {
+			return c.fail(line, ErrInvalidPlacement, "%s", msg)
 		}
 	}
 	return nil
+}
+
+// placementPortChecks validates one placement's port set against the
+// per-host published-port registry: names, ranges, and uniqueness
+// against both other placements and the state plane's port. It returns
+// "" when valid, else the operator-facing message.
+func placementPortChecks(index int, p Placement, contract render.Contract, hostPorts map[string]map[int]int, lines []int) string {
+	if contract.ListenPort != "" {
+		if _, ok := p.Ports[contract.ListenPort]; !ok {
+			return fmt.Sprintf("%q needs its %q port (%s wiring)", p.Component, contract.ListenPort, contract.ListenEnv)
+		}
+	}
+	for name, port := range p.Ports {
+		if !portNamePattern.MatchString(name) {
+			return fmt.Sprintf("port name %q on %q is not [a-z0-9_]", name, p.Component)
+		}
+		if port < 1 || port > 65535 {
+			return fmt.Sprintf("port %q on %q is %d, outside 1..65535", name, p.Component, port)
+		}
+		if hostPorts[p.Host] == nil {
+			hostPorts[p.Host] = map[int]int{}
+		}
+		if prev, taken := hostPorts[p.Host][port]; taken {
+			owner := "state.postgres"
+			if prev >= 0 {
+				owner = fmt.Sprintf("placement at line %d", lines[prev])
+			}
+			return fmt.Sprintf("port %d on host %q is already published by %s", port, p.Host, owner)
+		}
+		hostPorts[p.Host][port] = index
+	}
+	return ""
+}
+
+// placementConfigChecks validates the env wiring details: the optional
+// env_file path shape and config keys' env-name uniqueness after
+// folding. It returns "" when valid, else the operator-facing message.
+func placementConfigChecks(p Placement, contract render.Contract) string {
+	if p.EnvFile != "" && !filepath.IsAbs(p.EnvFile) {
+		return fmt.Sprintf("env_file %q on %q must be an absolute path", p.EnvFile, p.Component)
+	}
+	envNames := map[string]string{contract.ListenEnv: "(listen port)"}
+	for key := range p.Config {
+		if !renderConfigKey(key) {
+			return fmt.Sprintf("config key %q on %q cannot become an env name", key, p.Component)
+		}
+		name := render.EnvName(contract.EnvPrefix, key)
+		if prev, dup := envNames[name]; dup {
+			return fmt.Sprintf("config key %q on %q collides with %s after env-name folding", key, p.Component, prev)
+		}
+		envNames[name] = "config key " + strconv.Quote(key)
+	}
+	return ""
 }
 
 // renderConfigKey accepts exactly the keys render's env pass-through
@@ -474,6 +524,18 @@ func (c *Config) RenderHosts() []render.Host {
 		hosts[i] = render.Host{ID: h.ID, Address: h.Address, SSHUser: h.SSHUser}
 	}
 	return hosts
+}
+
+// RenderEnvFiles maps placement env files onto the renderer's key
+// space ("host\x00component"): the phase-1 secret channel.
+func (c *Config) RenderEnvFiles() map[string]string {
+	out := map[string]string{}
+	for _, p := range c.Placements {
+		if p.EnvFile != "" {
+			out[p.Host+"\x00"+p.Component] = p.EnvFile
+		}
+	}
+	return out
 }
 
 // RenderState maps the state section onto the renderer's view, nil

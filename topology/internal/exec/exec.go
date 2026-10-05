@@ -100,19 +100,39 @@ func NewExecutor(r Runner) *Executor {
 }
 
 // Ensure ships composeYAML to the host and converges the project:
-// `docker compose -p <projectName> -f - up -d` with the YAML on stdin,
-// so nothing is written to the remote filesystem. SSH hosts run with
+// `docker compose -p <projectName> -f - up -d --remove-orphans` with
+// the YAML on stdin, so nothing is written to the remote filesystem.
+// --remove-orphans prunes services the render dropped (a placement
+// moved away): the shipped compose is the complete desired state of
+// the host's project. SSH hosts run with
 // DOCKER_HOST=ssh://<user>@<address>. Render-diff convergence decides
 // whether to call Ensure at all — the executor itself is
 // unconditional, and reports changed=true when the converge ran.
 func (e *Executor) Ensure(ctx context.Context, h Host, projectName, composeYAML string) (bool, error) {
-	args := []string{"compose", "-p", projectName, "-f", "-", "up", "-d"}
+	args := []string{"compose", "-p", projectName, "-f", "-", "up", "-d", "--remove-orphans"}
 	var env []string
 	if h.SSHUser != "" {
 		env = append(env, "DOCKER_HOST=ssh://"+h.SSHUser+"@"+h.Address)
 	}
 	if _, err := e.runner.Run(ctx, "docker", args, []byte(composeYAML), env); err != nil {
 		return false, fmt.Errorf("exec: converge host %q: %w", h.ID, err)
+	}
+	return true, nil
+}
+
+// Remove tears down the host's compose project entirely — the
+// converge unit for a declared host with nothing to run (its rendered
+// compose is empty). Project-scoped `down` matches containers by the
+// compose project label, so no compose file is shipped. Idempotent:
+// down against an absent project is a no-op.
+func (e *Executor) Remove(ctx context.Context, h Host, projectName string) (bool, error) {
+	args := []string{"compose", "-p", projectName, "down"}
+	var env []string
+	if h.SSHUser != "" {
+		env = append(env, "DOCKER_HOST=ssh://"+h.SSHUser+"@"+h.Address)
+	}
+	if _, err := e.runner.Run(ctx, "docker", args, nil, env); err != nil {
+		return false, fmt.Errorf("exec: remove host %q project: %w", h.ID, err)
 	}
 	return true, nil
 }

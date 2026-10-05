@@ -258,10 +258,15 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-// composeUpCalls returns every `compose ... up -d` call (state plane
-// and per-host ensures alike).
+// composeUpCalls returns every `compose ... up -d --remove-orphans`
+// call (state plane and per-host ensures alike).
 func (w *world) composeUpCalls() []fakeCall {
-	return w.runner.findCalls("compose", "-p", "looming", "-f", "-", "up", "-d")
+	return w.runner.findCalls("compose", "-p", "looming", "-f", "-", "up", "-d", "--remove-orphans")
+}
+
+// downCalls returns every project-scoped `compose down` call.
+func (w *world) downCalls() []fakeCall {
+	return w.runner.findCalls("compose", "-p", "looming", "down")
 }
 
 func TestApplyFirstBootConvergesEveryHost(t *testing.T) {
@@ -302,11 +307,11 @@ func TestApplyFirstBootConvergesEveryHost(t *testing.T) {
 	assert.Equal(t, apply.HostResult{HostID: "app-1", Changed: true}, res.Hosts[0])
 	assert.Equal(t, apply.HostResult{HostID: "gw-1", Changed: true}, res.Hosts[1])
 	ups := w.composeUpCalls()
-	require.Len(t, ups, 3, "state plane + two host ensures")
-	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.12"}, ups[1].env)
-	assert.Empty(t, ups[2].env, "gw-1 is local: no DOCKER_HOST")
-	assert.Contains(t, ups[1].stdin, "identityd:")
-	assert.Contains(t, ups[2].stdin, "gateway-front:")
+	require.Len(t, ups, 2, "two host ensures (the state plane's up carries no --remove-orphans)")
+	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.12"}, ups[0].env)
+	assert.Empty(t, ups[1].env, "gw-1 is local: no DOCKER_HOST")
+	assert.Contains(t, ups[0].stdin, "identityd:")
+	assert.Contains(t, ups[1].stdin, "gateway-front:")
 
 	// Artifacts persisted as the render-diff anchor.
 	require.Len(t, w.artifacts.saved, 2)
@@ -340,7 +345,7 @@ func TestApplySecondRunSkipsEverything(t *testing.T) {
 		assert.False(t, h.Changed)
 	}
 	ups := w.composeUpCalls()
-	assert.Len(t, ups, 3, "run 2 must issue zero compose up calls")
+	assert.Len(t, ups, 2, "run 1's two ensures only: run 2 must issue zero compose up calls")
 	assert.Len(t, w.provisions, 2, "re-apply still provisions (guarded no-op)")
 }
 
@@ -369,9 +374,9 @@ func TestApplyChangedPlacementConvergesOnlyThatHost(t *testing.T) {
 	assert.True(t, second.Hosts[1].Skipped, "gw-1 unchanged")
 
 	ups := w.composeUpCalls()
-	require.Len(t, ups, 4, "state plane + 2 first-boot ensures + exactly one re-ensure")
-	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.12"}, ups[3].env)
-	assert.Contains(t, ups[3].stdin, "8082:8082")
+	require.Len(t, ups, 3, "2 first-boot ensures + exactly one re-ensure (the state plane's up carries no --remove-orphans)")
+	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.12"}, ups[2].env)
+	assert.Contains(t, ups[2].stdin, "8082:8082")
 }
 
 func TestApplyPartialFailureReportsAndContinues(t *testing.T) {
@@ -462,6 +467,55 @@ func TestApplyEnvURLWinsOverDerived(t *testing.T) {
 		"TOPOLOGY_DATABASE_URL is the operator's explicit override")
 	// The state plane still ensured (it is the thing the URL points at).
 	assert.Len(t, w.provisions, 1)
+}
+
+func TestApplyIdleHostConvergesByProjectRemoval(t *testing.T) {
+	// three declared hosts; idle-1 carries no placements: the pipeline
+	// removes its compose project instead of shipping an up.
+	idleConfig := `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts:
+  - {id: gw-1, address: 10.0.0.11}
+  - {id: app-1, address: 10.0.0.12, ssh_user: root}
+  - {id: idle-1, address: 10.0.0.99, ssh_user: root}
+placements:
+  - {component: gateway-front, host: gw-1, ports: {http: 8080}}
+  - {component: identityd, host: app-1, ports: {http: 8081}}
+`
+	w := newWorld(t, []scriptedCall{
+		{}, // ensure app-1
+		{}, // ensure gw-1
+		{}, // remove idle-1
+	}, nil)
+
+	res, err := w.pipeline.Apply(ctx, apply.Input{
+		ConfigPath:  writeConfig(t, idleConfig),
+		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
+	})
+	require.NoError(t, err)
+	require.False(t, res.Failed())
+	require.Len(t, res.Hosts, 3)
+	assert.Equal(t, apply.HostResult{HostID: "app-1", Changed: true}, res.Hosts[0])
+	assert.Equal(t, apply.HostResult{HostID: "gw-1", Changed: true}, res.Hosts[1])
+	assert.Equal(t, apply.HostResult{HostID: "idle-1", Changed: true}, res.Hosts[2],
+		"tearing the project down is a change")
+
+	downs := w.downCalls()
+	require.Len(t, downs, 1)
+	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.99"}, downs[0].env)
+	assert.Len(t, w.composeUpCalls(), 2, "two ensures; idle hosts get no up")
+
+	// Second apply: the stored empty-artifact hash matches → skip.
+	second, err := w.pipeline.Apply(ctx, apply.Input{
+		ConfigPath:  writeConfig(t, idleConfig),
+		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
+	})
+	require.NoError(t, err)
+	for _, h := range second.Hosts {
+		assert.True(t, h.Skipped, "unchanged artifacts skip entirely: %s", h.HostID)
+	}
+	assert.Len(t, w.downCalls(), 1, "no second down without a render change")
 }
 
 func TestApplyConfigErrorAbortsBeforeAnySideEffect(t *testing.T) {
@@ -616,6 +670,8 @@ func TestConvergeArtifactSaveErrorReportsConvergedButUnanchored(t *testing.T) {
 		assert.False(t, h.Changed, "the error carries the outcome; changed stays false")
 		assert.Contains(t, h.Err.Error(), "persist artifact after successful converge")
 	}
-	// The converge itself ran: docker up -d was issued for both hosts.
-	assert.Len(t, w.composeUpCalls(), 3, "state plane + two ensures")
+	// The converge itself ran: docker up was issued for both hosts (the
+	// state plane's up carries no --remove-orphans — on the state host,
+	// placement containers are not orphans).
+	assert.Len(t, w.composeUpCalls(), 2)
 }

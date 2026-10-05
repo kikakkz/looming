@@ -17,13 +17,20 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-// golden renders the input and compares against testdata/<name>.golden
-// (rewriting it under -update).
+// golden renders the input and compares the first non-empty artifact
+// against testdata/<name>.golden (rewriting it under -update).
 func golden(t *testing.T, name string, in render.Input) []render.Artifact {
 	t.Helper()
 	artifacts, err := render.Render(in)
 	require.NoError(t, err)
-	require.Len(t, artifacts, 1, "golden inputs render exactly one host")
+	var nonEmpty []render.Artifact
+	for _, a := range artifacts {
+		if !a.Empty {
+			nonEmpty = append(nonEmpty, a)
+		}
+	}
+	require.Len(t, nonEmpty, 1, "golden inputs render exactly one non-empty host")
+	artifacts = nonEmpty
 
 	path := filepath.Join("testdata", name+".golden")
 	if *update {
@@ -148,7 +155,7 @@ func TestRenderIsDeterministicAcrossInputOrder(t *testing.T) {
 	assert.Equal(t, "gw-1", first[1].HostID)
 }
 
-func TestRenderOmitsEmptyHosts(t *testing.T) {
+func TestRenderEmitsEmptyArtifactForIdleHosts(t *testing.T) {
 	arts, err := render.Render(render.Input{
 		Hosts: []render.Host{
 			{ID: "gw-1", Address: "10.0.0.11"},
@@ -159,8 +166,42 @@ func TestRenderOmitsEmptyHosts(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, arts, 1)
+	require.Len(t, arts, 2, "every declared host gets an artifact; idle hosts render empty")
 	assert.Equal(t, "gw-1", arts[0].HostID)
+	assert.False(t, arts[0].Empty)
+	assert.Equal(t, "idle-1", arts[1].HostID)
+	assert.True(t, arts[1].Empty)
+	assert.Contains(t, arts[1].Compose, "services: {}")
+}
+
+func TestRenderEmitsPlacementEnvFile(t *testing.T) {
+	arts, err := render.Render(render.Input{
+		Hosts: []render.Host{{ID: "app-1", Address: "10.0.0.12"}},
+		Placements: []domain.ComponentPlacement{
+			{Component: domain.ComponentIdentityd, HostID: "app-1", Ports: map[string]int{"http": 8081}},
+		},
+		EnvFiles: map[string]string{"app-1\x00" + domain.ComponentIdentityd: "/etc/looming/identityd.env"},
+	})
+	require.NoError(t, err)
+	require.Len(t, arts, 1)
+	assert.Contains(t, arts[0].Compose, "env_file:")
+	assert.Contains(t, arts[0].Compose, "/etc/looming/identityd.env")
+}
+
+func TestRenderRejectsEnvNameCollision(t *testing.T) {
+	_, err := render.Render(render.Input{
+		Hosts: []render.Host{{ID: "app-1", Address: "10.0.0.12"}},
+		Placements: []domain.ComponentPlacement{
+			{
+				Component: domain.ComponentIdentityd,
+				HostID:    "app-1",
+				Ports:     map[string]int{"http": 8081},
+				Config:    map[string]string{"db_url": "a", "db.url": "b"},
+			},
+		},
+	})
+	assert.ErrorIs(t, err, render.ErrInvalidConfigKey)
+	assert.Contains(t, err.Error(), "collides")
 }
 
 func TestRenderRejectsUnknownComponent(t *testing.T) {

@@ -74,6 +74,23 @@ func TestApplyDryRunPrintsComposeWithoutSideEffects(t *testing.T) {
 	assert.NotContains(t, out, "revision")
 }
 
+func TestApplyRelativeConfigSurvivesBundleRootChdir(t *testing.T) {
+	// The config path resolves against the operator's cwd, not the
+	// bundle root the process chdirs into.
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "topology.yaml"), []byte(ctlTestConfig), 0o600))
+	bundleRoot := t.TempDir()
+
+	out, err := runWith(t, "apply", "--config", "./topology.yaml", "--bundle-root", bundleRoot, "--dry-run")
+	require.NoError(t, err, "a relative --config must resolve before the chdir")
+	assert.Contains(t, out, "gateway-front:")
+}
+
 func TestApplyWithoutStatePlaneDemandsDatabaseURL(t *testing.T) {
 	path := writeCtlConfig(t, ctlTestConfig)
 	out, err := runWith(t, "apply", "--config", path)

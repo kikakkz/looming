@@ -258,6 +258,53 @@ placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
 			wantErr: config.ErrInvalidState, contains: "port",
 		},
 		{
+			name: "two placements publish the same host port",
+			yaml: `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements:
+  - {component: gateway-front, host: only, ports: {http: 8080}}
+  - {component: identityd, host: only, ports: {http: 8080}}
+`,
+			wantErr: config.ErrInvalidPlacement, contains: "already published", line: 7,
+		},
+		{
+			name: "placement collides with the state postgres port",
+			yaml: `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+state:
+  postgres: {image: "postgres:16-alpine", env_file: "/etc/looming/postgres.env", data_dir: "/var/lib/looming/postgres", port: 5432}
+hosts: [{id: only, address: 10.0.0.1}]
+placements:
+  - {component: gateway-front, host: only, ports: {http: 5432}}
+`,
+			wantErr: config.ErrInvalidPlacement, contains: "already published by state.postgres", line: 8,
+		},
+		{
+			name: "config keys collide after env-name folding",
+			yaml: `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements:
+  - {component: identityd, host: only, ports: {http: 8081}, config: {db_url: "a", db-url: "b"}}
+`,
+			wantErr: config.ErrInvalidPlacement, contains: "collides", line: 6,
+		},
+		{
+			name: "placement env_file must be absolute",
+			yaml: `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements:
+  - {component: identityd, host: only, ports: {http: 8081}, env_file: "secrets/identityd.env"}
+`,
+			wantErr: config.ErrInvalidPlacement, contains: "absolute path", line: 6,
+		},
+		{
 			name: "state postgres missing env_file",
 			yaml: `
 version: 1
@@ -399,4 +446,17 @@ placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
 	require.NoError(t, err)
 	assert.Nil(t, cfg.RenderState())
 	assert.Equal(t, "", cfg.StateHostID())
+
+	// env files map onto the renderer's key space.
+	withEnvFile := `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements:
+  - {component: identityd, host: only, ports: {http: 8081}, env_file: "/etc/looming/identityd.env"}
+  - {component: gateway-front, host: only, ports: {http: 8080}}
+`
+	cfg, err = load(t, withEnvFile)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"only\x00identityd": "/etc/looming/identityd.env"}, cfg.RenderEnvFiles())
 }

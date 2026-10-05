@@ -149,7 +149,10 @@ func (p *Pipeline) postgresContainerRunning(ctx context.Context, compose string)
 // linear backoff (the Sleep seam keeps unit tests off the clock). A
 // container that never accepts connections fails the apply.
 func (p *Pipeline) waitPostgresReady(ctx context.Context, compose, user string) error {
-	args := p.composeArgs("exec", "-T", postgresReadyService, "pg_isready", "-U", user)
+	// -h 127.0.0.1 probes TCP: a fresh data dir boots a temporary
+	// server that accepts only Unix-socket connections, and a socket
+	// probe could report ready before the real listener exists.
+	args := p.composeArgs("exec", "-T", postgresReadyService, "pg_isready", "-h", "127.0.0.1", "-U", user)
 	for attempt := 1; attempt <= postgresWaitAttempts; attempt++ {
 		if _, err := p.deps.Runner.Run(ctx, "docker", args, []byte(compose), nil); err == nil {
 			return nil

@@ -61,7 +61,7 @@ func TestEnsureLocalRunsComposeUpWithStdin(t *testing.T) {
 	require.Len(t, runner.calls, 1)
 	call := runner.calls[0]
 	assert.Equal(t, "docker", call.name)
-	assert.Equal(t, []string{"compose", "-p", "looming", "-f", "-", "up", "-d"}, call.args)
+	assert.Equal(t, []string{"compose", "-p", "looming", "-f", "-", "up", "-d", "--remove-orphans"}, call.args)
 	assert.Equal(t, "name: looming\n", call.stdin, "compose YAML ships on stdin; nothing touches the remote fs")
 	assert.Empty(t, call.env, "local backend injects no DOCKER_HOST")
 }
@@ -77,6 +77,33 @@ func TestEnsureSSHInjectsDockerHostEnv(t *testing.T) {
 	require.Len(t, runner.calls, 1)
 	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.12"}, runner.calls[0].env,
 		"ssh backend rides docker's native SSH transport — no daemon port exposed")
+}
+
+func TestRemoveRunsProjectDown(t *testing.T) {
+	runner := &fakeRunner{}
+	ex := exec.NewExecutor(runner)
+
+	changed, err := ex.Remove(context.Background(), exec.Host{ID: "idle-1", Address: "10.0.0.99", SSHUser: "root"}, "looming")
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	require.Len(t, runner.calls, 1)
+	call := runner.calls[0]
+	assert.Equal(t, []string{"compose", "-p", "looming", "down"}, call.args,
+		"project-scoped down matches containers by label; no compose file is shipped")
+	assert.Empty(t, call.stdin)
+	assert.Equal(t, []string{"DOCKER_HOST=ssh://root@10.0.0.99"}, call.env)
+}
+
+func TestRemoveFailureSurfacesStderr(t *testing.T) {
+	runner := &fakeRunner{stderr: []string{"network is ambiguous"}}
+	runner.failFrom = 1
+	ex := exec.NewExecutor(runner)
+
+	_, err := ex.Remove(context.Background(), exec.Host{ID: "idle-1", Address: "10.0.0.99"}, "looming")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remove host \"idle-1\" project")
+	assert.Contains(t, err.Error(), "network is ambiguous")
 }
 
 func TestEnsureFailureSurfacesStderr(t *testing.T) {

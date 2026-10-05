@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -83,6 +84,14 @@ func newApply(stdout io.Writer, log *slog.Logger) *cobra.Command {
 			if configPath == "" {
 				return errors.New("apply: --config must not be empty")
 			}
+			// Resolve the config against the operator's working
+			// directory before any chdir: a relative --config must not
+			// silently re-anchor to the bundle root.
+			absConfig, absErr := filepath.Abs(configPath)
+			if absErr != nil {
+				return fmt.Errorf("apply: --config: %w", absErr)
+			}
+			configPath = absConfig
 			if bundleRoot != "" {
 				info, err := os.Stat(bundleRoot)
 				if err != nil {

@@ -253,6 +253,7 @@ func (p *Pipeline) render(cfg *config.Config, topo domain.Topology, plan plan) (
 		State:       cfg.RenderState(),
 		Hosts:       cfg.RenderHosts(),
 		Placements:  placements,
+		EnvFiles:    cfg.RenderEnvFiles(),
 	})
 }
 
@@ -296,7 +297,15 @@ func (p *Pipeline) convergeOneHost(ctx context.Context, stores Stores, executor 
 		return hr
 	}
 	host := exec.Host{ID: cfgHost.ID, Address: cfgHost.Address, SSHUser: cfgHost.SSHUser}
-	if _, ensureErr := executor.Ensure(ctx, host, p.deps.Project, artifact.Compose); ensureErr != nil {
+	if artifact.Empty {
+		// Nothing to run on this host: converge means the project is
+		// gone, so a host that lost its last placement does not keep
+		// orphaned containers.
+		if _, removeErr := executor.Remove(ctx, host, p.deps.Project); removeErr != nil {
+			hr.Err = removeErr
+			return hr
+		}
+	} else if _, ensureErr := executor.Ensure(ctx, host, p.deps.Project, artifact.Compose); ensureErr != nil {
 		hr.Err = ensureErr
 		return hr
 	}
@@ -342,6 +351,7 @@ func buildPlan(cfg *config.Config) (plan, error) {
 			StateHostID: cfg.StateHostID(),
 			State:       cfg.RenderState(),
 			Hosts:       cfg.RenderHosts(),
+			EnvFiles:    cfg.RenderEnvFiles(),
 		},
 		yamlHostID: map[string]string{},
 	}
