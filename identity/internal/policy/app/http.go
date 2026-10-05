@@ -4,6 +4,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	authnport "github.com/kikakkz/looming/identity/internal/authn/port"
@@ -29,7 +30,8 @@ type policyRequest struct {
 func (h *Handler) GetAdmin(w http.ResponseWriter, r *http.Request) {
 	p, err := h.svc.Get(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		slog.ErrorContext(r.Context(), "policy get failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"mode": string(p.Mode)})
@@ -55,7 +57,8 @@ func (h *Handler) SetAdmin(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		slog.ErrorContext(r.Context(), "policy set failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"mode": string(p.Mode)})

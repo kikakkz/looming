@@ -144,3 +144,43 @@ func TestRequireAuthAdminRoleEnforcement(t *testing.T) {
 		})
 	}
 }
+
+func TestArgonLimitRejectsWhenSaturated(t *testing.T) {
+	limit := newArgonLimit(1)
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(reached)
+		<-release // hold the permit until the test releases it
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := httptest.NewServer(limit.wrap(next))
+	defer srv.Close()
+
+	go func() {
+		resp, err := http.Get(srv.URL)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	<-reached // the single permit is now held
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 busy when saturated, got %d", resp.StatusCode)
+	}
+
+	close(release) // first request finishes and frees its permit
+}
+
+func TestArgonLimitRejectsInvalidConfig(t *testing.T) {
+	limit := newArgonLimit(0)
+	if cap(limit.permits) != defaultArgonConcurrency {
+		t.Fatalf("non-positive size must fall back to %d, got %d", defaultArgonConcurrency, cap(limit.permits))
+	}
+}

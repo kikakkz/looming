@@ -125,10 +125,20 @@ func (r *Repository) List(ctx context.Context, limit, offset int) ([]*domain.Pri
 // UpdateStatus persists a domain-transitioned principal. The optimistic
 // version guard rejects stale reads with domain.ErrConflict; the bump
 // happens in SQL (version = version + 1) and the fresh row is returned.
+// A third guard is folded into the same UPDATE so it stays atomic:
+// disabling the sole active admin is rejected with domain.ErrLastAdmin
+// (a single conditional UPDATE — no check-then-act race).
 func (r *Repository) UpdateStatus(ctx context.Context, p *domain.Principal) (*domain.Principal, error) {
-	res, err := r.db.ExecContext(ctx,
-		`UPDATE principals SET status = $1, updated_at = $2, version = version + 1
-		  WHERE id = $3 AND version = $4`,
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE principals
+		   SET status = $1, updated_at = $2, version = version + 1
+		 WHERE id = $3
+		   AND version = $4
+		   AND ($1 <> 'disabled'
+		        OR NOT (roles @> '{admin}' AND status = 'active')
+		        OR EXISTS (
+		            SELECT 1 FROM principals
+		             WHERE status = 'active' AND roles @> '{admin}' AND id <> $3))`,
 		p.Status, p.UpdatedAt, p.ID, p.Version)
 	if err != nil {
 		return nil, fmt.Errorf("identity: principal update status: %w", err)
@@ -138,9 +148,43 @@ func (r *Repository) UpdateStatus(ctx context.Context, p *domain.Principal) (*do
 		return nil, fmt.Errorf("identity: principal update status affected: %w", err)
 	}
 	if affected == 0 {
-		return nil, domain.ErrConflict
+		return nil, r.classifyBlockedUpdate(ctx, p)
 	}
 	return r.ByID(ctx, p.ID)
+}
+
+// classifyBlockedUpdate distinguishes the two zero-row outcomes of the
+// guarded UPDATE: a stale version (domain.ErrConflict) versus the
+// last-active-admin guard (domain.ErrLastAdmin). The read races only
+// with another status change; both errors map to 409 either way.
+func (r *Repository) classifyBlockedUpdate(ctx context.Context, p *domain.Principal) error {
+	var (
+		version int64
+		status  string
+		roles   []string
+	)
+	err := r.db.QueryRowContext(ctx,
+		`SELECT version, status, roles FROM principals WHERE id = $1`, p.ID,
+	).Scan(&version, &status, pq.Array(&roles))
+	if err != nil {
+		return fmt.Errorf("identity: principal update status classify: %w", err)
+	}
+	if version != p.Version {
+		return domain.ErrConflict
+	}
+	if status == string(domain.StatusActive) && containsString(roles, domain.RoleAdmin) {
+		return domain.ErrLastAdmin
+	}
+	return domain.ErrConflict
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Count returns the total number of principals.

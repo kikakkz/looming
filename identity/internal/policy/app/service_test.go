@@ -15,6 +15,7 @@ import (
 type fakeStore struct {
 	policy *domain.Policy
 	err    error
+	setErr error
 	set    []*domain.Policy
 }
 
@@ -29,6 +30,9 @@ func (f *fakeStore) Get(context.Context) (*domain.Policy, error) {
 }
 
 func (f *fakeStore) Set(_ context.Context, p *domain.Policy) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
 	f.set = append(f.set, p)
 	return nil
 }

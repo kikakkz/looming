@@ -105,10 +105,33 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, p *domain.Principal) (*domain
 	if stored.Version != p.Version {
 		return nil, domain.ErrConflict
 	}
+	// Emulate the adapter's atomic last-active-admin guard.
+	if p.Status == domain.StatusDisabled && stored.Status == domain.StatusActive &&
+		hasString(stored.Roles, domain.RoleAdmin) && !f.hasOtherActiveAdmin(p.ID) {
+		return nil, domain.ErrLastAdmin
+	}
 	cp := *p
 	cp.Version++
 	f.byID[p.ID] = &cp
 	return &cp, nil
+}
+
+func (f *fakeRepo) hasOtherActiveAdmin(id string) bool {
+	for otherID, other := range f.byID {
+		if otherID != id && other.Status == domain.StatusActive && hasString(other.Roles, domain.RoleAdmin) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *fakeRepo) Count(context.Context) (int64, error) {
@@ -349,6 +372,44 @@ func TestRegisterUsernameTaken(t *testing.T) {
 	}
 }
 
+func TestRegisterInviteUsernameTakenKeepsVoucher(t *testing.T) {
+	repo := newFakeRepo()
+	invites := newFakeInvites()
+	svc := newTestService(repo, invites, policyOf(policydomain.ModeInvite))
+	if _, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "ker", Password: "correct horse battery", Kind: domain.KindHuman,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	raw, tok, err := svc.CreateInvite(context.Background(), "admin-1", time.Hour)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+	_, err = svc.Register(context.Background(), RegisterInput{
+		Username: "ker", Password: "correct horse battery", InviteToken: raw,
+	})
+	if !errors.Is(err, domain.ErrUsernameTaken) {
+		t.Fatalf("want ErrUsernameTaken, got %v", err)
+	}
+	stored, err := invites.ByHash(context.Background(), tok.TokenHash)
+	if err != nil {
+		t.Fatalf("ByHash: %v", err)
+	}
+	if stored.UsedAt != nil {
+		t.Fatal("a rejected username conflict must not burn the invite")
+	}
+	// The same voucher now registers a fresh username.
+	p, err := svc.Register(context.Background(), RegisterInput{
+		Username: "ker2", Password: "correct horse battery", InviteToken: raw,
+	})
+	if err != nil {
+		t.Fatalf("Register after conflict: %v", err)
+	}
+	if p.Status != domain.StatusActive {
+		t.Fatalf("want active, got %s", p.Status)
+	}
+}
+
 func TestProvisionAnyModeStartsActive(t *testing.T) {
 	for _, mode := range []policydomain.Mode{
 		policydomain.ModeAdminOnly, policydomain.ModeInvite, policydomain.ModeSelfRegisterWithApproval,
@@ -459,6 +520,49 @@ func TestSetStatusPropagatesConflict(t *testing.T) {
 	_, err = svc.SetStatus(context.Background(), p.ID, domain.StatusDisabled)
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("want ErrConflict on lost version race, got %v", err)
+	}
+}
+
+func TestSetStatusBlocksDisablingLastActiveAdmin(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo, newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+	admin, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "root", Password: "correct horse battery",
+		Kind: domain.KindHuman, Roles: []string{domain.RoleAdmin},
+	})
+	if err != nil {
+		t.Fatalf("Provision admin: %v", err)
+	}
+	_, err = svc.SetStatus(context.Background(), admin.ID, domain.StatusDisabled)
+	if !errors.Is(err, domain.ErrLastAdmin) {
+		t.Fatalf("want ErrLastAdmin, got %v", err)
+	}
+	// A second active admin unlocks the first one's disable.
+	_, err = svc.Provision(context.Background(), ProvisionInput{
+		Username: "root2", Password: "correct horse battery",
+		Kind: domain.KindHuman, Roles: []string{domain.RoleAdmin},
+	})
+	if err != nil {
+		t.Fatalf("Provision second admin: %v", err)
+	}
+	got, err := svc.SetStatus(context.Background(), admin.ID, domain.StatusDisabled)
+	if err != nil {
+		t.Fatalf("disable with a second admin must succeed: %v", err)
+	}
+	if got.Status != domain.StatusDisabled {
+		t.Fatalf("want disabled, got %s", got.Status)
+	}
+	// The remaining admin is now the last one again.
+	last, _, err := svc.List(context.Background(), 10, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, p := range last {
+		if p.Username == "root2" {
+			if _, err := svc.SetStatus(context.Background(), p.ID, domain.StatusDisabled); !errors.Is(err, domain.ErrLastAdmin) {
+				t.Fatalf("want ErrLastAdmin for the final admin, got %v", err)
+			}
+		}
 	}
 }
 

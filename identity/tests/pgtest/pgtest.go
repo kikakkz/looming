@@ -44,6 +44,13 @@ func init() {
 // NewDB starts a postgres container, migrates the schema, and returns
 // an open handle. The container dies with the test.
 func NewDB(t *testing.T) *sql.DB {
+	db, _ := NewDBWithDSN(t)
+	return db
+}
+
+// NewDBWithDSN is NewDB plus the connection string, for tests that need
+// to reach the database again themselves.
+func NewDBWithDSN(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -84,5 +91,5 @@ func NewDB(t *testing.T) *sql.DB {
 	if err := migrations.Up(dsn); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	return db
+	return db, dsn
 }

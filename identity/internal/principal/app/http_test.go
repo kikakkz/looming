@@ -292,6 +292,32 @@ func TestHTTPApproveAndStatusAdmin(t *testing.T) {
 	}
 }
 
+func TestHTTPDisableLastAdminRejected(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
+	rec := do(t, mux, http.MethodPost, "/v1/admin/principals",
+		`{"username":"root","password":"`+goodPassword+`","kind":"human","roles":["admin"]}`)
+	id, _ := decodeBody(t, rec)["id"].(string)
+
+	rec = do(t, mux, http.MethodPost, "/v1/admin/principals/"+id+"/status", `{"status":"disabled"}`)
+	if rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
+		t.Fatalf("want 409 last_admin, got %d %q", rec.Code, errCode(t, rec))
+	}
+}
+
+func TestHTTPInviteErrorIsGeneric(t *testing.T) {
+	mux, _ := newTestMux(policyOf(policydomain.ModeInvite))
+	rec := do(t, mux, http.MethodPost, "/v1/self/register",
+		`{"username":"ker","password":"`+goodPassword+`","invite_token":"bogus"}`)
+	if rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_invite" {
+		t.Fatalf("want 400 invalid_invite, got %d %q", rec.Code, errCode(t, rec))
+	}
+	body := decodeBody(t, rec)
+	errObj := body["error"].(map[string]any)
+	if errObj["message"] != "invalid_invite" {
+		t.Fatalf("invite failure must not leak internals, got message %q", errObj["message"])
+	}
+}
+
 func TestHTTPCreateInviteAdmin(t *testing.T) {
 	mux, _ := newTestMux(policyOf(policydomain.ModeAdminOnly))
 	rec := do(t, mux, http.MethodPost, "/v1/admin/invites", "")

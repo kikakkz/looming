@@ -110,7 +110,10 @@ test-unit:
 # Integration layer (AD-25, `integration` build tag): testcontainers-go
 # needs a Docker daemon; without one the target skips loudly, same
 # warn-and-skip policy as the lint tools (CI provides Docker). Components
-# without integration-tagged files skip per component.
+# without integration-tagged files skip per component. A component that
+# ships .testcoverage.integration.yml also gets its integration profile
+# checked against the thresholds (adapters and migrations are covered
+# here, not in the unit profile).
 test-integration:
 	@if [ -z "$(GO_COMPONENTS)" ]; then \
 		echo "test-integration: no Go components (no */go.mod), skipped"; \
@@ -120,7 +123,15 @@ test-integration:
 		for c in $(GO_COMPONENTS); do \
 			if grep -rqs --include='*.go' -e '^//go:build integration' $$c; then \
 				echo "test-integration: $$c"; \
-				(cd $$c && go test -tags integration ./...) || exit 1; \
+				if [ -f $$c/.testcoverage.integration.yml ] && command -v go-test-coverage >/dev/null 2>&1; then \
+					(cd $$c && go test -tags integration -covermode=atomic -coverprofile=coverage-integration.out ./... && \
+						go-test-coverage -config=.testcoverage.integration.yml) || exit 1; \
+				elif [ -f $$c/.testcoverage.integration.yml ]; then \
+					echo "test-integration: $$c has integration coverage config but go-test-coverage is missing, running without threshold"; \
+					(cd $$c && go test -tags integration ./...) || exit 1; \
+				else \
+					(cd $$c && go test -tags integration ./...) || exit 1; \
+				fi; \
 			else \
 				echo "test-integration: $$c has no integration-tagged files, skipped"; \
 			fi; \

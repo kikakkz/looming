@@ -51,6 +51,10 @@ var (
 	ErrNotFound           = errors.New("identity: principal not found")
 	ErrUsernameTaken      = errors.New("identity: username already taken")
 	ErrConflict           = errors.New("identity: conflicting write")
+	// ErrLastAdmin marks a status change that would disable the sole
+	// active admin — the deployment would lock itself out (no active
+	// admin could ever approve, provision, or re-enable).
+	ErrLastAdmin = errors.New("identity: cannot disable the last active admin")
 )
 
 // Username bounds and shape: 3-64 chars, lowercase alphanumeric with

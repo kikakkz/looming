@@ -3,6 +3,7 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -95,5 +96,31 @@ func TestPolicySetMalformedBody(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rec.Code)
+	}
+}
+
+func TestPolicyHandlersHideInternalErrors(t *testing.T) {
+	mux := http.NewServeMux()
+	h := NewHandler(NewService(&fakeStore{
+		err:    errors.New("db down"),
+		setErr: errors.New("db down"),
+	}, testNowPolicy))
+	mux.HandleFunc("GET /v1/admin/policy", h.GetAdmin)
+	mux.HandleFunc("PUT /v1/admin/policy", h.SetAdmin)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/admin/policy", nil))
+	if rec.Code != http.StatusInternalServerError ||
+		bytes.Contains(rec.Body.Bytes(), []byte("db down")) {
+		t.Fatalf("get: want generic 500, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/v1/admin/policy",
+		bytes.NewBufferString(`{"mode":"invite"}`))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError ||
+		bytes.Contains(rec.Body.Bytes(), []byte("db down")) {
+		t.Fatalf("set: want generic 500, got %d %s", rec.Code, rec.Body.String())
 	}
 }

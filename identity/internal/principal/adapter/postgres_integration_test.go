@@ -136,6 +136,44 @@ func TestPrincipalRepositoryUpdateStatusOptimisticLock(t *testing.T) {
 	}
 }
 
+func TestPrincipalRepositoryBlocksDisablingLastActiveAdmin(t *testing.T) {
+	repo := adapter.NewRepository(pgtest.NewDB(t))
+	ctx := context.Background()
+	admin := newPrincipal("root", domain.StatusActive)
+	admin.Roles = []string{domain.RoleAdmin}
+	if err := repo.Create(ctx, admin); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	member := newPrincipal("ker", domain.StatusActive)
+	if err := repo.Create(ctx, member); err != nil {
+		t.Fatalf("Create member: %v", err)
+	}
+
+	// The sole active admin cannot be disabled — atomically.
+	admin.Status = domain.StatusDisabled
+	if _, err := repo.UpdateStatus(ctx, admin); !errors.Is(err, domain.ErrLastAdmin) {
+		t.Fatalf("want ErrLastAdmin, got %v", err)
+	}
+	// A member is not an admin: disabling them is unaffected.
+	member.Status = domain.StatusDisabled
+	if _, err := repo.UpdateStatus(ctx, member); err != nil {
+		t.Fatalf("disabling a member must succeed: %v", err)
+	}
+	// A second active admin unlocks the guard.
+	backup := newPrincipal("root2", domain.StatusActive)
+	backup.Roles = []string{domain.RoleAdmin}
+	if err := repo.Create(ctx, backup); err != nil {
+		t.Fatalf("Create backup admin: %v", err)
+	}
+	updated, err := repo.UpdateStatus(ctx, admin)
+	if err != nil {
+		t.Fatalf("disable with a second active admin must succeed: %v", err)
+	}
+	if updated.Status != domain.StatusDisabled {
+		t.Fatalf("want disabled, got %s", updated.Status)
+	}
+}
+
 func TestInviteRepositoryLifecycle(t *testing.T) {
 	repo := adapter.NewInviteRepository(pgtest.NewDB(t))
 	ctx := context.Background()

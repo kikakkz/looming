@@ -114,6 +114,16 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*principaldom
 		return nil, err
 	}
 	if pol.Mode == domain.ModeInvite {
+		// A taken username must not burn the voucher: check before
+		// consuming. The narrow race left behind (concurrent create
+		// between check and consume) is documented: the voucher is
+		// single-use, so a lost race burns one invite without a
+		// principal — the safe direction.
+		if _, err := s.repo.ByUsername(ctx, p.Username); err == nil {
+			return nil, principaldomain.ErrUsernameTaken
+		} else if !errors.Is(err, principaldomain.ErrNotFound) {
+			return nil, err
+		}
 		if err := s.consumeInvite(ctx, in.InviteToken); err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -60,7 +61,7 @@ func (h *Handler) RegisterSelf(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.svc.Register(r.Context(), RegisterInput(req))
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -79,7 +80,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.svc.Get(r.Context(), info.PrincipalID)
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writePrincipal(w, http.StatusOK, p)
@@ -99,7 +100,7 @@ func (h *Handler) ProvisionAdmin(w http.ResponseWriter, r *http.Request) {
 		Roles:       req.Roles,
 	})
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writePrincipal(w, http.StatusCreated, p)
@@ -110,7 +111,7 @@ func (h *Handler) ListAdmin(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)
 	items, total, err := h.svc.List(r.Context(), limit, offset)
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	out := make([]any, 0, len(items))
@@ -124,7 +125,7 @@ func (h *Handler) ListAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetAdmin(w http.ResponseWriter, r *http.Request) {
 	p, err := h.svc.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writePrincipal(w, http.StatusOK, p)
@@ -134,7 +135,7 @@ func (h *Handler) GetAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ApproveAdmin(w http.ResponseWriter, r *http.Request) {
 	p, err := h.svc.Approve(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writePrincipal(w, http.StatusOK, p)
@@ -148,7 +149,7 @@ func (h *Handler) SetStatusAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.svc.SetStatus(r.Context(), r.PathValue("id"), domain.Status(req.Status))
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writePrincipal(w, http.StatusOK, p)
@@ -183,7 +184,7 @@ func (h *Handler) CreateInviteAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, tok, err := h.svc.CreateInvite(r.Context(), info.PrincipalID, ttl)
 	if err != nil {
-		writeUseCaseError(w, err)
+		writeUseCaseError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -251,32 +252,49 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // writeUseCaseError maps domain and use-case errors onto the v1 error
-// contract. Unknown errors are internal faults and stay generic.
-func writeUseCaseError(w http.ResponseWriter, err error) {
-	status, code := http.StatusInternalServerError, "internal"
+// contract. Safe validation errors keep their detail (the client needs
+// it to correct the input); everything else returns the code only —
+// backend and invite internals stay server-side (CWE-209) and are
+// logged instead.
+func writeUseCaseError(w http.ResponseWriter, r *http.Request, err error) {
+	status, code, safe := classifyUseCaseError(err)
+	message := code
+	if safe {
+		message = err.Error()
+	}
+	if status == http.StatusInternalServerError || errors.Is(err, domain.ErrInvalidInvite) {
+		slog.ErrorContext(r.Context(), "principal request failed", "err", err)
+	}
+	writeError(w, status, code, message)
+}
+
+func classifyUseCaseError(err error) (status int, code string, safe bool) {
 	switch {
 	case errors.Is(err, ErrSelfRegistrationForbidden):
-		status, code = http.StatusForbidden, "registration_forbidden"
+		return http.StatusForbidden, "registration_forbidden", false
 	case errors.Is(err, ErrPasswordTooShort):
-		status, code = http.StatusBadRequest, "invalid_request"
+		return http.StatusBadRequest, "invalid_request", true
 	case errors.Is(err, domain.ErrInvalidUsername):
-		status, code = http.StatusBadRequest, "invalid_request"
+		return http.StatusBadRequest, "invalid_request", true
 	case errors.Is(err, domain.ErrDisplayNameTooLong):
-		status, code = http.StatusBadRequest, "invalid_request"
+		return http.StatusBadRequest, "invalid_request", true
 	case errors.Is(err, domain.ErrInvalidKind):
-		status, code = http.StatusBadRequest, "invalid_request"
+		return http.StatusBadRequest, "invalid_request", true
 	case errors.Is(err, domain.ErrInvalidStatus):
-		status, code = http.StatusBadRequest, "invalid_status"
+		return http.StatusBadRequest, "invalid_status", true
 	case errors.Is(err, domain.ErrInvalidInvite):
-		status, code = http.StatusBadRequest, "invalid_invite"
+		return http.StatusBadRequest, "invalid_invite", false
 	case errors.Is(err, domain.ErrUsernameTaken):
-		status, code = http.StatusConflict, "username_taken"
+		return http.StatusConflict, "username_taken", false
 	case errors.Is(err, domain.ErrInvalidTransition):
-		status, code = http.StatusConflict, "invalid_transition"
+		return http.StatusConflict, "invalid_transition", false
+	case errors.Is(err, domain.ErrLastAdmin):
+		return http.StatusConflict, "last_admin", false
 	case errors.Is(err, domain.ErrConflict):
-		status, code = http.StatusConflict, "conflict"
+		return http.StatusConflict, "conflict", false
 	case errors.Is(err, domain.ErrNotFound):
-		status, code = http.StatusNotFound, "not_found"
+		return http.StatusNotFound, "not_found", false
+	default:
+		return http.StatusInternalServerError, "internal", false
 	}
-	writeError(w, status, code, err.Error())
 }

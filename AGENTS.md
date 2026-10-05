@@ -74,7 +74,10 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   to plain `go test` without gotestsum; skips when no `*/go.mod` exists.
 - `make test-integration` — `integration`-tagged tests (testcontainers-go,
   AD-25) per component; loud skip without a Docker daemon or
-  integration-tagged files.
+  integration-tagged files. A component shipping
+  `.testcoverage.integration.yml` also gets its integration profile
+  threshold-checked there (adapters and migrations are covered by this
+  layer, not the unit profile).
 - `make test-coverage` — per-component coverage profile plus the
   go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
 

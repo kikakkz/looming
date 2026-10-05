@@ -60,3 +60,33 @@ func writeAuthError(w http.ResponseWriter, status int, code string) {
 		"error": map[string]any{"code": code, "message": code},
 	})
 }
+
+// argonLimit bounds the expensive argon2id work that unauthenticated
+// routes can trigger: login comparisons (including the unknown-user
+// dummy comparison, shaped to cost the same) and registration password
+// hashing. Each permit stands for ~64 MiB and ~half a second of CPU, so
+// the limit bounds total memory and CPU under a credential-stuffing
+// flood (CWE-770). Requests beyond the limit are rejected, not queued.
+type argonLimit struct {
+	permits chan struct{}
+}
+
+func newArgonLimit(n int) *argonLimit {
+	if n <= 0 {
+		n = defaultArgonConcurrency
+	}
+	return &argonLimit{permits: make(chan struct{}, n)}
+}
+
+// wrap rejects with 503 busy when every permit is taken.
+func (a *argonLimit) wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case a.permits <- struct{}{}:
+			defer func() { <-a.permits }()
+			next.ServeHTTP(w, r)
+		default:
+			writeAuthError(w, http.StatusServiceUnavailable, "busy")
+		}
+	})
+}

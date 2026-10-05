@@ -36,7 +36,7 @@ func seedPrincipal(t *testing.T, db *sql.DB, username, password string, status p
 		DisplayName:  username,
 		PasswordHash: hash,
 		Status:       status,
-		Roles:        []string{principaldomain.RoleMember, principaldomain.RoleAdmin},
+		Roles:        []string{principaldomain.RoleMember},
 		Version:      1,
 		CreatedAt:    integTime,
 		UpdatedAt:    integTime,
@@ -102,7 +102,7 @@ func TestTokenIssueValidateRevoke(t *testing.T) {
 	if info.PrincipalID != p.ID {
 		t.Fatalf("want principal %s, got %s", p.ID, info.PrincipalID)
 	}
-	if len(info.Roles) != 2 {
+	if len(info.Roles) != 1 || info.Roles[0] != principaldomain.RoleMember {
 		t.Fatalf("roles must come from the principals row, got %v", info.Roles)
 	}
 	if !info.ExpiresAt.Equal(integTime.Add(time.Hour)) {

@@ -4,6 +4,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -41,7 +42,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		slog.ErrorContext(r.Context(), "login failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

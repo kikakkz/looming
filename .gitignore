@@ -28,4 +28,4 @@ coverage/
 *.key
 
 # Go test artifacts
-coverage.out
+coverage*.out

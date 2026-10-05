@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	slog.SetDefault(log) // app-layer error logging lands in the same handler
 	if err := run(log); err != nil {
 		log.Error("identityd exited", "err", err)
 		os.Exit(1)
@@ -47,7 +49,12 @@ type config struct {
 	bootstrapUsername string
 	bootstrapPassword string
 	tokenTTL          time.Duration
+	argonConcurrency  int
 }
+
+// defaultArgonConcurrency bounds simultaneous argon2id operations on
+// the unauthenticated routes (64 MiB of memory each).
+const defaultArgonConcurrency = 16
 
 func loadConfig() (config, error) {
 	cfg := config{
@@ -56,6 +63,7 @@ func loadConfig() (config, error) {
 		bootstrapUsername: os.Getenv("IDENTITY_BOOTSTRAP_ADMIN_USERNAME"),
 		bootstrapPassword: os.Getenv("IDENTITY_BOOTSTRAP_ADMIN_PASSWORD"),
 		tokenTTL:          24 * time.Hour,
+		argonConcurrency:  defaultArgonConcurrency,
 	}
 	if cfg.listen == "" {
 		cfg.listen = ":8080"
@@ -69,6 +77,13 @@ func loadConfig() (config, error) {
 			return config{}, fmt.Errorf("IDENTITY_TOKEN_TTL must be a duration like 24h: %w", err)
 		}
 		cfg.tokenTTL = ttl
+	}
+	if raw := os.Getenv("IDENTITY_ARGON_CONCURRENCY"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return config{}, fmt.Errorf("IDENTITY_ARGON_CONCURRENCY must be a positive integer: %q", raw)
+		}
+		cfg.argonConcurrency = n
 	}
 	return cfg, nil
 }
@@ -110,7 +125,7 @@ func run(log *slog.Logger) error {
 	policySvc := policyapp.NewService(policyStore, clockFn)
 	provider := authnadapter.NewLocalProvider(db, cfg.tokenTTL, rand.Reader, clockFn)
 	loginSvc := authnapp.NewLoginService(provider, cfg.tokenTTL, clockFn)
-	mux := routeMux(provider,
+	mux := routeMux(provider, newArgonLimit(cfg.argonConcurrency),
 		principalapp.NewHandler(principalSvc),
 		policyapp.NewHandler(policySvc),
 		authnapp.NewHandler(loginSvc),
@@ -148,13 +163,14 @@ func run(log *slog.Logger) error {
 	}
 }
 
-// routeMux assembles the v1 API. Self register/login are open; every
-// other route carries the Bearer auth middleware, and admin routes
-// additionally require the admin role.
-func routeMux(provider authnport.Provider, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler) *http.ServeMux {
+// routeMux assembles the v1 API. Self register/login are open (the
+// argon limiter bounds their hashing work); every other route carries
+// the Bearer auth middleware, and admin routes additionally require
+// the admin role.
+func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/self/register", principalH.RegisterSelf)
-	mux.HandleFunc("POST /v1/self/login", authnH.Login)
+	mux.Handle("POST /v1/self/register", limit.wrap(http.HandlerFunc(principalH.RegisterSelf)))
+	mux.Handle("POST /v1/self/login", limit.wrap(http.HandlerFunc(authnH.Login)))
 	mux.Handle("GET /v1/self/me", requireAuth(provider, false, http.HandlerFunc(principalH.Me)))
 
 	mux.Handle("POST /v1/admin/principals", requireAuth(provider, true, http.HandlerFunc(principalH.ProvisionAdmin)))
