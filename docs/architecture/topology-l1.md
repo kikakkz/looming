@@ -44,7 +44,9 @@ that is Postgres-ecosystem internals, not an architecture decision.
 
 **Admin bootstrap**: install the bundle on the first host → write
 `/etc/looming/topology.yaml` → `looming-ctl apply` (converge:
-validate invariants → persist to the Postgres `topology` database →
+validate invariants → bring up the state plane: start and initialize
+the bundle-owned Postgres, creating the `topology` database — on
+first boot it is started before any write → persist the topology →
 render per-host compose files → `docker compose up -d` on each
 declared host — restart only what changed; prints the invite link
 plus the join hint).
@@ -79,7 +81,7 @@ retirement when this lands.
 | Aggregate | Invariants |
 |---|---|
 | Topology | hosts ≥ 1; placements reference registered hosts; gateway-front placement exactly 1 (#109 lifts to N); `access` accepts only direct/ip/http in phase-1 — vip/dns/acme shapes are reserved in the schema but rejected at apply, with the owning phase-2 issue named (#109–#112); optimistic revision (component-patterns #3) |
-| Host | address unique; join is pull-based self-registration; no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
+| Host | address unique; join is pull-based self-registration — a successful join mints the host's persistent service credential (its AD-27 §6 service-subject identity; re-join authenticates with that credential, identifies the host by id, and updates address/labels); no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
 | JoinToken | one-time consume; TTL default 24h; hash at rest; atomic consume (guarded UPDATE — the slice-A invite-token precedent) |
 | ComponentPlacement | (component, host) unique; port conflicts rejected at apply |
 | Guide | render input = the current Topology snapshot; regenerated on every apply; served only when `access.public`; zero credentials by invariant |
@@ -113,8 +115,11 @@ as service-subjects (AD-27 §6 S2S shape). Audit — topology changes,
 token mint/consume → local append-only audit table; the Records
 context takes over the event model later. Revisions/idempotency —
 apply is converge-idempotent (render-diff, restart only changed);
-join idempotent per host (re-join updates the address); optimistic
-revision on Topology (component-patterns #3). Metering: none. ACL
+join idempotent per host (a JoinToken is one-time and bootstraps only
+a NEW host; re-join presents the host's persistent service
+credential, identifies the host by id, and updates the
+address/labels); optimistic revision on Topology (component-patterns
+#3). Metering: none. ACL
 trimming: N/A (no user data; the guide carries zero credentials by
 invariant).
 
