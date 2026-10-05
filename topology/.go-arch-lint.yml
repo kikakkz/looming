@@ -33,6 +33,16 @@
 # admits those reads. Two binaries consume it: cmd/topologyd serves
 # the API; cmd/looming-ctl adds the admin-side token commands and the
 # pulling host's join command.
+#
+# T3 (#107) adds the guide capability (topology-l1 §5 Guide row + §6
+# GuidePublisher): guide-domain (the zero-credential Snapshot contract
+# + the idempotent re-render rule), guide-port (Store seam), guide-app
+# (render-from-topology orchestration over the topology snapshot and
+# the host registry — the same placement→URL derivation the join hint
+# uses), and guide-adapter (the postgres store over T0's guide table).
+# apply renders the guide after a successful converge; cmd/topologyd
+# serves it at GET /v1/internal/guide; cmd/looming-ctl adds `guide
+# show`.
 version: 3
 
 allow:
@@ -57,6 +67,10 @@ components:
   join-port:          { in: internal/join/port }
   join-app:           { in: internal/join/app }
   join-adapter:       { in: internal/join/adapter }
+  guide-domain:       { in: internal/guide/domain }
+  guide-port:         { in: internal/guide/port }
+  guide-app:          { in: internal/guide/app }
+  guide-adapter:      { in: internal/guide/adapter }
   config:             { in: internal/config }
   render:             { in: internal/render }
   exec:               { in: internal/exec }
@@ -94,6 +108,15 @@ deps:
   join-adapter:
     mayDependOn: [join-domain, join-port]
 
+  guide-port:
+    mayDependOn: [guide-domain]
+
+  guide-app:
+    mayDependOn: [guide-domain, guide-port, host-port, topology-domain, topology-port]
+
+  guide-adapter:
+    mayDependOn: [guide-domain, guide-port]
+
   config:
     mayDependOn: [render, topology-domain]
 
@@ -101,13 +124,13 @@ deps:
     mayDependOn: [topology-domain]
 
   apply:
-    mayDependOn: [config, render, exec, topology-domain, topology-port, topology-app, topology-adapter, host-domain, host-port, host-adapter, migrations]
+    mayDependOn: [config, render, exec, topology-domain, topology-port, topology-app, topology-adapter, host-domain, host-port, host-adapter, guide-domain, guide-port, guide-app, guide-adapter, migrations]
 
   cmd:
-    mayDependOn: [apply, exec, join-domain, join-app, join-adapter, host-adapter, topology-adapter, migrations]
+    mayDependOn: [apply, exec, config, join-domain, join-app, join-adapter, guide-app, guide-adapter, host-adapter, topology-adapter, migrations]
 
   cmd-topologyd:
-    mayDependOn: [join-app, join-adapter, host-adapter, topology-adapter, migrations]
+    mayDependOn: [join-app, join-adapter, guide-app, guide-adapter, host-adapter, topology-adapter, migrations]
 
   tests:
     mayDependOn: [migrations]

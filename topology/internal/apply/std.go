@@ -17,6 +17,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver for the store connections
 
 	"github.com/kikakkz/looming/topology/internal/exec"
+	guideadapter "github.com/kikakkz/looming/topology/internal/guide/adapter"
 	hostadapter "github.com/kikakkz/looming/topology/internal/host/adapter"
 	"github.com/kikakkz/looming/topology/internal/render"
 	topologyadapter "github.com/kikakkz/looming/topology/internal/topology/adapter"
@@ -70,6 +71,7 @@ func openPostgresStores(ctx context.Context, databaseURL string) (Stores, error)
 		Topology:  topologyadapter.NewStore(db),
 		Registry:  hostadapter.NewRegistry(db),
 		Artifacts: topologyadapter.NewArtifactStore(db),
+		Guides:    guideadapter.NewStore(db),
 	}, nil
 }
 

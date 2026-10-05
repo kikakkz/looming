@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -483,4 +484,107 @@ placements:
 	cfg, err = load(t, withEnvFile)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"only\x00identityd": "/etc/looming/identityd.env"}, cfg.RenderEnvFiles())
+}
+
+// TestClusterSection covers the T3 guide additions: the optional
+// top-level cluster name (the guide page heading) and the bootstrap
+// CLI download URL, both defaulting when absent.
+func TestClusterSection(t *testing.T) {
+	t.Run("defaults when absent", func(t *testing.T) {
+		cfg, err := load(t, validYAML)
+		require.NoError(t, err)
+		assert.Equal(t, config.DefaultClusterName, cfg.ClusterName)
+		assert.Equal(t, config.DefaultCLIDownloadURL, cfg.CLIDownloadURL)
+	})
+
+	t.Run("explicit values", func(t *testing.T) {
+		cfg, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+cluster: {name: "prod cluster"}
+bootstrap: {admin_email: "admin@example.com", cli_download_url: "https://releases.example.com/looming"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.NoError(t, err)
+		assert.Equal(t, "prod cluster", cfg.ClusterName)
+		assert.Equal(t, "https://releases.example.com/looming", cfg.CLIDownloadURL)
+	})
+
+	t.Run("whitespace name is rejected", func(t *testing.T) {
+		_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+cluster: {name: "   "}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, config.ErrInvalidCluster)
+		assert.Contains(t, err.Error(), "cluster.name")
+	})
+
+	t.Run("cli url must be http(s)", func(t *testing.T) {
+		_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+bootstrap: {admin_email: "admin@example.com", cli_download_url: "ftp://example.com/looming"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, config.ErrInvalidBootstrap)
+		assert.Contains(t, err.Error(), "cli_download_url")
+	})
+}
+
+// TestGuideTokenWiring pins the review finding from PR #122: placing
+// topologyd derives GATEWAY_TOPOLOGY_URL for the gateway front, so
+// both token env_files must be declared at config time — a missing
+// token would crash-loop the gateway at boot or 503/401 the guide.
+func TestGuideTokenWiring(t *testing.T) {
+	base := `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.11}]
+placements:
+  - {component: gateway-front, host: only, ports: {http: 8080}PLACEHOLDER_GW}
+  - {component: topologyd, host: only, ports: {http: 8181}PLACEHOLDER_TP}
+`
+	cases := []struct {
+		name    string
+		gw, tp  string
+		wantErr string // "" means valid
+	}{
+		{"both env files wired", ", env_file: /etc/looming/gateway.env", ", env_file: /etc/looming/topologyd.env", ""},
+		{"gateway front token missing", "", ", env_file: /etc/looming/topologyd.env", "GATEWAY_TOPOLOGY_TOKEN"},
+		{"topologyd token missing", ", env_file: /etc/looming/gateway.env", "", "TOPOLOGY_SERVICE_TOKEN"},
+		{"both missing", "", "", "TOPOLOGY_SERVICE_TOKEN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlDoc := strings.Replace(base, "PLACEHOLDER_GW", tc.gw, 1)
+			yamlDoc = strings.Replace(yamlDoc, "PLACEHOLDER_TP", tc.tp, 1)
+			_, err := load(t, yamlDoc)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, config.ErrInvalidPlacement)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+
+	// No topologyd placement: no derived URL, no wiring requirement —
+	// the gateway serves its not-configured 404.
+	t.Run("no topologyd placement needs no tokens", func(t *testing.T) {
+		_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.11}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.NoError(t, err)
+	})
 }

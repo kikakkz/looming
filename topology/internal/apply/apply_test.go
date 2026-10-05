@@ -16,7 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kikakkz/looming/topology/internal/apply"
+	"github.com/kikakkz/looming/topology/internal/config"
 	"github.com/kikakkz/looming/topology/internal/exec"
+	guidedomain "github.com/kikakkz/looming/topology/internal/guide/domain"
 	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
 	"github.com/kikakkz/looming/topology/internal/topology/domain"
 )
@@ -161,6 +163,37 @@ func (f *fakeArtifacts) Save(_ context.Context, a domain.RenderArtifact) error {
 	return nil
 }
 
+// fakeGuides is the guide Store port against memory.
+type fakeGuides struct {
+	guides map[string]guidedomain.Guide
+	saved  []guidedomain.Guide
+	err    error
+}
+
+func newFakeGuides() *fakeGuides {
+	return &fakeGuides{guides: map[string]guidedomain.Guide{}}
+}
+
+func (f *fakeGuides) Current(context.Context) (guidedomain.Guide, error) {
+	if f.err != nil {
+		return guidedomain.Guide{}, f.err
+	}
+	g, ok := f.guides[guidedomain.SingletonID]
+	if !ok {
+		return guidedomain.Guide{}, guidedomain.ErrNoGuide
+	}
+	return g, nil
+}
+
+func (f *fakeGuides) Save(_ context.Context, g guidedomain.Guide) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.guides[guidedomain.SingletonID] = g
+	f.saved = append(f.saved, g)
+	return nil
+}
+
 // env is the fake world one apply run (or a sequence of runs) shares:
 // docker scripts plus every persistence seam.
 type world struct {
@@ -168,6 +201,7 @@ type world struct {
 	stores      *apply.Stores
 	registry    *fakeRegistry
 	artifacts   *fakeArtifacts
+	guides      *fakeGuides
 	topology    *fakeStore
 	provisions  []provisionCall
 	opens       []string
@@ -197,10 +231,11 @@ func newWorld(t *testing.T, script []scriptedCall, readFiles map[string]string) 
 		runner:    &fakeRunner{script: script},
 		registry:  newFakeRegistry(),
 		artifacts: newFakeArtifacts(),
+		guides:    newFakeGuides(),
 		topology:  &fakeStore{},
 		readFiles: readFiles,
 	}
-	w.stores = &apply.Stores{Topology: w.topology, Registry: w.registry, Artifacts: w.artifacts}
+	w.stores = &apply.Stores{Topology: w.topology, Registry: w.registry, Artifacts: w.artifacts, Guides: w.guides}
 	w.pipeline = apply.NewPipeline(apply.Deps{
 		Runner:   w.runner,
 		Clock:    func() time.Time { return fixedNow },
@@ -691,4 +726,132 @@ func TestConvergeArtifactSaveErrorReportsConvergedButUnanchored(t *testing.T) {
 	// state plane's up carries no --remove-orphans — on the state host,
 	// placement containers are not orphans).
 	assert.Len(t, w.composeUpCalls(), 2)
+}
+
+// TestApplyRendersGuideAfterConverge pins the T3 rule: a successful
+// converge renders the guide from the persisted topology revision plus
+// the config's presentation facts; an unchanged second apply skips the
+// re-render entirely.
+func TestApplyRendersGuideAfterConverge(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // ensure gw-1
+		scriptedCall{}, // ensure app-1
+		scriptedCall{stdout: "looming-bundle-postgres-1\n"}, // run 2: ps
+		scriptedCall{}, // run 2: pg_isready ok
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+
+	namedConfig := strings.Replace(twoHostConfig,
+		`access: {mode: public, transport: direct, endpoint: "10.0.0.10"}`,
+		"access: {mode: public, transport: direct, endpoint: \"10.0.0.10\"}\ncluster: {name: \"prod cluster\"}", 1)
+	path := writeConfig(t, namedConfig)
+
+	first, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: path})
+	require.NoError(t, err)
+	require.NotNil(t, first.Guide)
+	assert.True(t, first.Guide.Rendered)
+
+	require.Len(t, w.guides.saved, 1)
+	guide := w.guides.saved[0]
+	assert.Equal(t, first.Revision, guide.RenderedRev)
+	assert.Equal(t, "prod cluster", guide.Snapshot.ClusterName)
+	assert.Equal(t, "http://10.0.0.12:8081", guide.Snapshot.IdentityURL)
+	assert.Equal(t, "http://10.0.0.11:8080", guide.Snapshot.GatewayURL)
+	assert.True(t, guide.Snapshot.AccessPublic)
+	assert.NotEmpty(t, guide.Snapshot.RegisterHint)
+	require.Len(t, guide.Snapshot.Steps, 4)
+
+	second, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: path})
+	require.NoError(t, err)
+	require.NotNil(t, second.Guide)
+	assert.False(t, second.Guide.Rendered, "same revision: no re-render")
+	assert.Len(t, w.guides.saved, 1, "no second guide write")
+}
+
+// TestApplyRerendersGuideOnRevisionChange: a changed declare moves the
+// revision, and the guide follows it.
+func TestApplyRerendersGuideOnRevisionChange(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // run 1: ensure gw-1
+		scriptedCall{}, // run 1: ensure app-1
+		scriptedCall{stdout: "looming-bundle-postgres-1\n"},
+		scriptedCall{}, // run 2: pg_isready ok
+		scriptedCall{}, // run 2: ensure app-1 only
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+
+	path := writeConfig(t, twoHostConfig)
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: path})
+	require.NoError(t, err)
+
+	changed := strings.Replace(twoHostConfig, "http: 8081", "http: 8082", 1)
+	second, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, changed)})
+	require.NoError(t, err)
+	require.NotNil(t, second.Guide)
+	assert.True(t, second.Guide.Rendered)
+	assert.Len(t, w.guides.saved, 2)
+	assert.Equal(t, int64(2), w.guides.saved[1].RenderedRev)
+	assert.Contains(t, w.guides.saved[1].Snapshot.IdentityURL, ":8082")
+}
+
+// TestApplyGuideFailureWarnsAndContinues: the converge already
+// succeeded when the guide renders — a guide failure warns on the
+// result instead of failing the run (the invite precedent).
+func TestApplyGuideFailureWarnsAndContinues(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // ensure gw-1
+		scriptedCall{}, // ensure app-1
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+	w.guides.err = errors.New("guide table locked")
+
+	res, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.NoError(t, err)
+	assert.False(t, res.Failed())
+	require.NotNil(t, res.Guide)
+	require.Error(t, res.Guide.Err)
+	assert.Contains(t, res.Guide.Err.Error(), "guide table locked")
+	assert.Empty(t, w.guides.saved)
+}
+
+// TestApplyGuideUsesConfigDefaults: with no cluster section the guide
+// renders the default cluster name and the default CLI download URL.
+func TestApplyGuideUsesConfigDefaults(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // ensure gw-1
+		scriptedCall{}, // ensure app-1
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.NoError(t, err)
+	require.Len(t, w.guides.saved, 1)
+	assert.Equal(t, config.DefaultClusterName, w.guides.saved[0].Snapshot.ClusterName)
+	assert.Equal(t, config.DefaultCLIDownloadURL, w.guides.saved[0].Snapshot.CLIDownloadURL)
+}
+
+// TestApplyRerendersGuideOnConfigOnlyChange: the Topology revision does
+// not move when only the config's presentation facts change, but the
+// guide must still re-render — revision-only freshness would serve the
+// old cluster name forever (review finding on #122).
+func TestApplyRerendersGuideOnConfigOnlyChange(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // run 1: ensure gw-1
+		scriptedCall{}, // run 1: ensure app-1
+		scriptedCall{stdout: "looming-bundle-postgres-1\n"},
+		scriptedCall{}, // run 2: pg_isready ok
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+
+	named := strings.Replace(twoHostConfig,
+		`access: {mode: public, transport: direct, endpoint: "10.0.0.10"}`,
+		"access: {mode: public, transport: direct, endpoint: \"10.0.0.10\"}\ncluster: {name: \"old name\"}", 1)
+	renamed := strings.Replace(named, "old name", "new name", 1)
+
+	path := writeConfig(t, named)
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: path})
+	require.NoError(t, err)
+
+	second, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, renamed)})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), second.Revision, "config-only change does not bump the topology revision")
+	require.NotNil(t, second.Guide)
+	assert.True(t, second.Guide.Rendered, "but the guide re-renders: the cluster name is a render fact")
+	require.Len(t, w.guides.saved, 2)
+	assert.Equal(t, "new name", w.guides.saved[1].Snapshot.ClusterName)
 }

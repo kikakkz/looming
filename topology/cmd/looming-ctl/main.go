@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,10 +27,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver for the token store
+	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver for the store connections
 
 	"github.com/kikakkz/looming/topology/internal/apply"
+	"github.com/kikakkz/looming/topology/internal/config"
 	"github.com/kikakkz/looming/topology/internal/exec"
+	guideadapter "github.com/kikakkz/looming/topology/internal/guide/adapter"
+	guideapp "github.com/kikakkz/looming/topology/internal/guide/app"
 	hostadapter "github.com/kikakkz/looming/topology/internal/host/adapter"
 	joinadapter "github.com/kikakkz/looming/topology/internal/join/adapter"
 	"github.com/kikakkz/looming/topology/internal/join/app"
@@ -85,6 +89,7 @@ func newRoot(stdout io.Writer, log *slog.Logger) *cobra.Command {
 	root.AddCommand(newApply(stdout, log))
 	root.AddCommand(newToken(stdout))
 	root.AddCommand(newJoin(stdout))
+	root.AddCommand(newGuide(stdout))
 	return root
 }
 
@@ -202,7 +207,28 @@ func printSummary(w io.Writer, result *apply.Result, dryRun bool) {
 		}
 	}
 	printInviteOutcome(w, result.Invite)
+	printGuideOutcome(w, result.Guide)
 	line("next: `looming-ctl token create --role engine --ttl 24h` mints a join token for a new host")
+}
+
+// printGuideOutcome renders the post-converge guide step's outcome: a
+// fresh render, an unchanged copy, or a warning that never fails the
+// converge.
+func printGuideOutcome(w io.Writer, g *apply.GuideOutcome) {
+	if g == nil {
+		return
+	}
+	line := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(w, format+"\n", args...)
+	}
+	switch {
+	case g.Err != nil:
+		line("guide: WARNING: %v (converge succeeded; re-run apply to render the guide)", g.Err)
+	case g.Rendered:
+		line("guide: rendered (the gateway serves it when access.public)")
+	default:
+		line("guide: unchanged")
+	}
 }
 
 // printInviteOutcome renders the bootstrap-invite step's outcome: the
@@ -233,22 +259,22 @@ func printInviteOutcome(w io.Writer, inv *apply.InviteOutcome) {
 	}
 }
 
-// openTokenStore connects to the topology database for the admin-side
-// token commands, migrating the schema like apply and topologyd do
-// (idempotent no-op on an up-to-date database).
-func openTokenStore(databaseURL string) (*sql.DB, error) {
+// openTopologyStore connects to the topology database for the
+// admin-side commands, migrating the schema like apply and topologyd
+// do (idempotent no-op on an up-to-date database).
+func openTopologyStore(databaseURL string) (*sql.DB, error) {
 	if databaseURL == "" {
-		return nil, fmt.Errorf("token: %s is unset (or pass --database-url)", databaseURLEnv)
+		return nil, fmt.Errorf("topology: %s is unset (or pass --database-url)", databaseURLEnv)
 	}
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("token: open topology store: %w", err)
+		return nil, fmt.Errorf("topology: open topology store: %w", err)
 	}
 	pingCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("token: ping topology store: %w", err)
+		return nil, fmt.Errorf("topology: ping topology store: %w", err)
 	}
 	if err := migrations.Up(databaseURL); err != nil {
 		_ = db.Close()
@@ -267,6 +293,63 @@ func newJoinService(db *sql.DB) *app.Service {
 		rand.Reader,
 		time.Now,
 	)
+}
+
+// newGuide builds `guide show`: print the public onboarding guide the
+// gateway serves. The persisted copy is read as-is; when none exists
+// yet (or the revision moved), it renders on demand from the current
+// topology plus the config's presentation facts — which is why the
+// command takes --config like apply.
+func newGuide(stdout io.Writer) *cobra.Command {
+	var configPath, databaseURL string
+	cmd := &cobra.Command{
+		Use:   "guide",
+		Short: "Show the public onboarding guide",
+	}
+	cmd.PersistentFlags().StringVar(&databaseURL, "database-url", "",
+		"topology database URL (default: $"+databaseURLEnv+")")
+	cmd.AddCommand(&cobra.Command{
+		Use:   "show",
+		Short: "Print the guide (rendering it on demand when stale)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+			db, err := openTopologyStore(resolveDatabaseURL(databaseURL))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = db.Close() }()
+
+			svc := guideapp.NewService(
+				guideadapter.NewStore(db),
+				topologyadapter.NewStore(db),
+				hostadapter.NewRegistry(db),
+				time.Now,
+			)
+			guide, rendered, err := svc.EnsureRendered(cmd.Context(), guideapp.Facts{
+				ClusterName:    cfg.ClusterName,
+				CLIDownloadURL: cfg.CLIDownloadURL,
+			})
+			if err != nil {
+				return fmt.Errorf("guide: %w", err)
+			}
+			raw, err := json.MarshalIndent(guide.Snapshot, "", "  ")
+			if err != nil {
+				return fmt.Errorf("guide: encode: %w", err)
+			}
+			state := "unchanged (already current)"
+			if rendered {
+				state = "rendered"
+			}
+			_, _ = fmt.Fprintf(stdout, "guide %s at revision %d:\n%s\n", state, guide.RenderedRev, raw)
+			return nil
+		},
+	})
+	cmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath,
+		"path to the topology config file (cluster name + CLI URL facts)")
+	return cmd
 }
 
 // newToken builds the token subcommand tree: mint, list, and revoke
@@ -310,7 +393,7 @@ func newTokenCreate(stdout io.Writer, databaseURL *string) *cobra.Command {
 			if err != nil || lifetime <= 0 {
 				return fmt.Errorf("token: --ttl must be a positive duration like 24h, got %q", ttl)
 			}
-			db, err := openTokenStore(resolveDatabaseURL(*databaseURL))
+			db, err := openTopologyStore(resolveDatabaseURL(*databaseURL))
 			if err != nil {
 				return err
 			}
@@ -342,7 +425,7 @@ func newTokenList(stdout io.Writer, databaseURL *string) *cobra.Command {
 		Use:   "list",
 		Short: "List join tokens (hash prefix, role, expiry, used state)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			db, err := openTokenStore(resolveDatabaseURL(*databaseURL))
+			db, err := openTopologyStore(resolveDatabaseURL(*databaseURL))
 			if err != nil {
 				return err
 			}
@@ -378,7 +461,7 @@ func newTokenRevoke(stdout io.Writer, databaseURL *string) *cobra.Command {
 		Short: "Revoke a join token by its hash prefix",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			db, err := openTokenStore(resolveDatabaseURL(*databaseURL))
+			db, err := openTopologyStore(resolveDatabaseURL(*databaseURL))
 			if err != nil {
 				return err
 			}

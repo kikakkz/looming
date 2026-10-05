@@ -22,6 +22,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver
 
+	guideadapter "github.com/kikakkz/looming/topology/internal/guide/adapter"
+	guideapp "github.com/kikakkz/looming/topology/internal/guide/app"
 	hostadapter "github.com/kikakkz/looming/topology/internal/host/adapter"
 	joinadapter "github.com/kikakkz/looming/topology/internal/join/adapter"
 	joinapp "github.com/kikakkz/looming/topology/internal/join/app"
@@ -40,25 +42,30 @@ func main() {
 
 // config is the environment-driven configuration (TOPOLOGY_ prefix).
 type config struct {
-	listen      string
-	databaseURL string
+	listen       string
+	databaseURL  string
+	serviceToken string
 }
 
 const (
-	defaultListen  = ":8081"
-	databaseURLEnv = "TOPOLOGY_DATABASE_URL"
-	listenEnv      = "TOPOLOGY_LISTEN"
-	shutdownGrace  = 10 * time.Second
-	dbPingTimeout  = 15 * time.Second
+	defaultListen   = ":8081"
+	databaseURLEnv  = "TOPOLOGY_DATABASE_URL"
+	listenEnv       = "TOPOLOGY_LISTEN"
+	serviceTokenEnv = "TOPOLOGY_SERVICE_TOKEN"
+	shutdownGrace   = 10 * time.Second
+	dbPingTimeout   = 15 * time.Second
 )
 
 // loadConfig reads the environment. TOPOLOGY_DATABASE_URL is required —
 // a join service without its database is a boot-time misconfiguration,
 // not a runtime surprise (fail fast, identityd precedent).
+// TOPOLOGY_SERVICE_TOKEN is optional: without it the guide endpoint
+// answers 503 instead of serving the snapshot unguarded.
 func loadConfig() (config, error) {
 	cfg := config{
-		listen:      os.Getenv(listenEnv),
-		databaseURL: os.Getenv(databaseURLEnv),
+		listen:       os.Getenv(listenEnv),
+		databaseURL:  os.Getenv(databaseURLEnv),
+		serviceToken: os.Getenv(serviceTokenEnv),
 	}
 	if cfg.listen == "" {
 		cfg.listen = defaultListen
@@ -98,9 +105,15 @@ func run(ctx context.Context, log *slog.Logger) error {
 		rand.Reader,
 		time.Now,
 	)
+	guideSvc := guideapp.NewService(
+		guideadapter.NewStore(db),
+		topologyadapter.NewStore(db),
+		hostadapter.NewRegistry(db),
+		time.Now,
+	)
 	server := &http.Server{
 		Addr:              cfg.listen,
-		Handler:           routeMux(joinapp.NewHandler(svc)),
+		Handler:           routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, cfg.serviceToken)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -130,12 +143,15 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 }
 
-// routeMux assembles the v1 join API. Both routes are
-// token/credential-guarded by their own payloads — no session machinery
-// in phase 1 (topology-l1 §8 PEP).
-func routeMux(joinH *joinapp.Handler) *http.ServeMux {
+// routeMux assembles the v1 API: the join/rejoin surface and the
+// guide's internal read endpoint. The join routes are
+// token/credential-guarded by their own payloads; the guide route
+// carries its own service-token guard — no session machinery in
+// phase 1 (topology-l1 §8 PEP).
+func routeMux(joinH *joinapp.Handler, guideH *guideapp.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/join", http.HandlerFunc(joinH.Join))
 	mux.Handle("POST /v1/join/rejoin", http.HandlerFunc(joinH.Rejoin))
+	mux.Handle("GET /v1/internal/guide", http.HandlerFunc(guideH.Guide))
 	return mux
 }
