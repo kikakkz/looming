@@ -81,6 +81,26 @@ func TestGoldenIdentityd(t *testing.T) {
 	})
 }
 
+// TestGoldenTopologyd pins the T2 join service's compose shape:
+// the topology image with the service binary as entrypoint and the
+// TOPOLOGY_* env contract.
+func TestGoldenTopologyd(t *testing.T) {
+	arts := golden(t, "topologyd", render.Input{
+		Hosts: twoHosts(),
+		Placements: []domain.ComponentPlacement{
+			{
+				Component: domain.ComponentTopologyd,
+				HostID:    "app-1",
+				Ports:     map[string]int{"http": 8081},
+				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/topology"},
+			},
+		},
+	})
+	assert.Contains(t, arts[0].Compose, "entrypoint:")
+	assert.Contains(t, arts[0].Compose, "topologyd")
+	assert.Contains(t, arts[0].Compose, "TOPOLOGY_LISTEN: :8081")
+}
+
 func TestGoldenStateHostPostgres(t *testing.T) {
 	arts := golden(t, "state-postgres", render.Input{
 		StateHostID: "gw-1",

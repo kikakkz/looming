@@ -63,16 +63,22 @@ type Deps struct {
 	// ProvisionDB creates the topology database when missing (over the
 	// maintenance connection) and applies the embedded migrations.
 	ProvisionDB func(ctx context.Context, adminURL, databaseURL string) error
+	// InvitePoster requests identityd's one-shot bootstrap invite
+	// (POST /v1/bootstrap/invite); it returns the HTTP status and body.
+	// Nil means the step warns instead of panicking.
+	InvitePoster func(ctx context.Context, endpoint, key, email string) (int, []byte, error)
 }
 
 // Input is one apply run: the config file, whether to stop after the
-// render, and the operator-provided store URL (TOPOLOGY_DATABASE_URL).
-// The URL is required only when the config carries no state section;
-// otherwise the state plane derives it and the env value, when set,
-// wins as an explicit override.
+// render, whether to force the bootstrap-invite request even when the
+// converge changed nothing, and the operator-provided store URL
+// (TOPOLOGY_DATABASE_URL). The URL is required only when the config
+// carries no state section; otherwise the state plane derives it and
+// the env value, when set, wins as an explicit override.
 type Input struct {
 	ConfigPath  string
 	DryRun      bool
+	PrintInvite bool
 	DatabaseURL string
 }
 
@@ -88,12 +94,15 @@ type HostResult struct {
 
 // Result is one apply run's outcome: the persisted revision (0 in
 // dry-run, where nothing is persisted), the per-host converge results,
-// and — in dry-run — the rendered compose files themselves.
+// the bootstrap-invite outcome (nil when the config declares no
+// bootstrap section), and — in dry-run — the rendered compose files
+// themselves.
 type Result struct {
 	Revision  int64
 	DryRun    bool
 	Hosts     []HostResult
 	Artifacts []render.Artifact
+	Invite    *InviteOutcome
 }
 
 // Failed reports whether any host's converge errored. The pipeline
@@ -169,7 +178,9 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 		return nil, err
 	}
 
-	return p.convergeHosts(ctx, stores, cfg, topo.Revision, artifacts), nil
+	result := p.convergeHosts(ctx, stores, cfg, topo.Revision, artifacts)
+	p.maybeInvite(ctx, cfg, result, in.PrintInvite)
+	return result, nil
 }
 
 // dryRun stops after the render: no docker, no database. The rendered
@@ -390,11 +401,9 @@ func buildPlan(cfg *config.Config) (plan, error) {
 
 // hostDBID is the deterministic database identity of one YAML host id:
 // a uuid5 in a fixed namespace. The same operator id always maps to
-// the same row across applies (converge-idempotency), while T0's uuid
-// host columns stay untouched. Joined hosts (T2) mint their own random
-// uuids over this namespace's reserved deterministic range — the two
-// id spaces never collide because T2 ids are not derived from YAML
-// ids.
+// the same row across applies (converge-idempotency); hosts.id is
+// text since migration 0003, so both these uuids and the join flow's
+// host-<uuid8> ids coexist in one key space.
 func hostDBID(yamlID string) string {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("looming-topology-host\x00"+yamlID)).String()
 }

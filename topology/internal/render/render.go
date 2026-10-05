@@ -48,14 +48,17 @@ var (
 
 // Contract is one phase-1 component's documented env contract: the env
 // prefix its container variables carry, its bundle-root-relative build
-// context, and which named placement port feeds its listen env. Values
-// are the binaries' real env vocabulary (gateway's GATEWAY_*,
-// identityd's IDENTITY_*).
+// context, which named placement port feeds its listen env, and an
+// optional in-image entrypoint (one image may carry several binaries;
+// the topology image ships both looming-ctl and topologyd). Values are
+// the binaries' real env vocabulary (gateway's GATEWAY_*,
+// identityd's IDENTITY_*, topologyd's TOPOLOGY_*).
 type Contract struct {
 	EnvPrefix  string
 	BuildDir   string
 	ListenPort string
 	ListenEnv  string
+	Entrypoint string
 }
 
 // contracts is the phase-1 allowlist: placements naming any other
@@ -64,6 +67,11 @@ type Contract struct {
 var contracts = map[string]Contract{
 	domain.ComponentGatewayFront: {EnvPrefix: "GATEWAY", BuildDir: "gateway", ListenPort: "http", ListenEnv: "GATEWAY_LISTEN"},
 	domain.ComponentIdentityd:    {EnvPrefix: "IDENTITY", BuildDir: "identity", ListenPort: "http", ListenEnv: "IDENTITY_LISTEN"},
+	// topologyd serves the join/rejoin API; its image reuses the
+	// topology build (the T1 Dockerfile) with the service binary as
+	// entrypoint. TOPOLOGY_DATABASE_URL rides the placement's config
+	// keys or env_file like any other secret material.
+	domain.ComponentTopologyd: {EnvPrefix: "TOPOLOGY", BuildDir: "topology", ListenPort: "http", ListenEnv: "TOPOLOGY_LISTEN", Entrypoint: "/usr/local/bin/topologyd"},
 }
 
 // Lookup returns the phase-1 contract for a component, or false when
@@ -165,6 +173,9 @@ func placementService(p domain.ComponentPlacement, c Contract, envFile string) (
 	svc := map[string]any{
 		"build":   map[string]any{"context": c.BuildDir},
 		"restart": "unless-stopped",
+	}
+	if c.Entrypoint != "" {
+		svc["entrypoint"] = []string{c.Entrypoint}
 	}
 	if envFile != "" {
 		svc["env_file"] = []string{envFile}

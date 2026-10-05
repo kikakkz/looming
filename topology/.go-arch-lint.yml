@@ -21,6 +21,18 @@
 # apply is the only package that may fan out to both capabilities'
 # adapters. The admin CLI lands as cmd/looming-ctl for T1 — a noted
 # temporary placement pending #108's CLI layout decision.
+#
+# T2 (#107) adds the join capability (topology-l1 §5 JoinToken row +
+# §7 join/rejoin surface): join-domain (token aggregate, TTL/consume
+# rules, host-id minting), join-port (TokenStore seam), join-app
+# (mint/consume/re-join use cases + the HTTP handler), and
+# join-adapter (the postgres store — the slice-A guarded-UPDATE
+# precedent — plus the ctl-side HTTP client). join-app orchestrates
+# across the host capability (registration, credential slot) and the
+# topology capability (the gateway-front access hint), so the matrix
+# admits those reads. Two binaries consume it: cmd/topologyd serves
+# the API; cmd/looming-ctl adds the admin-side token commands and the
+# pulling host's join command.
 version: 3
 
 allow:
@@ -41,11 +53,16 @@ components:
   host-port:          { in: internal/host/port }
   host-app:           { in: internal/host/app }
   host-adapter:       { in: internal/host/adapter }
+  join-domain:        { in: internal/join/domain }
+  join-port:          { in: internal/join/port }
+  join-app:           { in: internal/join/app }
+  join-adapter:       { in: internal/join/adapter }
   config:             { in: internal/config }
   render:             { in: internal/render }
   exec:               { in: internal/exec }
   apply:              { in: internal/apply }
   cmd:                { in: cmd/looming-ctl }
+  cmd-topologyd:      { in: cmd/topologyd }
   migrations:         { in: migrations }
   tests:              { in: tests/pgtest }
 
@@ -68,6 +85,15 @@ deps:
   host-adapter:
     mayDependOn: [host-domain, host-port]
 
+  join-port:
+    mayDependOn: [join-domain]
+
+  join-app:
+    mayDependOn: [join-domain, join-port, host-domain, host-port, topology-domain, topology-port]
+
+  join-adapter:
+    mayDependOn: [join-domain, join-port]
+
   config:
     mayDependOn: [render, topology-domain]
 
@@ -78,7 +104,10 @@ deps:
     mayDependOn: [config, render, exec, topology-domain, topology-port, topology-app, topology-adapter, host-domain, host-port, host-adapter, migrations]
 
   cmd:
-    mayDependOn: [apply, exec]
+    mayDependOn: [apply, exec, join-domain, join-app, join-adapter, host-adapter, topology-adapter, migrations]
+
+  cmd-topologyd:
+    mayDependOn: [join-app, join-adapter, host-adapter, topology-adapter, migrations]
 
   tests:
     mayDependOn: [migrations]

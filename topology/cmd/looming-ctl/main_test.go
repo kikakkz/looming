@@ -70,7 +70,7 @@ func TestApplyDryRunPrintsComposeWithoutSideEffects(t *testing.T) {
 	assert.Contains(t, out, "--- only ")
 	assert.Contains(t, out, "gateway-front:")
 	assert.Contains(t, out, "GATEWAY_UPSTREAM: http://10.0.0.13:4000")
-	assert.Contains(t, out, "T2 adds `token create`")
+	assert.Contains(t, out, "re-run without --dry-run")
 	assert.NotContains(t, out, "revision")
 }
 

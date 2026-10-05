@@ -27,6 +27,12 @@ const ComponentGatewayFront = "gateway-front"
 // second member of the phase-1 render allowlist (T1).
 const ComponentIdentityd = "identityd"
 
+// ComponentTopologyd is the topology service's placement name — the
+// join/rejoin API host (topology-l1 §7), added to the phase-1 allowlist
+// by T2. The YAML declares its placement like any other component
+// (typically the state host, but never forced there).
+const ComponentTopologyd = "topologyd"
+
 // ComponentPlacement is one component's desired placement: which host
 // it runs on, the named ports it claims, and free-form config. The
 // (Component, HostID) pair is unique within a declare set — the

@@ -42,6 +42,7 @@ var (
 	ErrUnknownPlacementHost = errors.New("config: placement references an unknown host")
 	ErrUnknownComponent     = errors.New("config: unknown component (phase-1 allowlist)")
 	ErrInvalidPlacement     = errors.New("config: invalid placement")
+	ErrInvalidBootstrap     = errors.New("config: invalid bootstrap section")
 )
 
 // Error is one config failure with file context: what failed, in which
@@ -69,13 +70,15 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // Config is the validated desired-state file: the access section, the
 // state plane (bundle Postgres on the first host), the declared hosts,
-// and the component placements.
+// the component placements, and the optional bootstrap section (the
+// first-admin invite apply prints after a successful converge).
 type Config struct {
 	Version    int
 	Access     Access
 	State      *State
 	Hosts      []Host
 	Placements []Placement
+	Bootstrap  *Bootstrap
 
 	source string // file path, for error context
 }
@@ -131,6 +134,14 @@ type Placement struct {
 	EnvFile   string
 }
 
+// Bootstrap is the optional first-admin section: after a successful
+// converge (or with --print-invite), apply requests identityd's
+// one-shot bootstrap invite for this email and prints it (topology-l1
+// §4). AdminEmail is required when the section is present.
+type Bootstrap struct {
+	AdminEmail string
+}
+
 // raw mirrors the YAML shape for strict decoding: unknown keys are
 // rejected (a typo'd field is a config error, not a silent default).
 type rawConfig struct {
@@ -139,6 +150,7 @@ type rawConfig struct {
 	State      *rawState      `yaml:"state"`
 	Hosts      []rawHost      `yaml:"hosts"`
 	Placements []rawPlacement `yaml:"placements"`
+	Bootstrap  *rawBootstrap  `yaml:"bootstrap"`
 }
 
 type rawAccess struct {
@@ -171,6 +183,10 @@ type rawPlacement struct {
 	Ports     map[string]int    `yaml:"ports"`
 	Config    map[string]string `yaml:"config"`
 	EnvFile   string            `yaml:"env_file"`
+}
+
+type rawBootstrap struct {
+	AdminEmail string `yaml:"admin_email"`
 }
 
 // portNamePattern and hostIDPattern constrain the vocabulary other
@@ -220,6 +236,9 @@ func Load(path string) (*Config, error) {
 			DataDir: raw.State.Postgres.DataDir,
 			Port:    raw.State.Postgres.Port,
 		}}
+	}
+	if raw.Bootstrap != nil {
+		cfg.Bootstrap = &Bootstrap{AdminEmail: raw.Bootstrap.AdminEmail}
 	}
 	for _, h := range raw.Hosts {
 		cfg.Hosts = append(cfg.Hosts, Host(h))
@@ -331,7 +350,8 @@ func (c *Config) DomainAccess() (domain.Access, error) {
 // validate checks the config-level invariants the domain cannot see:
 // version, hosts (present, well-formed, unique), placements
 // (reference declared hosts, phase-1 components, well-formed ports and
-// config keys), and the state section's container contract.
+// config keys), the state section's container contract, and the
+// optional bootstrap section's email shape.
 func (c *Config) validate(doc *yaml.Node) error {
 	if c.Version != Version {
 		return c.fail(sectionLine(doc, "version"), ErrInvalidVersion,
@@ -348,6 +368,9 @@ func (c *Config) validate(doc *yaml.Node) error {
 		return err
 	}
 	if err := c.validateState(doc); err != nil {
+		return err
+	}
+	if err := c.validateBootstrap(doc); err != nil {
 		return err
 	}
 	return nil
@@ -518,6 +541,26 @@ func (c *Config) validateState(doc *yaml.Node) error {
 	case sp.Port < 1 || sp.Port > 65535:
 		return c.fail(line, ErrInvalidState, "state.postgres.port is %d, outside 1..65535", sp.Port)
 	}
+	return nil
+}
+
+// validateBootstrap checks the optional first-admin section: present
+// means admin_email is set and shaped like an address. The check is
+// deliberately shallow — identity's validEmail precedent — the operator
+// carries the voucher to the mailbox, so deliverability is their review.
+func (c *Config) validateBootstrap(doc *yaml.Node) error {
+	if c.Bootstrap == nil {
+		return nil
+	}
+	line := sectionLine(doc, "bootstrap")
+	email := strings.TrimSpace(c.Bootstrap.AdminEmail)
+	switch {
+	case email == "":
+		return c.fail(line, ErrInvalidBootstrap, "bootstrap.admin_email is required when the bootstrap section is present")
+	case !strings.Contains(email, "@"):
+		return c.fail(line, ErrInvalidBootstrap, "bootstrap.admin_email %q is not an email address", c.Bootstrap.AdminEmail)
+	}
+	c.Bootstrap.AdminEmail = email
 	return nil
 }
 

@@ -3,10 +3,14 @@
 package apply
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -19,6 +23,16 @@ import (
 	"github.com/kikakkz/looming/topology/migrations"
 )
 
+const (
+	// inviteMaxBodyBytes caps the invite response read.
+	inviteMaxBodyBytes = 1 << 20
+)
+
+// inviteRequestTimeout bounds the bootstrap-invite HTTP call: a wedged
+// identityd must not stall the converge report. A var so tests can
+// shorten it (AD-25: no wall-clock assumptions).
+var inviteRequestTimeout = 15 * time.Second
+
 // This file is the composition root's production wiring: the real
 // store construction and database provisioning behind the Deps seams.
 // It carries no unit tests by design (AD-25 layering) — the
@@ -30,13 +44,14 @@ import (
 // implementation, parametrized only by the command runner.
 func StdDeps(runner exec.Runner) Deps {
 	return Deps{
-		Runner:      runner,
-		Project:     render.Project,
-		Clock:       time.Now,
-		Sleep:       time.Sleep,
-		ReadFile:    os.ReadFile,
-		OpenStores:  openPostgresStores,
-		ProvisionDB: provisionTopologyDB,
+		Runner:       runner,
+		Project:      render.Project,
+		Clock:        time.Now,
+		Sleep:        time.Sleep,
+		ReadFile:     os.ReadFile,
+		OpenStores:   openPostgresStores,
+		ProvisionDB:  provisionTopologyDB,
+		InvitePoster: postBootstrapInvite,
 	}
 }
 
@@ -85,4 +100,34 @@ func provisionTopologyDB(ctx context.Context, adminURL, databaseURL string) erro
 		return fmt.Errorf("apply: migrate %s database: %w", DatabaseName, err)
 	}
 	return nil
+}
+
+// postBootstrapInvite is the production InvitePoster: POST
+// identityd's one-shot bootstrap-invite endpoint with the Bootstrap
+// scheme key read from the placement's env_file. The 15-second client
+// timeout bounds a wedged identityd without stalling the converge
+// report.
+func postBootstrapInvite(ctx context.Context, endpoint, key, email string) (int, []byte, error) {
+	payload, err := json.Marshal(map[string]string{"email": email})
+	if err != nil {
+		return 0, nil, fmt.Errorf("apply: encode bootstrap invite request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/v1/bootstrap/invite", bytes.NewReader(payload))
+	if err != nil {
+		return 0, nil, fmt.Errorf("apply: build bootstrap invite request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bootstrap "+key)
+
+	client := &http.Client{Timeout: inviteRequestTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("apply: bootstrap invite request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, inviteMaxBodyBytes))
+	if err != nil {
+		return 0, nil, fmt.Errorf("apply: read bootstrap invite response: %w", err)
+	}
+	return resp.StatusCode, body, nil
 }
