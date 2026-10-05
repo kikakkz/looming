@@ -18,7 +18,9 @@ import (
 // the topology-fetched guide. Freshness policy lives here: an
 // in-memory last-known-good cache with a TTL — guide data changes at
 // apply-time frequency, so no watch or caching proxy stands behind it
-// (T3 scope guard).
+// (T3 scope guard). Refreshes single-flight: one fetch at a time, and
+// while it is in flight other requests take the stale copy rather
+// than queueing behind the origin's timeout.
 type GuideHandler struct {
 	source port.GuideSource
 	ttl    time.Duration
@@ -29,6 +31,19 @@ type GuideHandler struct {
 	cached    port.Guide
 	fetchedAt time.Time
 	hasCache  bool
+	pending   *refreshState
+}
+
+// refreshState is one in-flight fetch and the copy it replaces: the
+// channel closes when the fetch settles; waiters consume the recorded
+// outcome instead of issuing their own fetch (the channel close hands
+// the outcome's memory visibility to every waiter).
+type refreshState struct {
+	done    chan struct{}
+	stale   port.Guide // the last-known-good copy at fetch start
+	staleOK bool       // whether a last-known-good copy exists
+	guide   port.Guide
+	err     error
 }
 
 // NewGuideHandler wires the handler over a guide source. ttl <= 0
@@ -68,24 +83,67 @@ func (h *GuideHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // current returns the freshest guide the handler can produce: the
 // cache while fresh, a refetch when stale, last-known-good when the
-// refetch fails, and the fetch error when nothing was ever cached.
+// refetch fails, and the fetch error when nothing was ever cached. A
+// stale cache never makes a request wait on the origin: the first
+// stale request becomes the single refresher and the rest take the
+// stale copy, recorded outcome, or their context's error — in that
+// order.
 func (h *GuideHandler) current(ctx context.Context) (port.Guide, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	if h.hasCache && h.clock().Sub(h.fetchedAt) < h.ttl {
-		return h.cached, nil
+		guide := h.cached
+		h.mu.Unlock()
+		return guide, nil
 	}
+	if h.pending != nil {
+		rs := h.pending
+		h.mu.Unlock()
+		select {
+		case <-rs.done:
+			return settled(rs)
+		case <-ctx.Done():
+			if rs.staleOK {
+				return rs.stale, nil
+			}
+			return port.Guide{}, ctx.Err()
+		}
+	}
+	rs := &refreshState{done: make(chan struct{}), stale: h.cached, staleOK: h.hasCache}
+	h.pending = rs
+	h.mu.Unlock()
+
 	guide, err := h.source.FetchGuide(ctx)
+
+	h.mu.Lock()
+	if err == nil {
+		h.cached, h.fetchedAt, h.hasCache = guide, h.clock(), true
+	}
+	h.pending = nil
+	rs.guide, rs.err = guide, err
+	close(rs.done)
+	h.mu.Unlock()
+
 	if err != nil {
-		if h.hasCache {
+		if rs.staleOK {
 			h.log.WarnContext(ctx, "guide fetch failed; serving last known copy", "err", err)
-			return h.cached, nil
+			return rs.stale, nil
 		}
 		return port.Guide{}, err
 	}
-	h.cached, h.fetchedAt, h.hasCache = guide, h.clock(), true
 	return guide, nil
+}
+
+// settled maps one finished refresh onto its consumer: the fresh guide
+// on success, the last-known-good copy on failure when one exists, and
+// the fetch error when nothing was ever cached.
+func settled(rs *refreshState) (port.Guide, error) {
+	if rs.err != nil {
+		if rs.staleOK {
+			return rs.stale, nil
+		}
+		return port.Guide{}, rs.err
+	}
+	return rs.guide, nil
 }
 
 // DefaultGuideTTL is how long a fetched guide serves without a

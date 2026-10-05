@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,4 +174,91 @@ func TestGuideNotConfiguredStub(t *testing.T) {
 	frontapp.GuideNotConfigured(rec, req)
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), "guide is not configured")
+}
+
+// slowGuideSource blocks each fetch so overlapping requests are
+// observable.
+type slowGuideSource struct {
+	guide port.Guide
+	calls int
+	delay time.Duration
+}
+
+func (f *slowGuideSource) FetchGuide(context.Context) (port.Guide, error) {
+	f.calls++
+	time.Sleep(f.delay)
+	return f.guide, nil
+}
+
+// TestGuidePageStaleRefreshSingleFlight: a stale cache must not make
+// concurrent requests queue behind the origin — one fetch runs, the
+// rest take the stale copy or the settled outcome (review finding on
+// #122).
+func TestGuidePageStaleRefreshSingleFlight(t *testing.T) {
+	src := &slowGuideSource{guide: publicGuide(), delay: 150 * time.Millisecond}
+	now := guideTestNow
+	h := frontapp.NewGuideHandler(src, time.Minute, func() time.Time { return now },
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	require.Equal(t, http.StatusOK, getGuide(h).Code)
+	now = now.Add(2 * time.Minute) // stale: the next requests trigger a refresh
+
+	const concurrent = 8
+	recs := make(chan *httptest.ResponseRecorder, concurrent)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrent; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			recs <- getGuide(h)
+		}()
+	}
+	wg.Wait()
+	close(recs)
+
+	for rec := range recs {
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "prod cluster")
+	}
+	assert.Equal(t, 2, src.calls, "one priming fetch + exactly one refresh, whatever the concurrency")
+}
+
+// slowFailSource blocks each fetch, then fails — an origin that is
+// slow AND down.
+type slowFailSource struct {
+	calls int
+	delay time.Duration
+	err   error
+}
+
+func (f *slowFailSource) FetchGuide(context.Context) (port.Guide, error) {
+	f.calls++
+	time.Sleep(f.delay)
+	return port.Guide{}, f.err
+}
+
+// TestGuidePageColdRefreshSharesFailure: with nothing cached, waiters
+// on an in-flight fetch share its failure instead of each issuing a
+// new one.
+func TestGuidePageColdRefreshSharesFailure(t *testing.T) {
+	src := &slowFailSource{delay: 200 * time.Millisecond, err: errors.New("origin down")}
+	h := newGuideHandler(src, time.Minute)
+
+	const concurrent = 6
+	var wg sync.WaitGroup
+	codes := make(chan int, concurrent)
+	for i := 0; i < concurrent; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes <- getGuide(h).Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+
+	for code := range codes {
+		assert.Equal(t, http.StatusServiceUnavailable, code)
+	}
+	assert.Equal(t, 1, src.calls, "one fetch serves every cold request")
 }
