@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -185,5 +186,52 @@ func TestArgonLimitRejectsInvalidConfig(t *testing.T) {
 	limit := newArgonLimit(0)
 	if cap(limit.permits) != defaultArgonConcurrency {
 		t.Fatalf("non-positive size must fall back to %d, got %d", defaultArgonConcurrency, cap(limit.permits))
+	}
+}
+
+func TestRequireBootstrapKey(t *testing.T) {
+	passThrough := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	cases := []struct {
+		name     string
+		key      string
+		header   string
+		wantCode int
+	}{
+		{"unconfigured key reports disabled", "", "Bootstrap x", http.StatusServiceUnavailable},
+		{"correct key passes", "s3cret-key", "Bootstrap s3cret-key", http.StatusNoContent},
+		{"wrong key rejected", "s3cret-key", "Bootstrap nope", http.StatusUnauthorized},
+		{"bearer scheme rejected", "s3cret-key", "Bearer s3cret-key", http.StatusUnauthorized},
+		{"bare scheme rejected", "s3cret-key", "Bootstrap", http.StatusUnauthorized},
+		{"empty credential rejected", "s3cret-key", "Bootstrap ", http.StatusUnauthorized},
+		{"missing header rejected", "s3cret-key", "", http.StatusUnauthorized},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := requireBootstrapKey(tc.key, passThrough)
+			req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/invite", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			resp := httptest.NewRecorder()
+			handler.ServeHTTP(resp, req)
+			if resp.Code != tc.wantCode {
+				t.Fatalf("want %d, got %d", tc.wantCode, resp.Code)
+			}
+			if tc.wantCode == http.StatusServiceUnavailable {
+				var body struct {
+					Error struct {
+						Code string `json:"code"`
+					} `json:"error"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+					t.Fatalf("disabled response must be JSON: %v", err)
+				}
+				if body.Error.Code != "bootstrap_disabled" {
+					t.Fatalf("want bootstrap_disabled, got %q", body.Error.Code)
+				}
+			}
+		})
 	}
 }

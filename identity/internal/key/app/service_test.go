@@ -154,6 +154,14 @@ func (f *fakePrincipalRepo) Count(context.Context) (int64, error) {
 	return 0, errors.New("not implemented")
 }
 
+func (f *fakePrincipalRepo) ExistsAdmin(context.Context) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (f *fakePrincipalRepo) CreateWithInviteConsume(context.Context, *principaldomain.Principal, []byte, time.Time) error {
+	return errors.New("not implemented")
+}
+
 // fakeSealer reverses the bytes — reversible, deterministic, and
 // visibly not the production cipher.
 type fakeSealer struct{ err error }

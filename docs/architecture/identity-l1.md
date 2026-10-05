@@ -105,6 +105,23 @@ revocation propagates symmetrically to that key's credential only.
   created_at) / get (masked) / reveal (owner or admin, repeatable) /
   revoke (own; one-way, 409 on a repeat), effective permissions view,
   quota view.
+- Bootstrap (first admin, topology-l1 §4): `POST /v1/bootstrap/invite`
+  `{email}` → 201 `{token, expires_at, invite_url_path}` — mints the
+  one-time invite for the deployment's pre-selected
+  `initial_admin_email`; `looming-ctl apply` prints the raw token once
+  (PR-B) and the operator carries it to the mailbox. Guarded by
+  `Authorization: Bootstrap <IDENTITY_BOOTSTRAP_KEY>` (constant-time;
+  unconfigured key → 503 `bootstrap_disabled`, wrong key → 401).
+  One-shot window as domain rules: enabled only while no principal
+  with role `admin` exists AND no bootstrap-sourced invite has ever
+  been created; otherwise 409 `bootstrap_closed`. The invite is stored
+  with `source='bootstrap'` and bound to the declared email.
+  Registration presenting it bypasses the RegistrationPolicy mode
+  entirely (the first admin registers even under admin-only — the env
+  `BOOTSTRAP_ADMIN_USERNAME/PASSWORD` mechanism is retired), requires
+  the bound email (mismatch → 400), consumes one-time as any invite,
+  and lands the principal active with roles `[admin, member]` (member
+  keeps key self-service working per §2).
 - Gateway-facing: key validate (hash + status) — plus the feed
   snapshot and blocking watch described in §5. Effective permissions
   for (principal) and IdentityMap resolve remain the two further seams

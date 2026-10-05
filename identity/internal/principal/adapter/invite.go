@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/kikakkz/looming/identity/internal/principal/domain"
 	"github.com/kikakkz/looming/identity/internal/principal/port"
 )
@@ -24,13 +26,19 @@ func NewInviteRepository(db *sql.DB) *InviteRepository {
 
 var _ port.InviteRepository = (*InviteRepository)(nil)
 
-// Create stores a new invite (hash only, never the raw token).
+// Create stores a new invite (hash only, never the raw token). A
+// uniqueness violation — the partial index backing the bootstrap
+// one-shot window — surfaces as domain.ErrConflict.
 func (r *InviteRepository) Create(ctx context.Context, t *domain.InviteToken) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO invite_tokens (token_hash, created_by, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4)`,
-		t.TokenHash, t.CreatedBy, t.CreatedAt, t.ExpiresAt)
+		`INSERT INTO invite_tokens (token_hash, created_by, source, email, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		t.TokenHash, t.CreatedBy, t.Source, t.Email, t.CreatedAt, t.ExpiresAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrConflict
+		}
 		return fmt.Errorf("identity: invite create: %w", err)
 	}
 	return nil
@@ -41,9 +49,9 @@ func (r *InviteRepository) ByHash(ctx context.Context, hash []byte) (*domain.Inv
 	var t domain.InviteToken
 	var usedAt sql.NullTime
 	err := r.db.QueryRowContext(ctx,
-		`SELECT token_hash, created_by, created_at, expires_at, used_at
+		`SELECT token_hash, created_by, source, email, created_at, expires_at, used_at
 		   FROM invite_tokens WHERE token_hash = $1`, hash,
-	).Scan(&t.TokenHash, &t.CreatedBy, &t.CreatedAt, &t.ExpiresAt, &usedAt)
+	).Scan(&t.TokenHash, &t.CreatedBy, &t.Source, &t.Email, &t.CreatedAt, &t.ExpiresAt, &usedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -74,4 +82,17 @@ func (r *InviteRepository) MarkUsed(ctx context.Context, hash []byte, usedAt tim
 		return domain.ErrConflict
 	}
 	return nil
+}
+
+// ExistsBySource reports whether any invite with the given source was
+// ever created, consumed or not — the one-shot bootstrap window stays
+// closed even if the first invite expired unconsumed.
+func (r *InviteRepository) ExistsBySource(ctx context.Context, source string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM invite_tokens WHERE source = $1)`, source).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("identity: invite exists by source: %w", err)
+	}
+	return exists, nil
 }

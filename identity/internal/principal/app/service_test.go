@@ -20,12 +20,14 @@ var testNow = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 // --- test doubles (AD-25: unit layer, no network/disk/clock) ---
 
 type fakeRepo struct {
-	byID       map[string]*domain.Principal
-	byUsername map[string]string // username -> id
-	createErr  error
-	listErr    error
-	updateErr  error
-	staleRead  bool // next UpdateStatus simulates a lost version race
+	byID            map[string]*domain.Principal
+	byUsername      map[string]string // username -> id
+	invites         *fakeInvites      // set by newTestService: models the atomic consume
+	createErr       error
+	listErr         error
+	updateErr       error
+	staleRead       bool // next UpdateStatus simulates a lost version race
+	consumeConflict bool // next CreateWithInviteConsume simulates a lost consume race
 }
 
 func newFakeRepo() *fakeRepo {
@@ -46,6 +48,19 @@ func (f *fakeRepo) Create(_ context.Context, p *domain.Principal) error {
 	f.byID[p.ID] = &cp
 	f.byUsername[p.Username] = p.ID
 	return nil
+}
+
+func (f *fakeRepo) CreateWithInviteConsume(_ context.Context, p *domain.Principal, hash []byte, at time.Time) error {
+	if f.consumeConflict {
+		f.consumeConflict = false
+		return domain.ErrConflict
+	}
+	if f.invites != nil {
+		if err := f.invites.MarkUsed(context.Background(), hash, at); err != nil {
+			return err
+		}
+	}
+	return f.Create(context.Background(), p)
 }
 
 func (f *fakeRepo) ByID(_ context.Context, id string) (*domain.Principal, error) {
@@ -138,10 +153,21 @@ func (f *fakeRepo) Count(context.Context) (int64, error) {
 	return int64(len(f.byID)), nil
 }
 
+func (f *fakeRepo) ExistsAdmin(_ context.Context) (bool, error) {
+	for _, p := range f.byID {
+		if hasString(p.Roles, domain.RoleAdmin) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 type fakeInvites struct {
-	byHash   map[string]*domain.InviteToken
-	markErr  error
-	notFound bool
+	byHash    map[string]*domain.InviteToken
+	markErr   error
+	createErr error
+	lookupErr error
+	notFound  bool
 }
 
 func newFakeInvites() *fakeInvites {
@@ -149,12 +175,18 @@ func newFakeInvites() *fakeInvites {
 }
 
 func (f *fakeInvites) Create(_ context.Context, tok *domain.InviteToken) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
 	cp := *tok
 	f.byHash[string(tok.TokenHash)] = &cp
 	return nil
 }
 
 func (f *fakeInvites) ByHash(_ context.Context, hash []byte) (*domain.InviteToken, error) {
+	if f.lookupErr != nil {
+		return nil, f.lookupErr
+	}
 	if f.notFound {
 		return nil, domain.ErrNotFound
 	}
@@ -176,6 +208,15 @@ func (f *fakeInvites) MarkUsed(_ context.Context, hash []byte, at time.Time) err
 	}
 	tok.UsedAt = &at
 	return nil
+}
+
+func (f *fakeInvites) ExistsBySource(_ context.Context, source string) (bool, error) {
+	for _, tok := range f.byHash {
+		if tok.Source == source {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type fakePolicy struct {
@@ -208,6 +249,7 @@ func policyOf(mode policydomain.Mode) *fakePolicy {
 }
 
 func newTestService(repo *fakeRepo, invites *fakeInvites, pol *fakePolicy) *Service {
+	repo.invites = invites
 	return NewService(repo, invites, pol, fakeHasher{}, &seqByteReader{}, func() time.Time { return testNow })
 }
 
@@ -675,5 +717,266 @@ func TestCreateInviteDefaultsTTL(t *testing.T) {
 	}
 	if !tok.ExpiresAt.Equal(testNow.Add(DefaultInviteTTL)) {
 		t.Fatalf("zero ttl must default to %s, expires %s", DefaultInviteTTL, tok.ExpiresAt)
+	}
+}
+
+// --- bootstrap invite (topology-l1 §4 first-admin mechanism) ---
+
+func TestCreateBootstrapInviteHappyPath(t *testing.T) {
+	invites := newFakeInvites()
+	svc := newTestService(newFakeRepo(), invites, policyOf(policydomain.ModeAdminOnly))
+	raw, tok, err := svc.CreateBootstrapInvite(context.Background(), " OPS@Example.COM ", 0)
+	if err != nil {
+		t.Fatalf("CreateBootstrapInvite: %v", err)
+	}
+	if raw == "" {
+		t.Fatal("raw token must be returned once")
+	}
+	if !tok.ExpiresAt.Equal(testNow.Add(DefaultInviteTTL)) {
+		t.Fatalf("zero ttl must default to %s, expires %s", DefaultInviteTTL, tok.ExpiresAt)
+	}
+	stored, err := invites.ByHash(context.Background(), tok.TokenHash)
+	if err != nil {
+		t.Fatalf("ByHash: %v", err)
+	}
+	if stored.Source != domain.InviteSourceBootstrap {
+		t.Fatalf("stored source must be %q, got %q", domain.InviteSourceBootstrap, stored.Source)
+	}
+	if stored.Email != "ops@example.com" {
+		t.Fatalf("email must be normalized lowercase, got %q", stored.Email)
+	}
+}
+
+func TestCreateBootstrapInviteWindowClosed(t *testing.T) {
+	t.Run("admin exists", func(t *testing.T) {
+		repo := newFakeRepo()
+		svc := newTestService(repo, newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+		if _, err := svc.Provision(context.Background(), ProvisionInput{
+			Username: "root", Password: "correct horse battery",
+			Kind: domain.KindHuman, Roles: []string{domain.RoleAdmin},
+		}); err != nil {
+			t.Fatalf("Provision: %v", err)
+		}
+		_, _, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+		if !errors.Is(err, domain.ErrBootstrapClosed) {
+			t.Fatalf("want ErrBootstrapClosed, got %v", err)
+		}
+	})
+	t.Run("bootstrap invite already created", func(t *testing.T) {
+		invites := newFakeInvites()
+		svc := newTestService(newFakeRepo(), invites, policyOf(policydomain.ModeAdminOnly))
+		if _, _, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0); err != nil {
+			t.Fatalf("first CreateBootstrapInvite: %v", err)
+		}
+		_, _, err := svc.CreateBootstrapInvite(context.Background(), "second@example.com", 0)
+		if !errors.Is(err, domain.ErrBootstrapClosed) {
+			t.Fatalf("want ErrBootstrapClosed, got %v", err)
+		}
+	})
+}
+
+func TestCreateBootstrapInviteRejectsBadEmail(t *testing.T) {
+	svc := newTestService(newFakeRepo(), newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+	for _, email := range []string{"", "   ", "not-an-email"} {
+		_, _, err := svc.CreateBootstrapInvite(context.Background(), email, 0)
+		if !errors.Is(err, ErrInvalidEmail) {
+			t.Fatalf("email %q: want ErrInvalidEmail, got %v", email, err)
+		}
+	}
+}
+
+func TestCreateBootstrapInviteLosingMintRaceMapsToWindowClosed(t *testing.T) {
+	// The one-shot window is database-enforced: a concurrent mint that
+	// passes the read-only check loses the unique index, and the
+	// resulting conflict must surface as 409 bootstrap_closed, not 500.
+	invites := newFakeInvites()
+	invites.createErr = domain.ErrConflict
+	svc := newTestService(newFakeRepo(), invites, policyOf(policydomain.ModeAdminOnly))
+	_, _, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+	if !errors.Is(err, domain.ErrBootstrapClosed) {
+		t.Fatalf("want ErrBootstrapClosed for a lost mint race, got %v", err)
+	}
+}
+
+func TestRegisterBootstrapInviteRacedConsumeDenied(t *testing.T) {
+	// The consume+create runs in one transaction: losing the guarded
+	// consume race surfaces as ErrInvalidInvite, exactly like the
+	// admin-invite path.
+	repo := newFakeRepo()
+	repo.consumeConflict = true
+	svc := newTestService(repo, newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+	raw, _, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+	if err != nil {
+		t.Fatalf("CreateBootstrapInvite: %v", err)
+	}
+	_, err = svc.Register(context.Background(), RegisterInput{
+		Username: "root", Password: "correct horse battery", InviteToken: raw, Email: "ops@example.com",
+	})
+	if !errors.Is(err, domain.ErrInvalidInvite) {
+		t.Fatalf("lost the consume race must surface as ErrInvalidInvite, got %v", err)
+	}
+	if n := len(repo.byID); n != 0 {
+		t.Fatalf("a lost race must not create a principal, got %d", n)
+	}
+}
+
+func TestRegisterBootstrapInviteUnderEveryPolicy(t *testing.T) {
+	for _, mode := range []policydomain.Mode{
+		policydomain.ModeAdminOnly, policydomain.ModeInvite, policydomain.ModeSelfRegisterWithApproval,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			invites := newFakeInvites()
+			svc := newTestService(newFakeRepo(), invites, policyOf(mode))
+			raw, tok, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+			if err != nil {
+				t.Fatalf("CreateBootstrapInvite: %v", err)
+			}
+			p, err := svc.Register(context.Background(), RegisterInput{
+				Username: "root", Password: "correct horse battery",
+				DisplayName: "Root", InviteToken: raw, Email: "ops@example.com",
+			})
+			if err != nil {
+				t.Fatalf("Register: %v", err)
+			}
+			if p.Status != domain.StatusActive {
+				t.Fatalf("bootstrap registration starts active, got %s", p.Status)
+			}
+			if diff := cmp.Diff([]string{domain.RoleAdmin, domain.RoleMember}, p.Roles); diff != "" {
+				t.Fatalf("bootstrap registration grants admin+member (-want +got):\n%s", diff)
+			}
+			stored, err := invites.ByHash(context.Background(), tok.TokenHash)
+			if err != nil {
+				t.Fatalf("ByHash: %v", err)
+			}
+			if stored.UsedAt == nil {
+				t.Fatal("bootstrap invite must be consumed by registration")
+			}
+		})
+	}
+}
+
+func TestRegisterBootstrapInviteEmailMismatch(t *testing.T) {
+	invites := newFakeInvites()
+	svc := newTestService(newFakeRepo(), invites, policyOf(policydomain.ModeAdminOnly))
+	raw, tok, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+	if err != nil {
+		t.Fatalf("CreateBootstrapInvite: %v", err)
+	}
+	_, err = svc.Register(context.Background(), RegisterInput{
+		Username: "root", Password: "correct horse battery", InviteToken: raw,
+		Email: "other@example.com",
+	})
+	if !errors.Is(err, domain.ErrInviteEmailMismatch) {
+		t.Fatalf("want ErrInviteEmailMismatch, got %v", err)
+	}
+	stored, err := invites.ByHash(context.Background(), tok.TokenHash)
+	if err != nil {
+		t.Fatalf("ByHash: %v", err)
+	}
+	if stored.UsedAt != nil {
+		t.Fatal("a rejected email mismatch must not burn the invite")
+	}
+}
+
+func TestRegisterBootstrapInviteOneTime(t *testing.T) {
+	invites := newFakeInvites()
+	svc := newTestService(newFakeRepo(), invites, policyOf(policydomain.ModeAdminOnly))
+	raw, _, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+	if err != nil {
+		t.Fatalf("CreateBootstrapInvite: %v", err)
+	}
+	in := RegisterInput{
+		Username: "root", Password: "correct horse battery", InviteToken: raw, Email: "ops@example.com",
+	}
+	if _, regErr := svc.Register(context.Background(), in); regErr != nil {
+		t.Fatalf("first Register: %v", regErr)
+	}
+	in.Username = "root2"
+	_, err = svc.Register(context.Background(), in)
+	if !errors.Is(err, domain.ErrInvalidInvite) {
+		t.Fatalf("consumed bootstrap invite must fail with ErrInvalidInvite, got %v", err)
+	}
+}
+
+func TestRegisterBootstrapInviteUsernameTakenKeepsVoucher(t *testing.T) {
+	repo := newFakeRepo()
+	invites := newFakeInvites()
+	svc := newTestService(repo, invites, policyOf(policydomain.ModeAdminOnly))
+	if _, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "root", Password: "correct horse battery", Kind: domain.KindHuman,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	raw, tok, err := svc.CreateBootstrapInvite(context.Background(), "ops@example.com", 0)
+	if err != nil {
+		t.Fatalf("CreateBootstrapInvite: %v", err)
+	}
+	_, err = svc.Register(context.Background(), RegisterInput{
+		Username: "root", Password: "correct horse battery", InviteToken: raw, Email: "ops@example.com",
+	})
+	if !errors.Is(err, domain.ErrUsernameTaken) {
+		t.Fatalf("want ErrUsernameTaken, got %v", err)
+	}
+	stored, err := invites.ByHash(context.Background(), tok.TokenHash)
+	if err != nil {
+		t.Fatalf("ByHash: %v", err)
+	}
+	if stored.UsedAt != nil {
+		t.Fatal("a rejected username conflict must not burn the invite")
+	}
+	p, err := svc.Register(context.Background(), RegisterInput{
+		Username: "root2", Password: "correct horse battery", InviteToken: raw, Email: "ops@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Register after conflict: %v", err)
+	}
+	if !p.HasRole(domain.RoleAdmin) {
+		t.Fatalf("the retried registration must still land as admin, got roles %v", p.Roles)
+	}
+}
+
+func TestRegisterNonBootstrapTokenFallsThroughToPolicy(t *testing.T) {
+	t.Run("admin-only still forbids a valid admin invite", func(t *testing.T) {
+		svc := newTestService(newFakeRepo(), newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+		raw, _, err := svc.CreateInvite(context.Background(), "admin-1", time.Hour)
+		if err != nil {
+			t.Fatalf("CreateInvite: %v", err)
+		}
+		_, err = svc.Register(context.Background(), RegisterInput{
+			Username: "ker", Password: "correct horse battery", InviteToken: raw,
+		})
+		if !errors.Is(err, ErrSelfRegistrationForbidden) {
+			t.Fatalf("admin invites never bypass policy, want ErrSelfRegistrationForbidden, got %v", err)
+		}
+	})
+	t.Run("admin-only still forbids an unknown token", func(t *testing.T) {
+		svc := newTestService(newFakeRepo(), newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+		_, err := svc.Register(context.Background(), RegisterInput{
+			Username: "ker", Password: "correct horse battery", InviteToken: "bogus",
+		})
+		if !errors.Is(err, ErrSelfRegistrationForbidden) {
+			t.Fatalf("want ErrSelfRegistrationForbidden, got %v", err)
+		}
+	})
+	t.Run("invite-mode still validates an unknown token as invalid invite", func(t *testing.T) {
+		svc := newTestService(newFakeRepo(), newFakeInvites(), policyOf(policydomain.ModeInvite))
+		_, err := svc.Register(context.Background(), RegisterInput{
+			Username: "ker", Password: "correct horse battery", InviteToken: "bogus",
+		})
+		if !errors.Is(err, domain.ErrInvalidInvite) {
+			t.Fatalf("want ErrInvalidInvite, got %v", err)
+		}
+	})
+}
+
+func TestRegisterFailsClosedOnInviteLookupError(t *testing.T) {
+	invites := newFakeInvites()
+	invites.lookupErr = errors.New("db down")
+	svc := newTestService(newFakeRepo(), invites, policyOf(policydomain.ModeInvite))
+	_, err := svc.Register(context.Background(), RegisterInput{
+		Username: "ker", Password: "correct horse battery", InviteToken: "any",
+	})
+	if err == nil || errors.Is(err, ErrSelfRegistrationForbidden) || errors.Is(err, domain.ErrInvalidInvite) {
+		t.Fatalf("an unreadable invite store must deny registration with its own error, got %v", err)
 	}
 }

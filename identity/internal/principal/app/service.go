@@ -28,6 +28,9 @@ var (
 	ErrSelfRegistrationForbidden = errors.New("identity: self-registration is disabled")
 	// ErrPasswordTooShort marks a credential below MinPasswordLen.
 	ErrPasswordTooShort = errors.New("identity: password too short")
+	// ErrInvalidEmail marks a bootstrap-invite email that is empty or
+	// not an address shape.
+	ErrInvalidEmail = errors.New("identity: invalid email")
 )
 
 // MinPasswordLen is the credential floor at every registration input
@@ -85,7 +88,12 @@ type RegisterInput struct {
 	Password    string
 	DisplayName string
 	// InviteToken is required when the active policy mode is invite.
+	// A bootstrap-sourced token instead bypasses the policy entirely
+	// (the first admin registers even under admin-only).
 	InviteToken string
+	// Email is matched against a bootstrap invite's binding; ignored
+	// for every other registration path.
+	Email string
 }
 
 // Register creates a human principal according to the active
@@ -99,19 +107,16 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*principaldom
 	if len(in.Password) < MinPasswordLen {
 		return nil, fmt.Errorf("%w: need at least %d chars", ErrPasswordTooShort, MinPasswordLen)
 	}
-	var initial principaldomain.Status
-	switch pol.Mode {
-	case domain.ModeAdminOnly:
-		return nil, ErrSelfRegistrationForbidden
-	case domain.ModeInvite:
-		if in.InviteToken == "" {
-			return nil, fmt.Errorf("%w: invite token required", principaldomain.ErrInvalidInvite)
+	if in.InviteToken != "" {
+		p, bootstrap, probeErr := s.registerWithBootstrapInvite(ctx, in)
+		if bootstrap || probeErr != nil {
+			return p, probeErr
 		}
-		initial = principaldomain.StatusActive
-	case domain.ModeSelfRegisterWithApproval:
-		initial = principaldomain.StatusPending
-	default:
-		return nil, fmt.Errorf("%w: active policy mode %q", domain.ErrInvalidMode, pol.Mode)
+		// Not a bootstrap voucher: the policy gate below decides.
+	}
+	initial, err := initialStatusForPolicy(pol.Mode, in.InviteToken != "")
+	if err != nil {
+		return nil, err
 	}
 	hash, err := s.hasher.Hash(in.Password)
 	if err != nil {
@@ -140,6 +145,83 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*principaldom
 		return nil, err
 	}
 	return p, nil
+}
+
+// initialStatusForPolicy maps the active registration-policy mode to
+// the new principal's initial status, rejecting registrations the mode
+// forbids (identity-l1 §3).
+func initialStatusForPolicy(mode domain.Mode, hasInvite bool) (principaldomain.Status, error) {
+	switch mode {
+	case domain.ModeAdminOnly:
+		return "", ErrSelfRegistrationForbidden
+	case domain.ModeInvite:
+		if !hasInvite {
+			return "", fmt.Errorf("%w: invite token required", principaldomain.ErrInvalidInvite)
+		}
+		return principaldomain.StatusActive, nil
+	case domain.ModeSelfRegisterWithApproval:
+		return principaldomain.StatusPending, nil
+	default:
+		return "", fmt.Errorf("%w: active policy mode %q", domain.ErrInvalidMode, mode)
+	}
+}
+
+// registerWithBootstrapInvite handles a registration that presented an
+// invite token: when the voucher is bootstrap-sourced it bypasses the
+// registration-policy mode entirely and lands the first admin (active,
+// roles admin+member — topology-l1 §4). ok is false when the token is
+// not a bootstrap voucher, letting the caller fall through to the
+// policy gate; a lookup failure that is not "not found" denies
+// registration (fail closed, without revealing the token's nature).
+func (s *Service) registerWithBootstrapInvite(ctx context.Context, in RegisterInput) (p *principaldomain.Principal, ok bool, err error) {
+	tok, err := s.invites.ByHash(ctx, principaldomain.HashToken(in.InviteToken))
+	if err != nil {
+		if errors.Is(err, principaldomain.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("identity: invite lookup failed, denying registration: %w", err)
+	}
+	if tok.Source != principaldomain.InviteSourceBootstrap {
+		return nil, false, nil
+	}
+	if consumeErr := tok.Consume(s.clock()); consumeErr != nil {
+		return nil, true, consumeErr
+	}
+	if matchErr := tok.EnsureEmailMatch(in.Email); matchErr != nil {
+		return nil, true, matchErr
+	}
+	hash, err := s.hasher.Hash(in.Password)
+	if err != nil {
+		return nil, true, err
+	}
+	candidate, err := principaldomain.NewRegistration(
+		uuid.NewString(),
+		normalizeUsername(in.Username),
+		principaldomain.KindHuman,
+		in.DisplayName,
+		hash,
+		principaldomain.StatusActive,
+		s.clock(),
+		principaldomain.WithRoles([]string{principaldomain.RoleAdmin, principaldomain.RoleMember}),
+	)
+	if err != nil {
+		return nil, true, err
+	}
+	if _, err := s.repo.ByUsername(ctx, candidate.Username); err == nil {
+		return nil, true, principaldomain.ErrUsernameTaken
+	} else if !errors.Is(err, principaldomain.ErrNotFound) {
+		return nil, true, err
+	}
+	// Consume and create in one transaction: a failed insert must not
+	// burn the one-shot voucher (the bootstrap window can never
+	// re-open). A lost consume race surfaces as ErrInvalidInvite.
+	if err := s.repo.CreateWithInviteConsume(ctx, candidate, tok.TokenHash, *tok.UsedAt); err != nil {
+		if errors.Is(err, principaldomain.ErrConflict) {
+			return nil, true, fmt.Errorf("%w: invite already consumed", principaldomain.ErrInvalidInvite)
+		}
+		return nil, true, err
+	}
+	return candidate, true, nil
 }
 
 // registerWithInvite runs the invite-mode gate for a validated
@@ -287,8 +369,60 @@ func (s *Service) CreateInvite(ctx context.Context, createdBy string, ttl time.D
 	return raw, tok, nil
 }
 
+// CreateBootstrapInvite mints the one-shot first-admin voucher
+// (topology-l1 §4) for the deployment's declared initial admin email.
+// The window invariants are domain rules (CheckBootstrapWindow), and
+// the insert itself is backstopped by the database: a concurrent mint
+// that passes the read-only check loses the unique index and maps to
+// ErrBootstrapClosed (409), not a 500.
+func (s *Service) CreateBootstrapInvite(ctx context.Context, email string, ttl time.Duration) (raw string, tok *principaldomain.InviteToken, err error) {
+	email = normalizeEmail(email)
+	if !validEmail(email) {
+		return "", nil, fmt.Errorf("%w: %q", ErrInvalidEmail, email)
+	}
+	hasAdmin, err := s.repo.ExistsAdmin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	hasBootstrap, err := s.invites.ExistsBySource(ctx, principaldomain.InviteSourceBootstrap)
+	if err != nil {
+		return "", nil, err
+	}
+	if windowErr := principaldomain.CheckBootstrapWindow(hasAdmin, hasBootstrap); windowErr != nil {
+		return "", nil, windowErr
+	}
+	if ttl <= 0 {
+		ttl = DefaultInviteTTL
+	}
+	raw, tok, err = principaldomain.GenerateBootstrapInvite(email, ttl, s.rng, s.clock())
+	if err != nil {
+		return "", nil, err
+	}
+	if err := s.invites.Create(ctx, tok); err != nil {
+		if errors.Is(err, principaldomain.ErrConflict) {
+			return "", nil, fmt.Errorf("%w: a concurrent mint won the one-shot race", principaldomain.ErrBootstrapClosed)
+		}
+		return "", nil, err
+	}
+	return raw, tok, nil
+}
+
 // normalizeUsername lowercases before validation and storage: the shape
 // rule is lowercase-only, and uniqueness must not depend on case.
 func normalizeUsername(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
+}
+
+// normalizeEmail applies the same case-and-space policy to the bootstrap
+// binding address; the domain's EnsureEmailMatch compares
+// case-insensitively, so this protects the stored shape, not the match.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// validEmail is a deliberately shallow sanity check — the operator
+// carries the voucher to the mailbox, so deliverability is their
+// review; the endpoint only rejects shapes that cannot be an address.
+func validEmail(email string) bool {
+	return strings.Contains(email, "@")
 }

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package domain holds the principal aggregate and its value objects:
-// the identity primitive, its status machine, and the admin-generated
-// invite token (hash-at-rest, one-way consume). Pure model — stdlib
-// only (AD-23/AD-24).
+// the identity primitive, its status machine, and the invite token
+// (hash-at-rest, one-way consume; admin- or bootstrap-minted).
+// Pure model — stdlib only (AD-23/AD-24).
 package domain
 
 import (

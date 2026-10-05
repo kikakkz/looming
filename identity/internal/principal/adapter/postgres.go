@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lib/pq"
 
@@ -63,6 +64,60 @@ func (r *Repository) Create(ctx context.Context, p *domain.Principal) error {
 	}
 	if affected == 0 {
 		return domain.ErrUsernameTaken
+	}
+	return nil
+}
+
+// CreateWithInviteConsume persists the bootstrap first-admin
+// registration atomically: the invite's guarded consume and the
+// principal insert land together or not at all. A failed insert must
+// not burn the one-shot voucher — the bootstrap window can never
+// re-open, so an unconsumed-voucher failure would lock the deployment
+// out with no recovery path. The invite row write crosses into
+// invite_tokens deliberately: the unit of consistency is this
+// registration, and both tables live in this component's database
+// (the authn/gatewayfeed cross-table precedent).
+func (r *Repository) CreateWithInviteConsume(ctx context.Context, p *domain.Principal, inviteHash []byte, usedAt time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("identity: bootstrap register begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE invite_tokens SET used_at = $1 WHERE token_hash = $2 AND used_at IS NULL`,
+		usedAt, inviteHash)
+	if err != nil {
+		return fmt.Errorf("identity: bootstrap register consume invite: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("identity: bootstrap register consume affected: %w", err)
+	}
+	if affected == 0 {
+		return domain.ErrConflict
+	}
+
+	res, err = tx.ExecContext(ctx,
+		`INSERT INTO principals
+		    (id, username, kind, display_name, password_hash, status, roles, version, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, $9, $10)
+		 ON CONFLICT (username) DO NOTHING`,
+		p.ID, p.Username, p.Kind, p.DisplayName, p.PasswordHash, p.Status,
+		pq.Array(p.Roles), p.Version, p.CreatedAt, p.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("identity: bootstrap register insert principal: %w", err)
+	}
+	affected, err = res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("identity: bootstrap register insert affected: %w", err)
+	}
+	if affected == 0 {
+		return domain.ErrUsernameTaken
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("identity: bootstrap register commit: %w", err)
 	}
 	return nil
 }
@@ -194,4 +249,15 @@ func (r *Repository) Count(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("identity: principal count: %w", err)
 	}
 	return n, nil
+}
+
+// ExistsAdmin reports whether any principal carries the admin role,
+// regardless of status — the first-admin window check (topology-l1 §4).
+func (r *Repository) ExistsAdmin(ctx context.Context) (bool, error) {
+	var exists bool
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM principals WHERE roles @> '{admin}'::text[])`).Scan(&exists); err != nil {
+		return false, fmt.Errorf("identity: principal exists admin: %w", err)
+	}
+	return exists, nil
 }

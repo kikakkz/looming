@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Command identityd runs the identity component: it migrates the
-// schema, provisions the bootstrap admin on first boot, and serves the
-// v1 self/admin HTTP API. Wiring only — every decision lives in the
+// schema and serves the v1 self/admin/bootstrap HTTP API. The first
+// admin arrives through the one-shot bootstrap-invite flow
+// (POST /v1/bootstrap/invite, topology-l1 §4) — there is deliberately
+// no env-seeded admin. Wiring only — every decision lives in the
 // capability packages (AD-23).
 package main
 
@@ -34,7 +36,6 @@ import (
 	policyapp "github.com/kikakkz/looming/identity/internal/policy/app"
 	principaladapter "github.com/kikakkz/looming/identity/internal/principal/adapter"
 	principalapp "github.com/kikakkz/looming/identity/internal/principal/app"
-	principaldomain "github.com/kikakkz/looming/identity/internal/principal/domain"
 	"github.com/kikakkz/looming/identity/migrations"
 )
 
@@ -49,17 +50,16 @@ func main() {
 
 // config is the environment-driven configuration (IDENTITY_ prefix).
 type config struct {
-	listen            string
-	databaseURL       string
-	bootstrapUsername string
-	bootstrapPassword string
-	tokenTTL          time.Duration
-	argonConcurrency  int
-	keyIssueLimit     int
-	keyIssueWindow    time.Duration
-	keyMasterKey      []byte
-	gatewayToken      string
-	watchTimeout      time.Duration
+	listen           string
+	databaseURL      string
+	bootstrapKey     string
+	tokenTTL         time.Duration
+	argonConcurrency int
+	keyIssueLimit    int
+	keyIssueWindow   time.Duration
+	keyMasterKey     []byte
+	gatewayToken     string
+	watchTimeout     time.Duration
 }
 
 // defaultArgonConcurrency bounds simultaneous argon2id operations on
@@ -79,16 +79,15 @@ const (
 
 func loadConfig() (config, error) {
 	cfg := config{
-		listen:            os.Getenv("IDENTITY_LISTEN"),
-		databaseURL:       os.Getenv("IDENTITY_DATABASE_URL"),
-		bootstrapUsername: os.Getenv("IDENTITY_BOOTSTRAP_ADMIN_USERNAME"),
-		bootstrapPassword: os.Getenv("IDENTITY_BOOTSTRAP_ADMIN_PASSWORD"),
-		tokenTTL:          24 * time.Hour,
-		argonConcurrency:  defaultArgonConcurrency,
-		keyIssueLimit:     defaultKeyIssueLimit,
-		keyIssueWindow:    defaultKeyIssueWindow,
-		gatewayToken:      os.Getenv("IDENTITY_GATEWAY_TOKEN"),
-		watchTimeout:      defaultWatchTimeout,
+		listen:           os.Getenv("IDENTITY_LISTEN"),
+		databaseURL:      os.Getenv("IDENTITY_DATABASE_URL"),
+		bootstrapKey:     os.Getenv("IDENTITY_BOOTSTRAP_KEY"),
+		tokenTTL:         24 * time.Hour,
+		argonConcurrency: defaultArgonConcurrency,
+		keyIssueLimit:    defaultKeyIssueLimit,
+		keyIssueWindow:   defaultKeyIssueWindow,
+		gatewayToken:     os.Getenv("IDENTITY_GATEWAY_TOKEN"),
+		watchTimeout:     defaultWatchTimeout,
 	}
 	if cfg.listen == "" {
 		cfg.listen = ":8080"
@@ -216,9 +215,6 @@ func run(log *slog.Logger) error {
 	clockFn := clock
 
 	principalSvc := principalapp.NewService(repo, invites, policyStore, hasher, rand.Reader, clockFn)
-	if err := bootstrapAdmin(context.Background(), repo, principalSvc, cfg, log); err != nil {
-		return err
-	}
 
 	keyRepo := keyadapter.NewRepository(db)
 	sealer, sealErr := keyadapter.NewSealer(cfg.keyMasterKey, rand.Reader)
@@ -244,6 +240,7 @@ func run(log *slog.Logger) error {
 		keyapp.NewHandler(keySvc),
 		gatewayfeedapp.NewHandler(feedSvc),
 		cfg.gatewayToken,
+		cfg.bootstrapKey,
 	)
 
 	server := &http.Server{
@@ -281,9 +278,11 @@ func run(log *slog.Logger) error {
 // routeMux assembles the v1 API. Self register/login are open (the
 // argon limiter bounds their hashing work); every other self/admin
 // route carries the Bearer auth middleware (admin routes additionally
-// require the admin role). The gateway-facing routes are the internal
-// data-plane contract: service-token guarded, never user-facing.
-func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler, keyH *keyapp.Handler, feedH *gatewayfeedapp.Handler, gatewayToken string) *http.ServeMux {
+// require the admin role). The bootstrap route is one-shot and
+// key-guarded (IDENTITY_BOOTSTRAP_KEY, constant-time). The
+// gateway-facing routes are the internal data-plane contract:
+// service-token guarded, never user-facing.
+func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler, keyH *keyapp.Handler, feedH *gatewayfeedapp.Handler, gatewayToken, bootstrapKey string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/self/register", limit.wrap(http.HandlerFunc(principalH.RegisterSelf)))
 	mux.Handle("POST /v1/self/login", limit.wrap(http.HandlerFunc(authnH.Login)))
@@ -306,37 +305,9 @@ func routeMux(provider authnport.Provider, limit *argonLimit, principalH *princi
 	mux.Handle("GET /v1/admin/policy", requireAuth(provider, true, http.HandlerFunc(policyH.GetAdmin)))
 	mux.Handle("PUT /v1/admin/policy", requireAuth(provider, true, http.HandlerFunc(policyH.SetAdmin)))
 
+	mux.Handle("POST /v1/bootstrap/invite", requireBootstrapKey(bootstrapKey, http.HandlerFunc(principalH.CreateBootstrapInvite)))
+
 	mux.Handle("GET /v1/gateway/feed", gatewayfeedapp.RequireServiceToken(gatewayToken, http.HandlerFunc(feedH.Feed)))
 	mux.Handle("POST /v1/gateway/keys/validate", gatewayfeedapp.RequireServiceToken(gatewayToken, http.HandlerFunc(feedH.Validate)))
 	return mux
-}
-
-// bootstrapAdmin provisions the first admin when the principals table
-// is empty and is a no-op otherwise — idempotent across restarts. On an
-// empty table without configured credentials it fails fast: a
-// deployment that never names its first admin is a misconfiguration,
-// not an implicit choice.
-func bootstrapAdmin(ctx context.Context, repo interface {
-	Count(context.Context) (int64, error)
-}, svc *principalapp.Service, cfg config, log *slog.Logger) error {
-	n, err := repo.Count(ctx)
-	if err != nil {
-		return fmt.Errorf("identityd: bootstrap check: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
-	if cfg.bootstrapUsername == "" || cfg.bootstrapPassword == "" {
-		return errors.New("empty principals table requires IDENTITY_BOOTSTRAP_ADMIN_USERNAME and IDENTITY_BOOTSTRAP_ADMIN_PASSWORD")
-	}
-	if _, err := svc.Provision(ctx, principalapp.ProvisionInput{
-		Username: cfg.bootstrapUsername,
-		Password: cfg.bootstrapPassword,
-		Kind:     principaldomain.KindHuman,
-		Roles:    []string{principaldomain.RoleAdmin},
-	}); err != nil {
-		return fmt.Errorf("identityd: bootstrap admin: %w", err)
-	}
-	log.Info("bootstrap admin provisioned", "username", cfg.bootstrapUsername)
-	return nil
 }

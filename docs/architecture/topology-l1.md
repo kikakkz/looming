@@ -73,8 +73,10 @@ The email holder registers → active + admin role automatically.
 Bloodline: Gitea-style "first registrant becomes admin" (no
 pre-seeded credentials anywhere), hardened with the pre-selected
 email against self-registration races. Consequence: the identityd
-`BOOTSTRAP_ADMIN_USERNAME/PASSWORD` env mechanism is scheduled for
-retirement when this lands.
+`BOOTSTRAP_ADMIN_USERNAME/PASSWORD` env mechanism is retired — the
+bootstrap-invite endpoint (identity-l1 §6) is the only first-admin
+path, and `IDENTITY_BOOTSTRAP_KEY` is the only bootstrap-scoped
+secret.
 
 ## 5. Aggregates and invariants
 
