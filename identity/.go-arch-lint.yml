@@ -1,0 +1,78 @@
+# AD-23 dependency matrix for the identity component (AD-34 component
+# scope). Version 3 schema (go-arch-lint v1.19): dependencies not
+# declared under deps: are rejected. internal/ visibility plus this
+# matrix are the two gates on package coupling.
+#
+# principal-app additionally depends on authn-port for one reason only:
+# the self-service HTTP handlers read the validated session (TokenInfo,
+# including its request-context plumbing — both defined in authn-port)
+# that the authn capability produces. No domain or orchestration
+# coupling crosses capabilities.
+#
+# authn-adapter queries the principals table via its own SQL (the local
+# provider's private read model: password hash, status, roles); it does
+# not import principal-port for that.
+version: 3
+
+allow:
+  depOnAnyVendor: true # pinned deps live in go.mod; matrix governs
+                       # component coupling, the job it exists for
+  deepScan: false    # DI-pattern noise: adapters implementing ports
+                     # consumed by app are the hexagon, not a violation
+
+excludeFiles:
+  - "^.*_test\\.go$" # test doubles legitimately cross seams
+
+components:
+  principal-domain:   { in: internal/principal/domain }
+  principal-port:     { in: internal/principal/port }
+  principal-app:      { in: internal/principal/app }
+  principal-adapter:  { in: internal/principal/adapter }
+  policy-domain:      { in: internal/policy/domain }
+  policy-port:        { in: internal/policy/port }
+  policy-app:         { in: internal/policy/app }
+  policy-adapter:     { in: internal/policy/adapter }
+  authn-domain:       { in: internal/authn/domain }
+  authn-port:         { in: internal/authn/port }
+  authn-app:          { in: internal/authn/app }
+  authn-adapter:      { in: internal/authn/adapter }
+  migrations:         { in: migrations }
+  tests:              { in: tests }
+  cmd:                { in: cmd/identityd }
+
+deps:
+  principal-port:
+    mayDependOn: [principal-domain]
+
+  principal-app:
+    mayDependOn: [principal-domain, principal-port, policy-port, authn-port]
+
+  principal-adapter:
+    mayDependOn: [principal-domain, principal-port]
+
+  policy-port:
+    mayDependOn: [policy-domain]
+
+  policy-app:
+    mayDependOn: [policy-domain, policy-port]
+
+  policy-adapter:
+    mayDependOn: [policy-domain, policy-port]
+
+  authn-port:
+    mayDependOn: [authn-domain]
+
+  authn-app:
+    mayDependOn: [authn-domain, authn-port]
+
+  authn-adapter:
+    mayDependOn: [authn-domain, authn-port]
+
+  migrations:
+    mayDependOn: []
+
+  tests:
+    mayDependOn: [migrations]
+
+  cmd:
+    mayDependOn: [principal-domain, principal-port, principal-app, principal-adapter, policy-domain, policy-port, policy-app, policy-adapter, authn-domain, authn-port, authn-app, authn-adapter, migrations]
