@@ -401,6 +401,9 @@ func (c *Config) validate(doc *yaml.Node) error {
 	if err := c.validatePlacements(doc); err != nil {
 		return err
 	}
+	if err := c.validateGuideWiring(doc); err != nil {
+		return err
+	}
 	if err := c.validateState(doc); err != nil {
 		return err
 	}
@@ -566,6 +569,57 @@ func renderConfigKey(key string) bool {
 		}
 	}
 	return len(key) > 0
+}
+
+// validateGuideWiring closes the review finding from PR #122: placing
+// topologyd makes the renderer derive GATEWAY_TOPOLOGY_URL for the
+// gateway front, so both sides' tokens must be wired through the
+// phase-1 secret channel before the URL is enabled — an unwired
+// gateway token crash-loops the gateway at boot (fail fast), an
+// unwired topologyd token 503s the guide endpoint forever. Tokens
+// never render inline, so env_file presence is the checkable contract.
+func (c *Config) validateGuideWiring(doc *yaml.Node) error {
+	var gatewayFront, topologyd *Placement
+	for i := range c.Placements {
+		switch c.Placements[i].Component {
+		case domain.ComponentGatewayFront:
+			gatewayFront = &c.Placements[i]
+		case domain.ComponentTopologyd:
+			topologyd = &c.Placements[i]
+		}
+	}
+	if topologyd == nil {
+		return nil
+	}
+	lines := entryLines(doc, "placements")
+	line := sectionLine(doc, "placements")
+	if topologyd.EnvFile == "" {
+		if idx := placementIndex(c.Placements, *topologyd); idx < len(lines) {
+			line = lines[idx]
+		}
+		return c.fail(line, ErrInvalidPlacement,
+			"topologyd is placed, so the renderer derives GATEWAY_TOPOLOGY_URL for the gateway front — declare an env_file on the topologyd placement carrying TOPOLOGY_SERVICE_TOKEN (tokens never render inline)")
+	}
+	if gatewayFront != nil && gatewayFront.EnvFile == "" {
+		if idx := placementIndex(c.Placements, *gatewayFront); idx < len(lines) {
+			line = lines[idx]
+		}
+		return c.fail(line, ErrInvalidPlacement,
+			"topologyd is placed, so the gateway front needs its guide token — declare an env_file on the gateway-front placement carrying GATEWAY_TOPOLOGY_TOKEN (tokens never render inline)")
+	}
+	return nil
+}
+
+// placementIndex finds a placement's position in the slice (the
+// config rows are values matched by component+host; uniqueness was
+// validated earlier, so the match is singular).
+func placementIndex(placements []Placement, want Placement) int {
+	for i, p := range placements {
+		if p.Component == want.Component && p.Host == want.Host {
+			return i
+		}
+	}
+	return -1
 }
 
 func (c *Config) validateState(doc *yaml.Node) error {
