@@ -10,7 +10,7 @@
 -- declare: a mode-only row would make every fresh-process apply bump
 -- the revision.
 CREATE TABLE topology (
-    id              text PRIMARY KEY,
+    id              text PRIMARY KEY CHECK (id = 'singleton'),
     access_mode     text NOT NULL,
     access_transport text NOT NULL,
     access_endpoint text NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE join_tokens (
 -- and the gateway serves at its public route. Zero credentials by
 -- invariant; snapshot is the Topology snapshot it was rendered from.
 CREATE TABLE guide (
-    id          text PRIMARY KEY,
+    id          text PRIMARY KEY CHECK (id = 'singleton'),
     snapshot    jsonb NOT NULL,
     rendered_rev bigint NOT NULL,
     rendered_at timestamptz NOT NULL DEFAULT now()

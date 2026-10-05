@@ -42,11 +42,13 @@ type Host struct {
 	JoinedAt       time.Time
 }
 
-// NewHost validates and builds a host at registration time. The
-// role-label slice is copied.
+// NewHost validates and builds a host at registration time. The ID
+// must be a UUID in canonical shape — the hosts table's id column is
+// uuid, so a malformed ID must fail here at the model boundary, not at
+// the adapter. The role-label slice is copied.
 func NewHost(id, address string, roleLabels []string, now time.Time) (*Host, error) {
-	if id == "" {
-		return nil, ErrInvalidHostID
+	if !validUUID(id) {
+		return nil, fmt.Errorf("%w: %q is not a canonical UUID", ErrInvalidHostID, id)
 	}
 	if strings.TrimSpace(address) == "" {
 		return nil, fmt.Errorf("%w: empty", ErrInvalidAddress)
@@ -57,4 +59,26 @@ func NewHost(id, address string, roleLabels []string, now time.Time) (*Host, err
 		RoleLabels: append([]string(nil), roleLabels...),
 		JoinedAt:   now,
 	}, nil
+}
+
+// validUUID reports whether id has the canonical 8-4-4-4-12 hex shape
+// produced by uuid.NewString. The model checks shape only; parsing is
+// persistence's job on the way into the uuid column.
+func validUUID(id string) bool {
+	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
+		return false
+	}
+	for i, c := range id {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		if !isHex(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isHex(c rune) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }

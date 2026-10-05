@@ -35,3 +35,31 @@ func TestNewHostRequiresIDAndAddress(t *testing.T) {
 	_, err = domain.NewHost("11111111-1111-1111-1111-111111111111", "   ", nil, now)
 	assert.ErrorIs(t, err, domain.ErrInvalidAddress)
 }
+
+func TestNewHostRejectsMalformedIDs(t *testing.T) {
+	now := time.Now()
+	bad := []string{
+		"not-a-uuid",
+		"111111111111111111111111111111111111",  // no hyphens
+		"11111111-1111-1111-1111-11111111111",   // short
+		"11111111-1111-1111-1111-1111111111111", // long
+		"11111111_1111_1111_1111_111111111111",  // wrong separators
+		"gggggggg-gggg-gggg-gggg-gggggggggggg",  // non-hex
+		"11111111-1111-1111-1111-11111111111z",  // non-hex tail
+	}
+	for _, id := range bad {
+		_, err := domain.NewHost(id, "10.0.0.1", nil, now)
+		assert.ErrorIs(t, err, domain.ErrInvalidHostID, "id %q", id)
+	}
+}
+
+func TestNewHostAcceptsCanonicalUUIDShapes(t *testing.T) {
+	now := time.Now()
+	for _, id := range []string{
+		"11111111-1111-1111-1111-111111111111",
+		"AABBCCDD-EEFF-1122-3344-556677889900", // uppercase hex is a valid UUID
+	} {
+		_, err := domain.NewHost(id, "10.0.0.1", nil, now)
+		assert.NoError(t, err, "id %q", id)
+	}
+}

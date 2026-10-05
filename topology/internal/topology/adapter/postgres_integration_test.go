@@ -86,6 +86,26 @@ func TestStoreCurrentSurfacesUndecodablePlacement(t *testing.T) {
 	assert.Contains(t, err.Error(), "decode")
 }
 
+func TestStoreRejectsNonSingletonRow(t *testing.T) {
+	db := pgtest.NewDB(t)
+	registerHosts(t, db, hostA)
+	store := adapter.NewStore(db)
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+
+	// The schema pins the singleton invariant: anything but the fixed ID
+	// is refused at the database, below the app's reach.
+	bogus := domain.Uninitialized().Next(access(t, "public"),
+		[]domain.ComponentPlacement{
+			{Component: domain.ComponentGatewayFront, HostID: hostA, Ports: map[string]int{"http": 8080}},
+		}, now)
+	bogus.ID = "not-the-singleton"
+	err := store.Save(ctx, bogus)
+	require.Error(t, err)
+
+	_, err = store.Current(ctx)
+	assert.ErrorIs(t, err, domain.ErrNoTopology, "the refused write must not have landed")
+}
+
 func TestStoreCurrentUninitialized(t *testing.T) {
 	store := adapter.NewStore(pgtest.NewDB(t))
 	_, err := store.Current(ctx)
