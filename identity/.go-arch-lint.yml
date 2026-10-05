@@ -39,7 +39,7 @@ components:
   authn-app:          { in: internal/authn/app }
   authn-adapter:      { in: internal/authn/adapter }
   migrations:         { in: migrations }
-  tests:              { in: tests }
+  tests:              { in: tests/pgtest }
   cmd:                { in: cmd/identityd }
 
 deps:
