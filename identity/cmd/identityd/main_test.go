@@ -77,6 +77,36 @@ func TestRequireAuthRejectsMissingBearer(t *testing.T) {
 	}
 }
 
+func TestRequireAuthRejectsMalformedHeaders(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"basic scheme", "Basic dXNlcjpwYXNz"},
+		{"raw token without scheme", "sometoken"},
+		{"bare Bearer", "Bearer"},
+		{"empty token", "Bearer "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(requireAuth(&middlewareStub{}, false,
+				http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
+			defer srv.Close()
+
+			req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+			req.Header.Set("Authorization", tc.value)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("want 401, got %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
 func TestRequireAuthMapsValidateErrors(t *testing.T) {
 	cases := []struct {
 		name string

@@ -17,8 +17,10 @@ import (
 // context for the handlers (authnport.TokenInfoFrom).
 func requireAuth(provider authnport.Provider, admin bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if raw == "" {
+		// Strict scheme: a missing "Bearer " prefix (Basic auth, raw
+		// token, a bare "Bearer") never reaches Validate.
+		raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || strings.TrimSpace(raw) == "" {
 			writeAuthError(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}

@@ -5,6 +5,7 @@
 package migrations_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kikakkz/looming/identity/migrations"
@@ -36,5 +37,18 @@ func TestUpIsIdempotentAcrossRestarts(t *testing.T) {
 	_, dsn := pgtest.NewDBWithDSN(t)
 	if err := migrations.Up(dsn); err != nil {
 		t.Fatalf("second Up must be a no-op, got: %v", err)
+	}
+}
+
+func TestUpFailsOnDirtyMigrationState(t *testing.T) {
+	// Marking the current version dirty (an interrupted migration) must
+	// surface from Up, not be silently papered over.
+	db, dsn := pgtest.NewDBWithDSN(t)
+	if _, err := db.ExecContext(context.Background(),
+		`UPDATE schema_migrations SET dirty = true`); err != nil {
+		t.Fatalf("mark schema dirty: %v", err)
+	}
+	if err := migrations.Up(dsn); err == nil {
+		t.Fatal("up against a dirty migration state must fail")
 	}
 }
