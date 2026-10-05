@@ -13,7 +13,20 @@
 #
 # authn-adapter queries the principals table via its own SQL (the local
 # provider's private read model: password hash, status, roles); it does
-# not import principal-port for that.
+# not import principal-port for that. gatewayfeed-adapter does the same
+# on principals + loom_keys: the feed is a projection of both
+# aggregates, not either aggregate.
+#
+# key-app depends on principal-port for the issuance gate (exists +
+# active) and on authn-port for the validated session its self handlers
+# scope by — the same single-purpose authn-port dependency principal-app
+# and policy-app carry. It also reads principal-domain directly: the
+# issuance gate dispatches on the principal Status vocabulary and maps
+# the principal aggregate's ErrNotFound sentinel — the principal-app →
+# policy-domain precedent. The feed-revision hub reaches the mutating
+# capabilities as a consumer-side RevisionNotifier interface defined in
+# each app package, so no new coupling edge is needed for it (the
+# PasswordHasher precedent).
 version: 3
 
 allow:
@@ -38,6 +51,14 @@ components:
   authn-port:         { in: internal/authn/port }
   authn-app:          { in: internal/authn/app }
   authn-adapter:      { in: internal/authn/adapter }
+  key-domain:         { in: internal/key/domain }
+  key-port:           { in: internal/key/port }
+  key-app:            { in: internal/key/app }
+  key-adapter:        { in: internal/key/adapter }
+  gatewayfeed-domain: { in: internal/gatewayfeed/domain }
+  gatewayfeed-port:   { in: internal/gatewayfeed/port }
+  gatewayfeed-app:    { in: internal/gatewayfeed/app }
+  gatewayfeed-adapter: { in: internal/gatewayfeed/adapter }
   migrations:         { in: migrations }
   tests:              { in: tests/pgtest }
   cmd:                { in: cmd/identityd }
@@ -70,8 +91,26 @@ deps:
   authn-adapter:
     mayDependOn: [authn-domain, authn-port]
 
+  key-port:
+    mayDependOn: [key-domain]
+
+  key-app:
+    mayDependOn: [key-domain, key-port, principal-domain, principal-port, authn-port]
+
+  key-adapter:
+    mayDependOn: [key-domain, key-port]
+
+  gatewayfeed-port:
+    mayDependOn: [gatewayfeed-domain]
+
+  gatewayfeed-app:
+    mayDependOn: [gatewayfeed-domain, gatewayfeed-port]
+
+  gatewayfeed-adapter:
+    mayDependOn: [gatewayfeed-domain, gatewayfeed-port]
+
   tests:
     mayDependOn: [migrations]
 
   cmd:
-    mayDependOn: [principal-domain, principal-port, principal-app, principal-adapter, policy-domain, policy-port, policy-app, policy-adapter, authn-domain, authn-port, authn-app, authn-adapter, migrations]
+    mayDependOn: [principal-domain, principal-port, principal-app, principal-adapter, policy-domain, policy-port, policy-app, policy-adapter, authn-domain, authn-port, authn-app, authn-adapter, key-port, key-app, key-adapter, gatewayfeed-app, gatewayfeed-adapter, migrations]
