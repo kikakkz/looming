@@ -217,9 +217,9 @@ func TestValidateFailsClosed(t *testing.T) {
 	disabledOwner := []byte("hash-disabled-owner")
 	pendingOwner := []byte("hash-pending-owner")
 	store := &fakeStore{byHash: map[string]fakeLookup{
-		string(revoked):        {key: feeddomain.Key{Hash: revoked, PrincipalID: "p-1", Status: feeddomain.KeyRevoked}, principalStatus: feeddomain.PrincipalActive},
-		string(disabledOwner):  {key: feeddomain.Key{Hash: disabledOwner, PrincipalID: "p-2", Status: feeddomain.KeyActive}, principalStatus: feeddomain.PrincipalDisabled},
-		string(pendingOwner):   {key: feeddomain.Key{Hash: pendingOwner, PrincipalID: "p-3", Status: feeddomain.KeyActive}, principalStatus: feeddomain.PrincipalPending},
+		string(revoked):       {key: feeddomain.Key{Hash: revoked, PrincipalID: "p-1", Status: feeddomain.KeyRevoked}, principalStatus: feeddomain.PrincipalActive},
+		string(disabledOwner): {key: feeddomain.Key{Hash: disabledOwner, PrincipalID: "p-2", Status: feeddomain.KeyActive}, principalStatus: feeddomain.PrincipalDisabled},
+		string(pendingOwner):  {key: feeddomain.Key{Hash: pendingOwner, PrincipalID: "p-3", Status: feeddomain.KeyActive}, principalStatus: feeddomain.PrincipalPending},
 	}}
 	svc := newTestService(store, time.Second)
 

@@ -125,9 +125,9 @@ func snapshotView(snap *domain.Snapshot) map[string]any {
 	keys := make([]any, 0, len(snap.Keys))
 	for _, k := range snap.Keys {
 		keys = append(keys, map[string]any{
-			"hash":        base64.StdEncoding.EncodeToString(k.Hash),
+			"hash":         base64.StdEncoding.EncodeToString(k.Hash),
 			"principal_id": k.PrincipalID,
-			"status":      k.Status,
+			"status":       k.Status,
 		})
 	}
 	principals := make([]any, 0, len(snap.Principals))

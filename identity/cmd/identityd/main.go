@@ -193,9 +193,9 @@ func run(log *slog.Logger) error {
 	}
 
 	keyRepo := keyadapter.NewRepository(db)
-	sealer, err := keyadapter.NewSealer(cfg.keyMasterKey, rand.Reader)
-	if err != nil {
-		return err
+	sealer, sealErr := keyadapter.NewSealer(cfg.keyMasterKey, rand.Reader)
+	if sealErr != nil {
+		return sealErr
 	}
 	keySvc := keyapp.NewService(keyRepo, repo, sealer, rand.Reader, clockFn, cfg.keyIssueLimit, cfg.keyIssueWindow)
 

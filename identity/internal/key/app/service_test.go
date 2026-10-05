@@ -24,12 +24,12 @@ var testNow = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 // --- test doubles (AD-25: unit layer, no network/disk/clock) ---
 
 type fakeKeyRepo struct {
-	mu         sync.Mutex
-	byID       map[string]*keydomain.LoomingKey
-	createErr  error
-	count      int
-	countErr   error
-	revokeErr  error
+	mu        sync.Mutex
+	byID      map[string]*keydomain.LoomingKey
+	createErr error
+	count     int
+	countErr  error
+	revokeErr error
 }
 
 func newFakeKeyRepo() *fakeKeyRepo {
@@ -150,7 +150,9 @@ func (f *fakePrincipalRepo) UpdateStatus(context.Context, *principaldomain.Princ
 	return nil, errors.New("not implemented")
 }
 
-func (f *fakePrincipalRepo) Count(context.Context) (int64, error) { return 0, errors.New("not implemented") }
+func (f *fakePrincipalRepo) Count(context.Context) (int64, error) {
+	return 0, errors.New("not implemented")
+}
 
 // fakeSealer reverses the bytes — reversible, deterministic, and
 // visibly not the production cipher.

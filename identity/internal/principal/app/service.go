@@ -235,9 +235,9 @@ func (s *Service) Approve(ctx context.Context, id string) (*principaldomain.Prin
 	if err := p.Approve(s.clock()); err != nil {
 		return nil, err
 	}
-	approved, err := s.repo.UpdateStatus(ctx, p)
-	if err != nil {
-		return nil, err
+	approved, updateErr := s.repo.UpdateStatus(ctx, p)
+	if updateErr != nil {
+		return nil, updateErr
 	}
 	s.bump()
 	return approved, nil
@@ -253,9 +253,9 @@ func (s *Service) SetStatus(ctx context.Context, id string, status principaldoma
 	if err := p.SetStatus(status, s.clock()); err != nil {
 		return nil, err
 	}
-	updated, err := s.repo.UpdateStatus(ctx, p)
-	if err != nil {
-		return nil, err
+	updated, updateErr := s.repo.UpdateStatus(ctx, p)
+	if updateErr != nil {
+		return nil, updateErr
 	}
 	s.bump()
 	return updated, nil
