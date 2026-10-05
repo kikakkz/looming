@@ -58,51 +58,12 @@ func run(log *slog.Logger) error {
 	queue := adapter.NewChanQueue(queueSize())
 	go adapter.DrainInteractions(context.Background(), queue, log)
 
-	identityURL := os.Getenv("GATEWAY_IDENTITY_URL")
-	if identityURL == "" {
-		return errConfig("GATEWAY_IDENTITY_URL")
-	}
-	identityTarget, err := url.Parse(identityURL)
-	if err != nil {
-		return err
-	}
-	// The service token and raw validate keys ride this link; plain
-	// HTTP needs an explicit trusted-network opt-out (the bundle's
-	// loopback deployments set it, anything crossed-hosts must not).
-	if identityTarget.Scheme != "https" && os.Getenv("GATEWAY_IDENTITY_INSECURE") != "1" {
-		return &configError{name: "GATEWAY_IDENTITY_URL must be https unless GATEWAY_IDENTITY_INSECURE=1 (trusted network)"}
-	}
-	identityToken := os.Getenv("GATEWAY_IDENTITY_TOKEN")
-	if identityToken == "" {
-		return errConfig("GATEWAY_IDENTITY_TOKEN")
-	}
-	watchTimeout, err := envDuration("GATEWAY_IDENTITY_WATCH_TIMEOUT", 30*time.Second)
-	if err != nil {
-		return err
-	}
-	staleAfter, err := envDuration("GATEWAY_IDENTITY_SYNC_STALE_AFTER", 2*watchTimeout)
-	if err != nil {
-		return err
-	}
-
-	// The identity projection: the syncer keeps the KeyCache a faithful
-	// copy of the authority's feed; the authenticator authorizes off
-	// the cache and falls back to the origin validate endpoint. Both
-	// ride the same signal context so process shutdown stops the sync
-	// loop (the server keeps its existing semantics).
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	identityClient := controladapter.NewIdentityClient(identityURL, identityToken, watchTimeout)
-	keyCache := controlapp.NewKeyCache(time.Now)
-	syncer := controlapp.NewSyncer(identityClient, keyCache,
-		controldomain.Backoffer{Base: time.Second, Cap: 30 * time.Second},
-		staleAfter, time.Now, log)
-	go func() {
-		if err := syncer.Run(ctx); err != nil {
-			log.Error("identity syncer stopped", "err", err)
-		}
-	}()
-	authn := controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log, syncer.Healthy)
+	authn, identityURL, err := wireIdentity(ctx, log)
+	if err != nil {
+		return err
+	}
 
 	front := frontapp.NewFront(
 		authn,
@@ -114,16 +75,102 @@ func run(log *slog.Logger) error {
 		frontapp.WithRecording(queue, adapter.LogMeter{}, transcriptCap()),
 	)
 
+	// The public onboarding page rides the same listener at GET /
+	// (topology-l1 §7). GATEWAY_TOPOLOGY_URL is optional: without it the
+	// route answers a 404 stub. The token is required once the URL is
+	// set (fail fast) and rides the env_file secret channel like every
+	// other credential — never the rendered compose environment.
+	// The phase-1 renderer derives an http:// link on the trusted
+	// network, and the guide endpoint carries zero credentials by
+	// invariant, so no https-only gate stands here (unlike the identity
+	// link, which carries key material).
+	guide, err := guideHandler(log)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /{$}", guide)
+	mux.Handle("/", front)
+
 	log.Info("gateway listening", "addr", listen, "upstream", upstreamURL, "identity", identityURL)
 	server := &http.Server{
 		Addr:              listen,
-		Handler:           front,
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      0, // streaming responses: no global write deadline
 		IdleTimeout:       60 * time.Second,
 	}
 	return server.ListenAndServe()
+}
+
+// wireIdentity builds the identity projection the front authenticates
+// against: the syncer keeps the KeyCache a faithful copy of the
+// authority's feed; the authenticator authorizes off the cache and
+// falls back to the origin validate endpoint. Both ride the caller's
+// signal context so process shutdown stops the sync loop. The identity
+// URL comes back for the boot log.
+func wireIdentity(ctx context.Context, log *slog.Logger) (*controladapter.IdentityAuthenticator, string, error) {
+	identityURL := os.Getenv("GATEWAY_IDENTITY_URL")
+	if identityURL == "" {
+		return nil, "", errConfig("GATEWAY_IDENTITY_URL")
+	}
+	identityTarget, err := url.Parse(identityURL)
+	if err != nil {
+		return nil, "", err
+	}
+	// The service token and raw validate keys ride this link; plain
+	// HTTP needs an explicit trusted-network opt-out (the bundle's
+	// loopback deployments set it, anything crossed-hosts must not).
+	if identityTarget.Scheme != "https" && os.Getenv("GATEWAY_IDENTITY_INSECURE") != "1" {
+		return nil, "", &configError{name: "GATEWAY_IDENTITY_URL must be https unless GATEWAY_IDENTITY_INSECURE=1 (trusted network)"}
+	}
+	identityToken := os.Getenv("GATEWAY_IDENTITY_TOKEN")
+	if identityToken == "" {
+		return nil, "", errConfig("GATEWAY_IDENTITY_TOKEN")
+	}
+	watchTimeout, err := envDuration("GATEWAY_IDENTITY_WATCH_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return nil, "", err
+	}
+	staleAfter, err := envDuration("GATEWAY_IDENTITY_SYNC_STALE_AFTER", 2*watchTimeout)
+	if err != nil {
+		return nil, "", err
+	}
+
+	identityClient := controladapter.NewIdentityClient(identityURL, identityToken, watchTimeout)
+	keyCache := controlapp.NewKeyCache(time.Now)
+	syncer := controlapp.NewSyncer(identityClient, keyCache,
+		controldomain.Backoffer{Base: time.Second, Cap: 30 * time.Second},
+		staleAfter, time.Now, log)
+	go func() {
+		if runErr := syncer.Run(ctx); runErr != nil {
+			log.Error("identity syncer stopped", "err", runErr)
+		}
+	}()
+	return controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log, syncer.Healthy), identityURL, nil
+}
+
+// guideHandler builds the GET / handler from the environment:
+// GATEWAY_TOPOLOGY_URL (absent → not-configured stub), the required
+// GATEWAY_TOPOLOGY_TOKEN, and the GATEWAY_GUIDE_TTL freshness window.
+func guideHandler(log *slog.Logger) (http.Handler, error) {
+	topologyURL := os.Getenv("GATEWAY_TOPOLOGY_URL")
+	if topologyURL == "" {
+		return http.HandlerFunc(frontapp.GuideNotConfigured), nil
+	}
+	token := os.Getenv("GATEWAY_TOPOLOGY_TOKEN")
+	if token == "" {
+		// Fail fast: a guide route pointing at an origin the gateway
+		// cannot authenticate to would 503 in a loop.
+		return nil, errConfig("GATEWAY_TOPOLOGY_TOKEN is required when GATEWAY_TOPOLOGY_URL is set")
+	}
+	ttl, err := envDuration("GATEWAY_GUIDE_TTL", frontapp.DefaultGuideTTL)
+	if err != nil {
+		return nil, err
+	}
+	client := adapter.NewGuideClient(topologyURL, token)
+	return frontapp.NewGuideHandler(client, ttl, time.Now, log), nil
 }
 
 // positiveTTL is how long an origin-confirmed key authorizes without
