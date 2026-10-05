@@ -78,7 +78,8 @@ permission check.
 - **gateway/cp** — config projection cache, IdentityMap cache,
   provisioning operations (the only writer of engine-side state via
   EnginePlane.Admin; the only reader of identity authority via its
-  API). Bundle Postgres, schema-isolated.
+  API). Bundle Postgres with its own database (database-per-component,
+  AD-36).
 - **gateway/engine** — the engine slot: `EnginePlane.Forward` +
   `EnginePlane.Admin` interfaces; the default thin implementation
   (own route config + credential pool in its own store); the LiteLLM

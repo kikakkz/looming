@@ -10,7 +10,7 @@ method for deriving and refining this map is
 
 | # | Context | Core aggregates | Owns | Explicitly does not own |
 |---|---------|-----------------|------|--------------------------|
-| 1 | Identity & access | User, Org, ApiKey, Quota, BlueprintIdentity | identity lifecycle, quota policy, ACL subjects | request-time enforcement (stateless gateways enforce, never decide) |
+| 1 | Identity & access | Principal, LoomingKey, Quota, IdentityMap, RegistrationPolicy | identity lifecycle, quota policy, ACL subjects | request-time enforcement (stateless gateways enforce, never decide) |
 | 2 | Model gateway | EnginePlane contract, identity/engine **projections** | front layer: authn fan-in, model-permission enforcement (fail-closed), interception chain, credential injection, metering **emission**; cp: caches + EnginePlane.Admin channel | routing config and quota execution (engine instance); Quota policy and IdentityMap authority (Identity & access); record stores (Records) |
 | 3 | Session | Session, EventStream, Approval | durable runtime identity, append-only runtime event stream, approval rendering | long-term record storage (→ #9) |
 | 4 | Orchestration | Blueprint, Run, Task | planner/executor/worker/judge dispatch, run state machines | sandbox internals (→ #5); policy rules (→ #8) |
@@ -21,6 +21,7 @@ method for deriving and refining this map is
 | 9 | Records/observability | MeterRecord, InteractionBody, DecisionEvent, Trace | every append-only store; retention policies; offline read surface (prompt analysis, evals, compliance export) | runtime semantics (→ #3) |
 | 10 | SCM integration | RepoBinding, IssueRef, MergeRequest | issues, review threads, CI status, merge control, webhooks — the anti-corruption layer over GitHub/GitLab CE | pipeline definitions (→ #11) |
 | 11 | CI orchestration | Pipeline, Gate, FailCase | org pipeline definitions, gates, judge fail-case 回流 | SCM connectivity (→ #10) |
+| 12 | Topology & bootstrap | Topology, Host, JoinToken, ComponentPlacement, Guide | bundle first-boot, declarative topology, host join, component placement, onboarding guide rendering | runtime blueprints/runs (→ #4 Orchestration); component process internals; DNS/TLS/HA mechanics (#109–#112 deferred issues) |
 
 ## Relationships (context map)
 
@@ -46,6 +47,11 @@ method for deriving and refining this map is
   Distinct domains, but both enforce the same retrieval-time ACL
   trimming invariant (AD-27 §2) — the trimming rule is shared kernel,
   the stores are not.
+- **Topology & bootstrap → all components: Open Host Service.**
+  Bootstrap supplies rendered config (per-host compose files);
+  components consume placement, never write topology. Host join is
+  the only inbound entry, and it is pull-based self-registration
+  (no SSH/agentless push).
 
 ## Cross-cutting aspects (not contexts)
 
@@ -54,6 +60,7 @@ method for deriving and refining this map is
 | PEP (fail-closed per tool dispatch) | orchestration tool dispatch, gateway interception chain, memory/knowledge retrieval | policy rules from Registry (AD-27 §2 invariant) |
 | Identity propagation | every cross-context call | Identity & access (AD-27 §6 shapes) |
 | Audit event emission | every PEP decision, credential mint, approval | Records/observability owns the event model |
+| Bootstrap-time audit (topology changes, token mint/consume) | topology & bootstrap context | local append-only audit table until the Records context exists; Records owns the event model later |
 | Metering emission | gateway inline, orchestration runs | Records owns MeterRecord |
 | ACL trimming at retrieval | Knowledge, Memory | fail closed on unresolvable ACLs (AD-27 §6) |
 | Event backbone transport | all contexts | AD-27 §1: Postgres append-only record + Redis Streams distribution |

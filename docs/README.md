@@ -14,7 +14,10 @@ each pattern lands with its component's implementation issue per
 AD-27).
 
 Domain design (AD-28): the L0 context map and ubiquitous-language
-glossary live in [architecture/](architecture/); the repeated
+glossary live in [architecture/](architecture/); L1 module designs
+live alongside: [gateway](architecture/gateway-l1.md),
+[identity](architecture/identity-l1.md), and
+[topology & bootstrap](architecture/topology-l1.md). The repeated
 top-down method is
 [.ai/skills/domain-design/](../.ai/skills/domain-design/SKILL.md).
 Start reading at [architecture/overview.md](architecture/overview.md)
