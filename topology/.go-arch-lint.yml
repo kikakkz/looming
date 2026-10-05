@@ -1,0 +1,58 @@
+# AD-23 dependency matrix for the topology component (AD-34 component
+# scope; matrix extended for this component per AD-33's same-PR rule).
+# Version 3 schema (go-arch-lint v1.19): dependencies not declared under
+# deps: are rejected. internal/ visibility plus this matrix are the two
+# gates on package coupling.
+#
+# T0 (#107) wires two capabilities: topology (desired-state Topology
+# aggregate + ComponentPlacement value object, topology-l1 §5) and host
+# (registered machine aggregate). The two capabilities stay independent:
+# topology-app validates placements against the *declared* host IDs given
+# as declare input — host existence in the registry is T1 apply's
+# orchestration concern (register hosts, then declare). No cmd component
+# yet: the service process lands with T2 (join endpoint) and the apply
+# CLI is #108's surface.
+version: 3
+
+allow:
+  depOnAnyVendor: true # pinned deps live in go.mod; matrix governs
+                       # component coupling, the job it exists for
+  deepScan: false    # DI-pattern noise: adapters implementing ports
+                     # consumed by app are the hexagon, not a violation
+
+excludeFiles:
+  - "^.*_test\\.go$" # test doubles legitimately cross seams
+
+components:
+  topology-domain:    { in: internal/topology/domain }
+  topology-port:      { in: internal/topology/port }
+  topology-app:       { in: internal/topology/app }
+  topology-adapter:   { in: internal/topology/adapter }
+  host-domain:        { in: internal/host/domain }
+  host-port:          { in: internal/host/port }
+  host-app:           { in: internal/host/app }
+  host-adapter:       { in: internal/host/adapter }
+  migrations:         { in: migrations }
+  tests:              { in: tests/pgtest }
+
+deps:
+  topology-port:
+    mayDependOn: [topology-domain]
+
+  topology-app:
+    mayDependOn: [topology-domain, topology-port]
+
+  topology-adapter:
+    mayDependOn: [topology-domain, topology-port]
+
+  host-port:
+    mayDependOn: [host-domain]
+
+  host-app:
+    mayDependOn: [host-domain, host-port]
+
+  host-adapter:
+    mayDependOn: [host-domain, host-port]
+
+  tests:
+    mayDependOn: [migrations]

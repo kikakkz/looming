@@ -1,0 +1,15 @@
+# Integration-layer thresholds (AD-25), checked by go-test-coverage
+# against the integration-tagged profile that make test-integration
+# produces (coverage-integration.out). The unit profile excludes the
+# driven adapters, the migration runner, and the integration helper;
+# here the adapters and the migration runner are exercised for real, so
+# only the helper — whose code runs inside other packages' test binaries,
+# so its coverage never records — is excluded.
+profile: coverage-integration.out
+threshold:
+  file: 80
+  package: 80
+  total: 80
+exclude:
+  paths:
+    - tests
