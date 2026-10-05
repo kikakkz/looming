@@ -119,7 +119,11 @@ The join/rejoin endpoints are served by **topologyd**, the topology
 component's long-running service binary (house naming: gateway →
 gateway, identity → identityd). Its placement is declared in the
 topology YAML like any other component's — typically the state host,
-never forced there:
+never forced there. Its env_file carries `TOPOLOGY_SERVICE_TOKEN`
+(the internal guide endpoint's guard); the renderer derives
+`GATEWAY_TOPOLOGY_URL` for the gateway front from this placement, so
+apply validates that both env_files are declared — an unwired token
+would crash-loop the gateway at boot or 503 the guide forever.
 
 - `POST /v1/join` `{token, host: {id?, address, labels}}` →
   `201 {host_id, credential, cluster: {access}}`: validates and
