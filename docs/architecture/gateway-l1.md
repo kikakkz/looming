@@ -58,6 +58,18 @@ differ: KeyNotFound / KeyNotProvisioned / KeyRevoked).
 | MeterRecord, InteractionBody, DecisionEvent | Records/observability | emit-only, our shapes |
 | Permission policy (model allowlists) | Identity & access / Registry | read cache, enforced at the front layer |
 
+Slice B wires the first half of this table for real: the control
+plane's KeyCache (single-writer, revision-monotonic — the
+component-patterns #2 discipline) is the LoomingKey projection, fed by
+a Syncer over identity's blocking feed (full snapshot at boot, then
+long-poll diffs; rev-rollback resets wholesale). The
+IdentityAuthenticator authorizes off the cache and falls back to
+identity's validate endpoint on a miss, confirming positives for a
+30s TTL — the data plane never calls identity per request, and
+revocation is 401 immediately-ish (watch latency + TTL bound).
+ModelAllowlistCache remains the unwired slice-D seam for the model
+permission check.
+
 ## 5. Modules
 
 - **gateway/dp** — the front layer: authn, ModelAllowed, chain,
