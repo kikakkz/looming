@@ -211,3 +211,21 @@ func TestCurrentWrapsStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(9), g.RenderedRev)
 }
+
+// TestEnsureRenderedRerendersOnConfigFactChange: the revision alone is
+// not the freshness signal — config-level facts (cluster name, CLI
+// URL) do not move the Topology revision, and a stale fact must
+// re-render anyway (review finding on #122).
+func TestEnsureRenderedRerendersOnConfigFactChange(t *testing.T) {
+	guides, _, _, svc := newWorld()
+	_, _, err := svc.EnsureRendered(context.Background(), facts())
+	require.NoError(t, err)
+
+	renamed := facts()
+	renamed.ClusterName = "renamed cluster"
+	g, rendered, err := svc.EnsureRendered(context.Background(), renamed)
+	require.NoError(t, err)
+	assert.True(t, rendered, "same revision but a changed config fact: re-render")
+	assert.Equal(t, "renamed cluster", g.Snapshot.ClusterName)
+	assert.Len(t, guides.saved, 2)
+}

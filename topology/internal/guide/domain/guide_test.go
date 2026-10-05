@@ -106,3 +106,30 @@ func TestFactsCarryNoSecretInputs(t *testing.T) {
 			strings.Contains(strings.ToLower(k), "password"), "facts field %q smells like a secret channel", k)
 	}
 }
+
+func TestCurrentForMatchesEveryFact(t *testing.T) {
+	f := prodFacts()
+	g := domain.Render(f, fixedNow)
+
+	assert.True(t, g.CurrentFor(f))
+
+	cases := []struct {
+		name   string
+		mutate func(*domain.Facts)
+	}{
+		{"revision", func(f *domain.Facts) { f.Revision++ }},
+		{"cluster name", func(f *domain.Facts) { f.ClusterName = "other" }},
+		{"access", func(f *domain.Facts) { f.AccessPublic = !f.AccessPublic }},
+		{"cli url", func(f *domain.Facts) { f.CLIDownloadURL = "https://other.example.com" }},
+		{"identity url", func(f *domain.Facts) { f.IdentityURL = "http://10.0.0.99:1" }},
+		{"gateway url", func(f *domain.Facts) { f.GatewayURL = "http://10.0.0.99:2" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			changed := prodFacts()
+			tc.mutate(&changed)
+			assert.False(t, g.CurrentFor(changed),
+				"a changed %s must re-render even at the same revision (config facts do not bump it)", tc.name)
+		})
+	}
+}

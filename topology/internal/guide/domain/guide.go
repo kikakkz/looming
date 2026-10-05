@@ -80,10 +80,18 @@ func Render(f Facts, now time.Time) Guide {
 }
 
 // CurrentFor reports whether the guide already reflects the given
-// topology revision — the idempotent re-render rule (topology-l1 §5:
-// regenerated on every apply; an unchanged revision must not rewrite).
-func (g Guide) CurrentFor(revision int64) bool {
-	return g.RenderedRev == revision
+// render input — the idempotent re-render rule (topology-l1 §5:
+// regenerated on every apply; an unchanged topology with unchanged
+// facts must not rewrite). The revision alone is not enough: the
+// config-level facts (cluster name, CLI download URL) do not bump the
+// Topology revision, so a config-only change must re-render too.
+func (g Guide) CurrentFor(f Facts) bool {
+	return g.RenderedRev == f.Revision &&
+		g.Snapshot.ClusterName == f.ClusterName &&
+		g.Snapshot.AccessPublic == f.AccessPublic &&
+		g.Snapshot.CLIDownloadURL == f.CLIDownloadURL &&
+		g.Snapshot.IdentityURL == f.IdentityURL &&
+		g.Snapshot.GatewayURL == f.GatewayURL
 }
 
 // steps is the fixed journey wording (topology-l1 §3 journey 3):

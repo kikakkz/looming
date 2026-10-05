@@ -825,3 +825,33 @@ func TestApplyGuideUsesConfigDefaults(t *testing.T) {
 	assert.Equal(t, config.DefaultClusterName, w.guides.saved[0].Snapshot.ClusterName)
 	assert.Equal(t, config.DefaultCLIDownloadURL, w.guides.saved[0].Snapshot.CLIDownloadURL)
 }
+
+// TestApplyRerendersGuideOnConfigOnlyChange: the Topology revision does
+// not move when only the config's presentation facts change, but the
+// guide must still re-render — revision-only freshness would serve the
+// old cluster name forever (review finding on #122).
+func TestApplyRerendersGuideOnConfigOnlyChange(t *testing.T) {
+	w := newWorld(t, append(pgUpScript(),
+		scriptedCall{}, // run 1: ensure gw-1
+		scriptedCall{}, // run 1: ensure app-1
+		scriptedCall{stdout: "looming-bundle-postgres-1\n"},
+		scriptedCall{}, // run 2: pg_isready ok
+	), map[string]string{stateEnvFile: stateEnvFileContent})
+
+	named := strings.Replace(twoHostConfig,
+		`access: {mode: public, transport: direct, endpoint: "10.0.0.10"}`,
+		"access: {mode: public, transport: direct, endpoint: \"10.0.0.10\"}\ncluster: {name: \"old name\"}", 1)
+	renamed := strings.Replace(named, "old name", "new name", 1)
+
+	path := writeConfig(t, named)
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: path})
+	require.NoError(t, err)
+
+	second, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, renamed)})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), second.Revision, "config-only change does not bump the topology revision")
+	require.NotNil(t, second.Guide)
+	assert.True(t, second.Guide.Rendered, "but the guide re-renders: the cluster name is a render fact")
+	require.Len(t, w.guides.saved, 2)
+	assert.Equal(t, "new name", w.guides.saved[1].Snapshot.ClusterName)
+}

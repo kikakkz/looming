@@ -56,16 +56,17 @@ func (s *Service) EnsureRendered(ctx context.Context, f Facts) (domain.Guide, bo
 	if err != nil {
 		return domain.Guide{}, false, fmt.Errorf("guide: read topology: %w", err)
 	}
+	facts := renderFacts(ctx, topo, f, s.registry)
 
 	guide, err := s.guides.Current(ctx)
-	if err == nil && guide.CurrentFor(topo.Revision) {
+	if err == nil && guide.CurrentFor(facts) {
 		return guide, false, nil
 	}
 	if err != nil && !errors.Is(err, domain.ErrNoGuide) {
 		return domain.Guide{}, false, fmt.Errorf("guide: read persisted: %w", err)
 	}
 
-	guide = domain.Render(renderFacts(ctx, topo, f, s.registry), s.clock())
+	guide = domain.Render(facts, s.clock())
 	if err := s.guides.Save(ctx, guide); err != nil {
 		return domain.Guide{}, false, fmt.Errorf("guide: persist: %w", err)
 	}
