@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-36 — topology and bootstrap plane](0036-topology-and-bootstrap-plane.md)
 - [AD-35 — identity model — flat RBAC](0035-identity-model-flat-rbac.md)
 - [AD-34 — polyglot component layout](0034-polyglot-component-layout.md)
 - [AD-33 — gateway dependency matrix v0](0033-gateway-dependency-matrix-v0.md)

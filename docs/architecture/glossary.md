@@ -28,7 +28,7 @@ changes that need them.
 | **ScmProvider** | The SCM-integration context: issues, review threads, CI status, merge control, webhooks. |
 | **FailCase** | A CI gate's failing case; judge-derived fail cases land here (judge→CI loop). |
 | **Credential proxy** | The only minter/holder of AD-6 scoped credentials; tokens never enter sandboxes or model context. |
-| **Bundle** | The single deployable packaging of all components; topology wizard at first boot. |
+| **Bundle** | The single deployable packaging of all components; first boot converges a declarative topology file via `looming-ctl apply` — no web wizard (AD-36). |
 | **Front layer** | The always-present Looming-owned component all gateway traffic passes through: authn fan-in, model-permission enforcement, interception chain, credential injection, event emission. Never routes, never executes quota (AD-32). |
 | **Engine slot** | The replaceable forwarding half of a gateway instance (default thin implementation / LiteLLM / Kong); configured to pass through; owns routing config and quota mechanics. |
 | **EnginePlane** | The engine slot contract: `Forward` (northbound OpenAI-compatible endpoint, plain proxying) + `Admin` (ProvisionKey / SetBudget / RevokeKey / GetUsage). |
@@ -39,4 +39,8 @@ changes that need them.
 | **Role / Permission** | Role = named permission bundle (builtin admin/member); permission = fine-grained string (`gateway:use`, `model:use:<id>`, …). |
 | **LoomingKey** | A principal's API key; stored hashed, shown once at issuance, revoked one-way. |
 | **RegistrationPolicy** | The deployment's onboarding rule: admin-only, invite, or self-register-with-approval. |
-| **Guide page** | The gateway's public onboarding page: bootstrap-generated steps, served unauthenticated (toggle by `access.public`). |
+| **Topology** | The declarative deployment topology: a YAML desired-state file (hand-editable, versionable) plus the DB observed state, reconciled by `looming-ctl apply` (AD-36). |
+| **Host** | A registered machine in the topology (id, address, role labels, joined_at); joins via a one-time invite token — pull self-registration, no SSH (AD-36). |
+| **JoinToken** | kubeadm-style bootstrap token: one-time consume, TTL (default 24h), hash-stored, role-scoped, revocable/rotatable (AD-36). |
+| **ComponentPlacement** | A component × host declaration in the topology, with port/config overrides; the gateway-front placement is exactly one in phase-1 (#109 lifts to N, AD-36). |
+| **Guide page** | The cluster's public, unauthenticated onboarding page for **end users**: where to download the CLI, the cluster's identity/gateway endpoints, how to register or ask an admin. Rendered from the current Topology snapshot; served only when `access.public` (default true; off = invite-only orgs); zero credentials by invariant. It is NOT bootstrap instructions — admins get those from the repo. |

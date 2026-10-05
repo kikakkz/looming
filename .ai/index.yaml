@@ -21,6 +21,7 @@
 # AD-34 re-validated 2026-10-04: all read_order anchors resolve.
 # AD-35 re-validated 2026-10-04: all read_order anchors resolve.
 # 2026-10-05 re-validated: all read_order anchors resolve.
+# AD-36 re-validated 2026-10-05: all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
