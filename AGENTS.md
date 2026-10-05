@@ -128,7 +128,7 @@ cites its `kind/flake` issue number; test-only helpers live under
   `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33),
   and the Go tool configs. First component (AD-34).
 - `identity/` — the identity component (Go, AD-34): principals, registration policy, local authn (design: `docs/architecture/identity-l1.md`, AD-35).
-- `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1 (#107) added the `apply` converge pipeline (config loader, renderer, executor, `cmd/looming-ctl` — placement temporary pending #108); T2 (#107) added the join capability (`internal/join`) + the `cmd/topologyd` join/rejoin service.
+- `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1 (#107) added the `apply` converge pipeline (config loader, renderer, executor, `cmd/looming-ctl` — placement temporary pending #108); T2 (#107) added the join capability (`internal/join`) + the `cmd/topologyd` join/rejoin service; T3 (#107) added the guide capability (`internal/guide`, topologyd's `GET /v1/internal/guide`) and the gateway's public onboarding page at `GET /` (TTL-cached fetch of the guide).
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
   tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap
