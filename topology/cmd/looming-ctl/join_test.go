@@ -111,6 +111,18 @@ func TestJoinServerErrorSurfacesCode(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "a failed join must not leave a credential file")
 }
 
+func TestJoinMissingParentDirFailsBeforeSpendingTheToken(t *testing.T) {
+	fj := newFakeJoinServer(t, http.StatusCreated,
+		`{"host_id":"host-0123abcd","credential":"cred","cluster":{"access":""}}`)
+	withFakeDial(t, "10.0.0.21")
+	credFile := filepath.Join(t.TempDir(), "no-such-dir", "host.cred")
+
+	_, err := runWith(t, "join", fj.server.URL, "--token", "tok", "--cred-file", credFile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create credential file")
+	assert.Nil(t, fj.body, "the one-time token must not be spent when the credential file cannot be reserved")
+}
+
 func TestJoinRequiresToken(t *testing.T) {
 	_, err := runWith(t, "join", "http://10.0.0.11:8081")
 	require.Error(t, err)

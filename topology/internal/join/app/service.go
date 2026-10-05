@@ -134,7 +134,10 @@ type JoinResult struct {
 // and answer with the cluster hint. Error contract: domain.ErrTokenNotFound,
 // domain.ErrTokenExpired, domain.ErrTokenUsed (raced consumes included),
 // hostdomain.ErrAddressTaken / ErrHostConflict (both carry the re-join
-// recovery hint), hostdomain.ErrInvalidAddress.
+// recovery hint), hostdomain.ErrInvalidAddress. Consumption is
+// irreversible: a host-validation or registration failure after the
+// guarded consume does not restore the token — the retry presents a
+// fresh one (the one-time invariant, topology-l1 §5).
 func (s *Service) Consume(ctx context.Context, raw string, in HostInput) (*JoinResult, error) {
 	tok, err := s.tokens.ByHash(ctx, domain.HashToken(raw))
 	if err != nil {

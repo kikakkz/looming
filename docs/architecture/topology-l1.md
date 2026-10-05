@@ -128,7 +128,9 @@ never forced there:
   credential (plaintext exactly once), and answers with the gateway
   access hint. Errors: `403 token_invalid|token_expired`,
   `409 token_used|address_taken|host_conflict` (with the re-join
-  recovery hint), `400 invalid_request`.
+  recovery hint), `400 invalid_request`. Consumption is irreversible:
+  host-validation or registration failures after the consume do not
+  restore the token — retry `/v1/join` with a fresh one.
 - `POST /v1/join/rejoin` with `Authorization: Host <host-id>:<credential>`,
   body `{address?, labels?}` → `200`: the credential-authenticated
   address/label refresh. Wrong credential and unknown host are the

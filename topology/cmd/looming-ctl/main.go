@@ -440,17 +440,28 @@ func newJoin(stdout io.Writer) *cobra.Command {
 				return errors.New("join: --rotate is not supported yet: server-side credential rotation is out of scope; " +
 					"recovery is re-running join on the original host (its credential file is intact) or admin SQL on the topology database")
 			}
-			if _, err := os.Stat(credFile); err == nil {
-				return fmt.Errorf("join: %s already exists — refusing to overwrite it; re-join on the original host or remove the file", credFile)
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("join: stat %s: %w", credFile, err)
+
+			// Reserve the destination before any network call:
+			// overwrite and parent-path failures must surface before
+			// the one-time token is spent on the server. A failed join
+			// removes the reservation again.
+			credentialFile, err := reserveCredentialFile(credFile)
+			if err != nil {
+				return err
 			}
+			keepCredential := false
+			defer func() {
+				_ = credentialFile.Close()
+				if !keepCredential {
+					_ = os.Remove(credFile)
+				}
+			}()
 
 			addr := address
 			if addr == "" {
-				detected, err := dialLocalAddr(server)
-				if err != nil {
-					return err
+				detected, detectErr := dialLocalAddr(server)
+				if detectErr != nil {
+					return detectErr
 				}
 				addr = detected
 			}
@@ -464,9 +475,10 @@ func newJoin(stdout io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := writeCredentialFile(credFile, res.HostID+":"+res.Credential); err != nil {
+			if err := writeCredential(credentialFile, credFile, res.HostID+":"+res.Credential); err != nil {
 				return err
 			}
+			keepCredential = true
 
 			_, _ = fmt.Fprintf(stdout, "joined as %s (address %s)\n", res.HostID, addr)
 			if res.Access != "" {
@@ -485,10 +497,26 @@ func newJoin(stdout io.Writer) *cobra.Command {
 	return cmd
 }
 
-// writeCredentialFile persists the host's persistent credential,
-// refusing group/other permissions (the file is a cluster key).
-func writeCredentialFile(path, content string) error {
-	if err := os.WriteFile(path, []byte(content+"\n"), 0o600); err != nil {
+// reserveCredentialFile exclusively creates the credential destination
+// (0600) before any network call: an existing file or an unwritable
+// parent fails here, not after the server consumed the one-time token.
+func reserveCredentialFile(path string) (*os.File, error) {
+	//nolint:gosec // the path is the operator-supplied --cred-file; O_EXCL plus 0600 pins the contract.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("join: %s already exists — refusing to overwrite it; re-join on the original host or remove the file", path)
+		}
+		return nil, fmt.Errorf("join: create credential file %q: %w", path, err)
+	}
+	return f, nil
+}
+
+// writeCredential persists the joined host's persistent credential
+// through the reserved file, then verifies the mode survived (the file
+// is a cluster key).
+func writeCredential(file *os.File, path, content string) error {
+	if _, err := file.Write([]byte(content + "\n")); err != nil {
 		return fmt.Errorf("join: write credential file: %w", err)
 	}
 	info, err := os.Stat(path)
