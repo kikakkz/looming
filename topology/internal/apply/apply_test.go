@@ -5,6 +5,7 @@ package apply_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,21 +164,30 @@ func (f *fakeArtifacts) Save(_ context.Context, a domain.RenderArtifact) error {
 // env is the fake world one apply run (or a sequence of runs) shares:
 // docker scripts plus every persistence seam.
 type world struct {
-	runner     *fakeRunner
-	stores     *apply.Stores
-	registry   *fakeRegistry
-	artifacts  *fakeArtifacts
-	topology   *fakeStore
-	provisions []provisionCall
-	opens      []string
-	sleeps     []time.Duration
-	readFiles  map[string]string
-	pipeline   *apply.Pipeline
+	runner      *fakeRunner
+	stores      *apply.Stores
+	registry    *fakeRegistry
+	artifacts   *fakeArtifacts
+	topology    *fakeStore
+	provisions  []provisionCall
+	opens       []string
+	sleeps      []time.Duration
+	readFiles   map[string]string
+	pipeline    *apply.Pipeline
+	inviteCalls []inviteCall
+	inviteFn    func(endpoint, key, email string) (int, []byte, error)
 }
 
 type provisionCall struct {
 	adminURL, databaseURL string
 }
+
+type inviteCall struct {
+	endpoint, key, email string
+}
+
+// inviteResponse is the happy-path identityd 201 body.
+const inviteResponse = `{"token":"invite-token-1","expires_at":"2026-10-07T00:00:00Z","invite_url_path":"/v1/self/register"}`
 
 // newWorld builds the shared fake world. Postgres env_file content is
 // served from readFiles.
@@ -203,6 +213,13 @@ func newWorld(t *testing.T, script []scriptedCall, readFiles map[string]string) 
 		ProvisionDB: func(_ context.Context, adminURL, databaseURL string) error {
 			w.provisions = append(w.provisions, provisionCall{adminURL: adminURL, databaseURL: databaseURL})
 			return nil
+		},
+		InvitePoster: func(_ context.Context, endpoint, key, email string) (int, []byte, error) {
+			w.inviteCalls = append(w.inviteCalls, inviteCall{endpoint: endpoint, key: key, email: email})
+			if w.inviteFn != nil {
+				return w.inviteFn(endpoint, key, email)
+			}
+			return http.StatusCreated, []byte(inviteResponse), nil
 		},
 	})
 	return w

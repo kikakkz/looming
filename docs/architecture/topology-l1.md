@@ -54,7 +54,14 @@ plus the join hint).
 **Adding a host**: `looming-ctl token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →
 `looming-ctl join http://<first-host>:<port> --token <t>` → the host
-registers itself (pull; no SSH).
+registers itself (pull; no SSH) and its persistent credential lands at
+`/etc/looming/host.cred` (0600; the plaintext was shown exactly once
+at join). Re-join / address-or-label refresh presents that credential:
+`Authorization: Host <host-id>:<credential>` on
+`POST /v1/join/rejoin`. Joining an address another host already holds
+without its credential fails 409 — a second credential is never
+minted; recovery is re-running join on the original host (its
+credential file is intact) or admin SQL against the topology database.
 
 **End-user onboarding**: visit the gateway URL → public guide page
 (unauthenticated; download-CLI link, identity/gateway endpoints,
@@ -65,7 +72,7 @@ phase-1.
 
 ## 4. First-admin mechanism
 
-Bootstrap config declares `initial_admin_email`; `looming-ctl apply`
+Bootstrap config declares `bootstrap.admin_email`; `looming-ctl apply`
 mints a ONE-TIME invite token for that email (reusing identity's
 existing invite mechanism — identity-l1 §5) and prints the invite
 link to the terminal; the operator copy-pastes it to the mailbox.
@@ -101,12 +108,36 @@ secret.
 
 ## 7. API surface (v1)
 
-`looming-ctl` admin commands: `apply`, `token create|list|revoke`,
-`join`, `status`, `render` (dry-run compose output), `guide show`.
-The CLI binary's own component placement is #108's design surface —
-this doc only fixes the admin-side command contract. Gateway guide
-route: `GET /` public page when `access.public` (served from the
-cached guide fetch; 404 when off).
+`looming-ctl` admin commands: `apply` (with `--print-invite` to force
+the bootstrap-invite request), `token create|list|revoke` (admin side,
+direct to the topology DB), `join <first-host-url> --token <t>` (the
+pulling host), `status`, `render` (dry-run compose output),
+`guide show`. The CLI binary's own component placement is #108's
+design surface — this doc only fixes the admin-side command contract.
+
+The join/rejoin endpoints are served by **topologyd**, the topology
+component's long-running service binary (house naming: gateway →
+gateway, identity → identityd). Its placement is declared in the
+topology YAML like any other component's — typically the state host,
+never forced there:
+
+- `POST /v1/join` `{token, host: {id?, address, labels}}` →
+  `201 {host_id, credential, cluster: {access}}`: validates and
+  atomically consumes the one-time token, registers the host (server
+  id `host-<uuid8>` when `id` is absent), mints the host's persistent
+  credential (plaintext exactly once), and answers with the gateway
+  access hint. Errors: `403 token_invalid|token_expired`,
+  `409 token_used|address_taken|host_conflict` (with the re-join
+  recovery hint), `400 invalid_request`. Consumption is irreversible:
+  host-validation or registration failures after the consume do not
+  restore the token — retry `/v1/join` with a fresh one.
+- `POST /v1/join/rejoin` with `Authorization: Host <host-id>:<credential>`,
+  body `{address?, labels?}` → `200`: the credential-authenticated
+  address/label refresh. Wrong credential and unknown host are the
+  same `401 unauthenticated`.
+
+Gateway guide route: `GET /` public page when `access.public` (served
+from the cached guide fetch; 404 when off).
 
 ## 8. Aspects
 

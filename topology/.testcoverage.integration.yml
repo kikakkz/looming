@@ -4,10 +4,12 @@
 # driven adapters, the migration runner, the ctl wiring, and the
 # integration helper; here the adapters, the migration runner, and
 # apply's composition-root wiring are exercised for real, so only the
-# cmd wiring file (AD-25 cmd rule — run() is covered at the unit layer,
-# main() only by execution) and the helper — whose code runs inside
-# other packages' test binaries, so its coverage never records — are
-# excluded.
+# cmd wiring files (AD-25 cmd rule — main() is covered only by
+# execution, never by tests: looming-ctl's run() at the unit layer,
+# topologyd's run() at this layer; the boot smoke tests exist but the
+# wiring files do not count toward the thresholds) and the helper —
+# whose code runs inside other packages' test binaries, so its coverage
+# never records — are excluded.
 profile: coverage-integration.out
 threshold:
   file: 80
@@ -16,4 +18,5 @@ threshold:
 exclude:
   paths:
     - cmd/looming-ctl/main.go
+    - cmd/topologyd/main.go
     - tests

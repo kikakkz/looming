@@ -11,15 +11,17 @@ exclude:
     # helper, and the ctl wiring carry no unit tests by design (AD-25
     # layering): the integration layer (make test-integration,
     # testcontainers postgres + the real-docker state plane) is their
-    # coverage home; the cmd file is manual-DI wiring (the identity/
+    # coverage home; the cmd files are manual-DI wiring (the identity/
     # gateway precedent). Counting them in the unit profile would
     # score them zero by construction.
     - internal/topology/adapter
     - internal/host/adapter
+    - internal/join/adapter
     # apply's composition-root wiring (StdDeps + the real store/provision
     # helpers behind the Deps seams): integration-covered, unit-excluded
     # like the driven adapters it constructs.
     - internal/apply/std.go
     - migrations
     - cmd/looming-ctl/main.go
+    - cmd/topologyd/main.go
     - tests

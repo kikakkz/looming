@@ -32,8 +32,9 @@ var (
 
 // Host is the registered-machine aggregate. CredentialHash is the
 // host's persistent service credential for pull re-join (topology-l1
-// §5): nil until T2's join flow mints it; the aggregate never contains
-// a heartbeat — liveness is the supervisor's concern.
+// §5): nil until the join flow mints it (GenerateCredential); the
+// aggregate never contains a heartbeat — liveness is the supervisor's
+// concern.
 type Host struct {
 	ID             string
 	Address        string
