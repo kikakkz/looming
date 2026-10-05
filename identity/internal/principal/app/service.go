@@ -114,17 +114,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*principaldom
 		return nil, err
 	}
 	if pol.Mode == domain.ModeInvite {
-		// A taken username must not burn the voucher: check before
-		// consuming. The narrow race left behind (concurrent create
-		// between check and consume) is documented: the voucher is
-		// single-use, so a lost race burns one invite without a
-		// principal — the safe direction.
-		if _, err := s.repo.ByUsername(ctx, p.Username); err == nil {
-			return nil, principaldomain.ErrUsernameTaken
-		} else if !errors.Is(err, principaldomain.ErrNotFound) {
-			return nil, err
-		}
-		if err := s.consumeInvite(ctx, in.InviteToken); err != nil {
+		if err := s.registerWithInvite(ctx, p, in.InviteToken); err != nil {
 			return nil, err
 		}
 	}
@@ -134,12 +124,22 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*principaldom
 	return p, nil
 }
 
-func (s *Service) consumeInvite(ctx context.Context, raw string) error {
-	tok, err := s.invites.ByHash(ctx, principaldomain.HashToken(raw))
+// registerWithInvite runs the invite-mode gate for a validated
+// registration candidate: validate the voucher first (an invalid invite
+// must not reveal whether a username is taken — enumeration guard),
+// then reject a taken username without burning the voucher, then
+// consume exactly once. The narrow race left behind (a concurrent
+// create between the check and the consume) is documented: the voucher
+// is single-use, so a lost race burns one invite without a principal —
+// the safe direction.
+func (s *Service) registerWithInvite(ctx context.Context, p *principaldomain.Principal, raw string) error {
+	tok, err := s.inspectInvite(ctx, raw)
 	if err != nil {
-		return fmt.Errorf("%w: unknown invite token", principaldomain.ErrInvalidInvite)
+		return err
 	}
-	if err := tok.Consume(s.clock()); err != nil {
+	if _, err := s.repo.ByUsername(ctx, p.Username); err == nil {
+		return principaldomain.ErrUsernameTaken
+	} else if !errors.Is(err, principaldomain.ErrNotFound) {
 		return err
 	}
 	if err := s.invites.MarkUsed(ctx, tok.TokenHash, *tok.UsedAt); err != nil {
@@ -147,6 +147,21 @@ func (s *Service) consumeInvite(ctx context.Context, raw string) error {
 		return fmt.Errorf("%w: invite already consumed", principaldomain.ErrInvalidInvite)
 	}
 	return nil
+}
+
+// inspectInvite loads the invite and checks it is consumable without
+// consuming it. The caller marks it used only after every other
+// validation has passed, so a rejected registration never burns the
+// voucher.
+func (s *Service) inspectInvite(ctx context.Context, raw string) (*principaldomain.InviteToken, error) {
+	tok, err := s.invites.ByHash(ctx, principaldomain.HashToken(raw))
+	if err != nil {
+		return nil, fmt.Errorf("%w: unknown invite token", principaldomain.ErrInvalidInvite)
+	}
+	if err := tok.Consume(s.clock()); err != nil {
+		return nil, err
+	}
+	return tok, nil
 }
 
 // ProvisionInput is an admin provisioning request. Any policy mode

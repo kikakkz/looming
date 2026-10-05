@@ -410,6 +410,24 @@ func TestRegisterInviteUsernameTakenKeepsVoucher(t *testing.T) {
 	}
 }
 
+func TestRegisterInviteValidationOrderBlocksEnumeration(t *testing.T) {
+	// A taken username plus an invalid invite must fail as
+	// invalid_invite — never username_taken — so unauthenticated
+	// callers cannot enumerate usernames.
+	svc := newTestService(newFakeRepo(), newFakeInvites(), policyOf(policydomain.ModeInvite))
+	if _, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "ker", Password: "correct horse battery", Kind: domain.KindHuman,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	_, err := svc.Register(context.Background(), RegisterInput{
+		Username: "ker", Password: "correct horse battery", InviteToken: "bogus",
+	})
+	if !errors.Is(err, domain.ErrInvalidInvite) {
+		t.Fatalf("want ErrInvalidInvite for a bogus token even on a taken username, got %v", err)
+	}
+}
+
 func TestProvisionAnyModeStartsActive(t *testing.T) {
 	for _, mode := range []policydomain.Mode{
 		policydomain.ModeAdminOnly, policydomain.ModeInvite, policydomain.ModeSelfRegisterWithApproval,

@@ -40,18 +40,13 @@ func TestRequireAuthHappyPath(t *testing.T) {
 		got = r.Context()
 		w.WriteHeader(http.StatusNoContent)
 	})
-	srv := httptest.NewServer(requireAuth(stub, true, next))
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	handler := requireAuth(stub, true, next)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer raw-token")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("want pass-through 204, got %d", resp.StatusCode)
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("want pass-through 204, got %d", resp.Code)
 	}
 	if stub.saw != "raw-token" {
 		t.Fatalf("provider must see the raw token, got %q", stub.saw)
@@ -63,17 +58,12 @@ func TestRequireAuthHappyPath(t *testing.T) {
 }
 
 func TestRequireAuthRejectsMissingBearer(t *testing.T) {
-	srv := httptest.NewServer(requireAuth(&middlewareStub{}, false,
-		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("want 401, got %d", resp.StatusCode)
+	handler := requireAuth(&middlewareStub{}, false,
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/", nil))
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", resp.Code)
 	}
 }
 
@@ -89,19 +79,14 @@ func TestRequireAuthRejectsMalformedHeaders(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(requireAuth(&middlewareStub{}, false,
-				http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
-			defer srv.Close()
-
-			req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+			handler := requireAuth(&middlewareStub{}, false,
+				http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.Header.Set("Authorization", tc.value)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("request: %v", err)
-			}
-			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != http.StatusUnauthorized {
-				t.Fatalf("want 401, got %d", resp.StatusCode)
+			resp := httptest.NewRecorder()
+			handler.ServeHTTP(resp, req)
+			if resp.Code != http.StatusUnauthorized {
+				t.Fatalf("want 401, got %d", resp.Code)
 			}
 		})
 	}
@@ -120,19 +105,14 @@ func TestRequireAuthMapsValidateErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &middlewareStub{err: tc.err}
-			srv := httptest.NewServer(requireAuth(stub, false,
-				http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})))
-			defer srv.Close()
-
-			req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+			handler := requireAuth(stub, false,
+				http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.Header.Set("Authorization", "Bearer x")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("request: %v", err)
-			}
-			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != http.StatusUnauthorized {
-				t.Fatalf("want 401, got %d", resp.StatusCode)
+			resp := httptest.NewRecorder()
+			handler.ServeHTTP(resp, req)
+			if resp.Code != http.StatusUnauthorized {
+				t.Fatalf("want 401, got %d", resp.Code)
 			}
 		})
 	}
@@ -155,21 +135,16 @@ func TestRequireAuthAdminRoleEnforcement(t *testing.T) {
 			stub := &middlewareStub{info: authnport.TokenInfo{
 				PrincipalID: "p-1", Roles: tc.roles, ExpiresAt: time.Now().Add(time.Hour),
 			}}
-			srv := httptest.NewServer(requireAuth(stub, tc.admin,
+			handler := requireAuth(stub, tc.admin,
 				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusNoContent)
-				})))
-			defer srv.Close()
-
-			req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+				}))
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.Header.Set("Authorization", "Bearer x")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("request: %v", err)
-			}
-			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != tc.wantCode {
-				t.Fatalf("want %d, got %d", tc.wantCode, resp.StatusCode)
+			resp := httptest.NewRecorder()
+			handler.ServeHTTP(resp, req)
+			if resp.Code != tc.wantCode {
+				t.Fatalf("want %d, got %d", tc.wantCode, resp.Code)
 			}
 		})
 	}
@@ -184,28 +159,26 @@ func TestArgonLimitRejectsWhenSaturated(t *testing.T) {
 		<-release // hold the permit until the test releases it
 		w.WriteHeader(http.StatusNoContent)
 	})
+	handler := limit.wrap(next)
+	firstDone := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		<-firstDone
+	})
 
-	srv := httptest.NewServer(limit.wrap(next))
-	defer srv.Close()
-
+	// In-process only: the unit layer admits no network (AD-25), so
+	// the wrapped handler is driven with ServeHTTP, not a test server.
 	go func() {
-		resp, err := http.Get(srv.URL)
-		if err == nil {
-			_ = resp.Body.Close()
-		}
+		defer close(firstDone)
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	}()
 	<-reached // the single permit is now held
 
-	resp, err := http.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("request: %v", err)
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/", nil))
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 busy when saturated, got %d", resp.Code)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("want 503 busy when saturated, got %d", resp.StatusCode)
-	}
-
-	close(release) // first request finishes and frees its permit
 }
 
 func TestArgonLimitRejectsInvalidConfig(t *testing.T) {

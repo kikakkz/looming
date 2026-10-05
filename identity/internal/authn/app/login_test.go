@@ -79,3 +79,35 @@ func TestLoginIssueFailure(t *testing.T) {
 		t.Fatal("issue failure must propagate")
 	}
 }
+
+// steppingClock advances on every read after the first, so a second
+// clock read would observe a later time than the first.
+type steppingClock struct {
+	base time.Time
+	step time.Duration
+	n    int
+}
+
+func (c *steppingClock) now() time.Time {
+	c.n++
+	if c.n > 1 {
+		c.base = c.base.Add(c.step)
+	}
+	return c.base
+}
+
+func TestLoginReportsConservativeExpiry(t *testing.T) {
+	start := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	clock := &steppingClock{base: start, step: time.Hour}
+	prov := &fakeProvider{principalID: "p-1", raw: "raw"}
+	svc := NewLoginService(prov, 24*time.Hour, clock.now)
+	_, expiresAt, err := svc.Login(context.Background(), "ker", "fine-password")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	// Expiry must derive from the read taken before Issue, even though
+	// the clock has since advanced by an hour.
+	if !expiresAt.Equal(start.Add(24 * time.Hour)) {
+		t.Fatalf("want conservative expiry %s, got %s", start.Add(24*time.Hour), expiresAt)
+	}
+}

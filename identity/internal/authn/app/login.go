@@ -30,14 +30,18 @@ func NewLoginService(provider port.Provider, ttl time.Duration, clock func() tim
 // Login verifies the credentials and, on success, returns the raw
 // token and its expiry. Any verify or issue failure denies the login
 // with the provider's error (domain.ErrInvalidCredential and friends).
+// The expiry is computed from a clock read taken just before Issue:
+// the reported validity can undershoot the stored token's real expiry,
+// never overshoot it.
 func (s *LoginService) Login(ctx context.Context, username, password string) (rawToken string, expiresAt time.Time, err error) {
 	principalID, err := s.provider.VerifyPassword(ctx, username, password)
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	issuedAt := s.clock()
 	raw, err := s.provider.Issue(ctx, principalID)
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return raw, s.clock().Add(s.ttl), nil
+	return raw, issuedAt.Add(s.ttl), nil
 }
