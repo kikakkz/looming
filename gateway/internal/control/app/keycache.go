@@ -9,11 +9,15 @@ import (
 
 // KeyEntry is one projected key: the owning principal, the wire status
 // the feed reported, and when the cache last wrote it. SyncedAt feeds
-// both the authenticator's positive-TTL decision and the operator's
-// freshness view.
+// the authenticator's freshness view. Confirmed distinguishes
+// origin-validated entries from feed-synced ones: the TTL applies only
+// to confirmed entries, while feed entries authorize on presence for
+// as long as the syncer is healthy (the feed delete is their
+// revocation path — a stalled syncer turns them back into misses).
 type KeyEntry struct {
 	PrincipalID string
 	Status      string
+	Confirmed   bool
 	SyncedAt    time.Time
 }
 
@@ -156,12 +160,14 @@ func (c *KeyCache) Reset(rev Revision, entries map[[32]byte]KeyEntry) {
 // Confirm records an origin-validated active key. It carries no
 // revision (the origin knows nothing of the feed's rev counter), so
 // the writer applies it unconditionally and keeps the projection rev
-// untouched. Syncer deletes still win over confirms — fail closed.
+// untouched. Confirmed entries mark themselves: the authenticator's
+// TTL applies to them alone. Syncer deletes still win over confirms —
+// fail closed.
 func (c *KeyCache) Confirm(hash [32]byte, principalID string) {
 	ack := make(chan struct{})
 	c.in <- keyUpdate{
 		confirm: true,
-		upserts: map[[32]byte]KeyEntry{hash: {PrincipalID: principalID, Status: "active", SyncedAt: c.clock()}},
+		upserts: map[[32]byte]KeyEntry{hash: {PrincipalID: principalID, Status: "active", Confirmed: true, SyncedAt: c.clock()}},
 		ack:     ack,
 	}
 	<-ack

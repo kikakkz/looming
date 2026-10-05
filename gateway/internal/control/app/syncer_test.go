@@ -327,6 +327,48 @@ func fakeRequestCount(f *fakeIdentity) int {
 	return f.requests
 }
 
+func TestSyncerBootsAtRevZeroWithoutBusyLoop(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	fake := newFakeIdentity(t)
+	hashA64, hashA := keyA()
+	// A fresh identity sits at rev 0 until the first mutation — the
+	// boot snapshot must land and the loop must hold on the watch,
+	// not spin full snapshots.
+	fake.setState(0, map[string]string{hashA64: "p-1"}, nil)
+
+	syncer, cache, _ := newTestSyncer(t, fake)
+	defer cache.Close()
+	defer fake.srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = syncer.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	waitFor(t, "rev-0 boot snapshot applied", func() bool {
+		snap := cache.Get()
+		e, ok := snap.V[hashA]
+		return ok && e.PrincipalID == "p-1"
+	})
+	if !syncer.Healthy() {
+		t.Fatal("a rev-0 boot must still mark the syncer healthy")
+	}
+
+	// The loop must be holding on the watch (bounded request rate),
+	// not re-fetching full snapshots in a tight loop.
+	time.Sleep(300 * time.Millisecond)
+	if got := fakeRequestCount(fake); got > 8 {
+		t.Fatalf("rev-0 watch must hold without a busy loop, made %d requests", got)
+	}
+
+	// And a mutation from rev 0 still propagates through the watch.
+	hashB64, hashB := keyB()
+	fake.setState(1, map[string]string{hashA64: "p-1", hashB64: "p-2"}, nil)
+	waitFor(t, "post-boot watch diff", func() bool {
+		_, ok := cache.Get().V[hashB]
+		return ok
+	})
+}
+
 func TestSyncerHealthyFlipsStale(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	fake := newFakeIdentity(t)

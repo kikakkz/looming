@@ -62,6 +62,16 @@ func run(log *slog.Logger) error {
 	if identityURL == "" {
 		return errConfig("GATEWAY_IDENTITY_URL")
 	}
+	identityTarget, err := url.Parse(identityURL)
+	if err != nil {
+		return err
+	}
+	// The service token and raw validate keys ride this link; plain
+	// HTTP needs an explicit trusted-network opt-out (the bundle's
+	// loopback deployments set it, anything crossed-hosts must not).
+	if identityTarget.Scheme != "https" && os.Getenv("GATEWAY_IDENTITY_INSECURE") != "1" {
+		return &configError{name: "GATEWAY_IDENTITY_URL must be https unless GATEWAY_IDENTITY_INSECURE=1 (trusted network)"}
+	}
 	identityToken := os.Getenv("GATEWAY_IDENTITY_TOKEN")
 	if identityToken == "" {
 		return errConfig("GATEWAY_IDENTITY_TOKEN")
@@ -92,7 +102,7 @@ func run(log *slog.Logger) error {
 			log.Error("identity syncer stopped", "err", err)
 		}
 	}()
-	authn := controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log)
+	authn := controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log, syncer.Healthy)
 
 	front := frontapp.NewFront(
 		authn,

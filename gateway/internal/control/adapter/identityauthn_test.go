@@ -60,19 +60,38 @@ func (s *stubOrigin) callCount() int {
 	return s.calls
 }
 
-func newAuthnTestRig(t *testing.T) (*app.KeyCache, *stubOrigin, *IdentityAuthenticator, *fakeClock) {
+// healthStub is the syncer health probe under test control.
+type healthStub struct {
+	mu sync.Mutex
+	ok bool
+}
+
+func (h *healthStub) Healthy() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.ok
+}
+
+func (h *healthStub) Set(ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ok = ok
+}
+
+func newAuthnTestRig(t *testing.T) (*app.KeyCache, *stubOrigin, *IdentityAuthenticator, *fakeClock, *healthStub) {
 	t.Helper()
 	clock := &fakeClock{t: authnNow}
 	cache := app.NewKeyCache(clock.Now)
 	t.Cleanup(cache.Close)
 	origin := &stubOrigin{principalID: "p-origin", status: "active"}
-	authn := NewIdentityAuthenticator(cache, origin, 30*time.Second, clock.Now, nil)
-	return cache, origin, authn, clock
+	health := &healthStub{ok: true}
+	authn := NewIdentityAuthenticator(cache, origin, 30*time.Second, clock.Now, nil, health.Healthy)
+	return cache, origin, authn, clock, health
 }
 
 func TestAuthnCacheHitAvoidsOrigin(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, _ := newAuthnTestRig(t)
+	cache, origin, authn, _, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	raw := "lk-cached"
 	hash := sha256.Sum256([]byte(raw))
@@ -92,7 +111,7 @@ func TestAuthnCacheHitAvoidsOrigin(t *testing.T) {
 
 func TestAuthnMissConfirmsPositiveWithTTL(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, clock := newAuthnTestRig(t)
+	cache, origin, authn, clock, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	raw := "lk-origin"
 
@@ -126,7 +145,7 @@ func TestAuthnMissConfirmsPositiveWithTTL(t *testing.T) {
 
 func TestAuthnRevokedAfterSyncFailsClosed(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, _ := newAuthnTestRig(t)
+	cache, origin, authn, _, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	raw := "lk-revoked"
 	hash := sha256.Sum256([]byte(raw))
@@ -144,9 +163,51 @@ func TestAuthnRevokedAfterSyncFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAuthnFeedEntryAuthorizesWhileSyncerHealthy(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	cache, origin, authn, clock, health := newAuthnTestRig(t)
+	defer cache.Close()
+	raw := "lk-feed"
+	hash := sha256.Sum256([]byte(raw))
+	// A feed entry whose SyncedAt is far older than the TTL still
+	// authorizes while the projection is being maintained — presence
+	// is its proof, the feed delete is its revocation path.
+	cache.Apply(1, map[[32]byte]app.KeyEntry{hash: {PrincipalID: "p-feed", Status: "active", SyncedAt: clock.Now().Add(-time.Hour)}}, nil)
+	clock.Advance(time.Hour)
+	if !health.Healthy() {
+		health.Set(true)
+	}
+	subject, err := authn.Authenticate(context.Background(), raw)
+	if err != nil || subject != "p-feed" {
+		t.Fatalf("healthy projection entry: got %q (%v)", subject, err)
+	}
+	if origin.callCount() != 0 {
+		t.Fatalf("a healthy feed entry must not call the origin, got %d", origin.callCount())
+	}
+}
+
+func TestAuthnStalledSyncerTurnsFeedEntryIntoMiss(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	cache, origin, authn, clock, health := newAuthnTestRig(t)
+	defer cache.Close()
+	raw := "lk-stalled"
+	hash := sha256.Sum256([]byte(raw))
+	cache.Apply(1, map[[32]byte]app.KeyEntry{hash: {PrincipalID: "p-feed", Status: "active", SyncedAt: clock.Now().Add(-time.Hour)}}, nil)
+	clock.Advance(time.Hour)
+	health.Set(false) // projection may be stale — presence is not proof
+
+	subject, err := authn.Authenticate(context.Background(), raw)
+	if err != nil || subject != "p-origin" {
+		t.Fatalf("stalled projection must revalidate at the origin: got %q (%v)", subject, err)
+	}
+	if origin.callCount() != 1 {
+		t.Fatalf("one origin revalidation expected, got %d", origin.callCount())
+	}
+}
+
 func TestAuthnOriginDownFailsClosed(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, _ := newAuthnTestRig(t)
+	cache, origin, authn, _, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	origin.err = errors.New("connection refused")
 	if _, err := authn.Authenticate(context.Background(), "lk-anything"); err == nil {
@@ -156,7 +217,7 @@ func TestAuthnOriginDownFailsClosed(t *testing.T) {
 
 func TestAuthnNegativeResultsAreNotCached(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, _ := newAuthnTestRig(t)
+	cache, origin, authn, _, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	origin.err = ErrKeyUnknown
 	raw := "lk-neg"
@@ -178,7 +239,7 @@ func TestAuthnNegativeResultsAreNotCached(t *testing.T) {
 
 func TestAuthnNonActiveOriginStatusFailsClosed(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, _ := newAuthnTestRig(t)
+	cache, origin, authn, _, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	origin.status = "revoked"
 	if _, err := authn.Authenticate(context.Background(), "lk-weird"); err == nil {
@@ -204,7 +265,7 @@ func (stubEngine) Forward(_ context.Context, w http.ResponseWriter, _ *http.Requ
 
 func TestFrontWithIdentityAuthnEndToEnd(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cache, origin, authn, _ := newAuthnTestRig(t)
+	cache, origin, authn, _, _ := newAuthnTestRig(t)
 	defer cache.Close()
 	front := frontapp.NewFront(
 		authn,

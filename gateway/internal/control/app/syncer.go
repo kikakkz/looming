@@ -69,12 +69,26 @@ func NewSyncer(source FeedSource, cache *KeyCache, backoffer domain.Backoffer, s
 // Run drives the full→watch→diff loop until ctx ends; it returns nil
 // on clean shutdown. Every transport error is logged and retried under
 // backoff — the projection serves its last good snapshot meanwhile,
-// and Healthy() reports the staleness.
+// and Healthy() reports the staleness. Boot state is tracked
+// separately from the revision: identity starts at revision 0 (and a
+// restart can roll back to it), so "since == 0" is not a safe boot
+// marker — at rev 0 the watch must still hold instead of busy-looping
+// full snapshots, and the boot snapshot must bypass the cache's
+// monotonic guard (Apply(rev 0) would suppress it).
 func (s *Syncer) Run(ctx context.Context) error {
 	var since uint64
+	booted := false
 	attempt := 0
 	for {
-		resp, err := s.fetch(ctx, since)
+		var (
+			resp FeedResponse
+			err  error
+		)
+		if booted {
+			resp, err = s.source.Watch(ctx, since)
+		} else {
+			resp, err = s.source.Snapshot(ctx)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -89,13 +103,18 @@ func (s *Syncer) Run(ctx context.Context) error {
 			continue
 		}
 		attempt = 0
-		if resp.Rev < since {
-			// Authority restart: the response is already the full
-			// current projection — reset wholesale (omissions are
-			// deletions, fail closed) and resume from the new rev.
-			s.log.InfoContext(ctx, "identity feed revision rolled back, resetting projection",
-				"prev_rev", since, "new_rev", resp.Rev)
+		if !booted || resp.Rev < since {
+			// First snapshot, or an authority restart: the response is
+			// already the full current projection — reset wholesale
+			// (omissions are deletions, fail closed) and resume from
+			// the new rev. The boot pass needs Reset because the cache
+			// starts at rev 0 and Apply(0) would be suppressed.
+			if booted {
+				s.log.InfoContext(ctx, "identity feed revision rolled back, resetting projection",
+					"prev_rev", since, "new_rev", resp.Rev)
+			}
 			s.cache.Reset(Revision(resp.Rev), activeEntries(resp, s.clock()))
+			booted = true
 			since = resp.Rev
 			s.markSynced()
 			continue
@@ -104,15 +123,6 @@ func (s *Syncer) Run(ctx context.Context) error {
 		since = resp.Rev
 		s.markSynced()
 	}
-}
-
-// fetch issues the boot snapshot on the first pass and a long-poll
-// watch afterwards.
-func (s *Syncer) fetch(ctx context.Context, since uint64) (FeedResponse, error) {
-	if since == 0 {
-		return s.source.Snapshot(ctx)
-	}
-	return s.source.Watch(ctx, since)
 }
 
 // applyDiff reconciles the projection with one full snapshot: the

@@ -86,6 +86,9 @@ func TestKeyCacheConfirmRefreshesSyncedAt(t *testing.T) {
 	if !entry.SyncedAt.Equal(now) {
 		t.Fatalf("confirm must stamp the injected clock, got %v", entry.SyncedAt)
 	}
+	if !entry.Confirmed {
+		t.Fatal("confirm must mark the entry as origin-validated")
+	}
 	if snap.Rev != 1 {
 		t.Fatalf("confirm must not move the projection revision, got %d", snap.Rev)
 	}

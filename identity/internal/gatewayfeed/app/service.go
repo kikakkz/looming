@@ -80,8 +80,8 @@ type Service struct {
 }
 
 // NewService wires the service. watchTimeout bounds the blocking-watch
-// hold; it must stay below the HTTP server's write timeout so the
-// response can flush.
+// hold; identityd's loadConfig enforces it below the HTTP server's
+// write timeout so a held watch can always flush.
 func NewService(store port.Store, hub *Hub, watchTimeout time.Duration) *Service {
 	return &Service{store: store, hub: hub, watchTimeout: watchTimeout}
 }

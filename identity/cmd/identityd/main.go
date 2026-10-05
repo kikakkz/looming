@@ -66,6 +66,11 @@ type config struct {
 // the unauthenticated routes (64 MiB of memory each).
 const defaultArgonConcurrency = 16
 
+// serverWriteTimeout bounds response writes; the feed watch must hold
+// strictly below it or every held watch response would miss the
+// deadline (validated against IDENTITY_WATCH_TIMEOUT in loadConfig).
+const serverWriteTimeout = 60 * time.Second
+
 const (
 	defaultKeyIssueLimit  = 10
 	defaultKeyIssueWindow = 24 * time.Hour
@@ -94,19 +99,20 @@ func loadConfig() (config, error) {
 	if cfg.gatewayToken == "" {
 		return config{}, errors.New("missing required config: IDENTITY_GATEWAY_TOKEN")
 	}
-	masterKey, err := loadMasterKey()
-	if err != nil {
-		return config{}, err
-	}
-	cfg.keyMasterKey = masterKey
+	var err error
 	if cfg.tokenTTL, err = envDuration("IDENTITY_TOKEN_TTL", cfg.tokenTTL); err != nil {
 		return config{}, err
 	}
-	if cfg.keyIssueWindow, err = envDuration("IDENTITY_KEY_ISSUE_WINDOW", cfg.keyIssueWindow); err != nil {
-		return config{}, err
+	if keyCfgErr := loadKeyConfig(&cfg); keyCfgErr != nil {
+		return config{}, keyCfgErr
 	}
 	if cfg.watchTimeout, err = envDuration("IDENTITY_WATCH_TIMEOUT", cfg.watchTimeout); err != nil {
 		return config{}, err
+	}
+	// A held watch must flush before the server's write deadline, and
+	// a non-positive timeout would release every watch immediately.
+	if cfg.watchTimeout <= 0 || cfg.watchTimeout >= serverWriteTimeout {
+		return config{}, fmt.Errorf("IDENTITY_WATCH_TIMEOUT must be in (0, %s)", serverWriteTimeout)
 	}
 	if raw := os.Getenv("IDENTITY_KEY_ISSUE_LIMIT"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -123,6 +129,28 @@ func loadConfig() (config, error) {
 		cfg.argonConcurrency = n
 	}
 	return cfg, nil
+}
+
+// loadKeyConfig fills the key-capability slice of the config: the
+// reveal master key (required, fail fast — the reveal path is part of
+// the component's contract) and the issuance rate-limit knobs.
+func loadKeyConfig(cfg *config) error {
+	masterKey, err := loadMasterKey()
+	if err != nil {
+		return err
+	}
+	cfg.keyMasterKey = masterKey
+	if cfg.keyIssueWindow, err = envDuration("IDENTITY_KEY_ISSUE_WINDOW", cfg.keyIssueWindow); err != nil {
+		return err
+	}
+	if raw := os.Getenv("IDENTITY_KEY_ISSUE_LIMIT"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return fmt.Errorf("IDENTITY_KEY_ISSUE_LIMIT must be a non-negative integer: %q", raw)
+		}
+		cfg.keyIssueLimit = n
+	}
+	return nil
 }
 
 // envDuration parses an optional duration env var, defaulting when
@@ -223,7 +251,7 @@ func run(log *slog.Logger) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      serverWriteTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 
