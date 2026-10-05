@@ -27,6 +27,9 @@
 # 2026-10-05 topology T1 (#107) re-validated: AGENTS.md directory map
 # topology/ line now names the apply pipeline + cmd/looming-ctl;
 # all read_order anchors resolve.
+# 2026-10-06 topology T2 (#107) re-validated: AGENTS.md directory map
+# topology/ line now names the join capability + cmd/topologyd;
+# all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
