@@ -116,3 +116,24 @@ func TestUnknownCommandFails(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "unknown command") || strings.Contains(err.Error(), "frobnicate"))
 }
+
+func TestGuideShowValidatesInputsBeforeAnyDB(t *testing.T) {
+	t.Run("missing config surfaces config error", func(t *testing.T) {
+		_, err := runWith(t, "guide", "show", "--config", filepath.Join(t.TempDir(), "missing.yaml"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "config:")
+	})
+	t.Run("missing database url names the env", func(t *testing.T) {
+		t.Setenv(databaseURLEnv, "")
+		path := writeCtlConfig(t, ctlTestConfig)
+		_, err := runWith(t, "guide", "show", "--config", path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), databaseURLEnv)
+	})
+}
+
+func TestRootHelpListsGuide(t *testing.T) {
+	out, err := runWith(t, "--help")
+	require.NoError(t, err)
+	assert.Contains(t, out, "guide")
+}

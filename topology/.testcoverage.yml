@@ -17,6 +17,7 @@ exclude:
     - internal/topology/adapter
     - internal/host/adapter
     - internal/join/adapter
+    - internal/guide/adapter
     # apply's composition-root wiring (StdDeps + the real store/provision
     # helpers behind the Deps seams): integration-covered, unit-excluded
     # like the driven adapters it constructs.

@@ -484,3 +484,55 @@ placements:
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"only\x00identityd": "/etc/looming/identityd.env"}, cfg.RenderEnvFiles())
 }
+
+// TestClusterSection covers the T3 guide additions: the optional
+// top-level cluster name (the guide page heading) and the bootstrap
+// CLI download URL, both defaulting when absent.
+func TestClusterSection(t *testing.T) {
+	t.Run("defaults when absent", func(t *testing.T) {
+		cfg, err := load(t, validYAML)
+		require.NoError(t, err)
+		assert.Equal(t, config.DefaultClusterName, cfg.ClusterName)
+		assert.Equal(t, config.DefaultCLIDownloadURL, cfg.CLIDownloadURL)
+	})
+
+	t.Run("explicit values", func(t *testing.T) {
+		cfg, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+cluster: {name: "prod cluster"}
+bootstrap: {admin_email: "admin@example.com", cli_download_url: "https://releases.example.com/looming"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.NoError(t, err)
+		assert.Equal(t, "prod cluster", cfg.ClusterName)
+		assert.Equal(t, "https://releases.example.com/looming", cfg.CLIDownloadURL)
+	})
+
+	t.Run("whitespace name is rejected", func(t *testing.T) {
+		_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+cluster: {name: "   "}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, config.ErrInvalidCluster)
+		assert.Contains(t, err.Error(), "cluster.name")
+	})
+
+	t.Run("cli url must be http(s)", func(t *testing.T) {
+		_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+bootstrap: {admin_email: "admin@example.com", cli_download_url: "ftp://example.com/looming"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, config.ErrInvalidBootstrap)
+		assert.Contains(t, err.Error(), "cli_download_url")
+	})
+}

@@ -61,10 +61,40 @@ func TestGoldenGatewayFront(t *testing.T) {
 				Ports:     map[string]int{"http": 8080},
 				Config:    map[string]string{"upstream": "http://10.0.0.13:4000", "identity_url": "http://10.0.0.12:8081", "identity_insecure": "1"},
 			},
+			{
+				// The gateway-front template derives GATEWAY_TOPOLOGY_URL
+				// from the topologyd placement (T3) — co-located here so
+				// the golden still renders exactly one non-empty host.
+				Component: domain.ComponentTopologyd,
+				HostID:    "gw-1",
+				Ports:     map[string]int{"http": 8181},
+				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/topology"},
+			},
 		},
 	})
 	assert.Equal(t, "gw-1", arts[0].HostID)
 	assert.Equal(t, render.Hash(arts[0].Compose), arts[0].Hash)
+	assert.Contains(t, arts[0].Compose, "GATEWAY_TOPOLOGY_URL: http://10.0.0.11:8181")
+}
+
+// TestGatewayFrontWithoutTopologydOmitsGuideURL: no topologyd
+// placement → the guide env stays absent and the gateway's route 404s
+// as "not configured" — the operator never sees a dangling URL.
+func TestGatewayFrontWithoutTopologydOmitsGuideURL(t *testing.T) {
+	artifacts, err := render.Render(render.Input{
+		Hosts: twoHosts(),
+		Placements: []domain.ComponentPlacement{
+			{
+				Component: domain.ComponentGatewayFront,
+				HostID:    "gw-1",
+				Ports:     map[string]int{"http": 8080},
+				Config:    map[string]string{"upstream": "http://10.0.0.13:4000"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, artifacts, 2)
+	assert.NotContains(t, artifacts[0].Compose, "GATEWAY_TOPOLOGY_URL")
 }
 
 func TestGoldenIdentityd(t *testing.T) {

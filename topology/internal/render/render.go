@@ -168,8 +168,11 @@ func postgresService(sp StatePostgres) map[string]any {
 // contract. Errors name the placement so apply can report them with
 // host context. envFile, when non-empty, is the operator-prepared
 // env_file the service loads — the phase-1 secret channel (values stay
-// out of the rendered artifact's inline environment).
-func placementService(p domain.ComponentPlacement, c Contract, envFile string) (map[string]any, error) {
+// out of the rendered artifact's inline environment). guideURL, when
+// non-empty, is the topologyd base URL injected as the gateway's
+// GATEWAY_TOPOLOGY_URL (T3): the renderer's derivation of the internal
+// link, never an operator config key.
+func placementService(p domain.ComponentPlacement, c Contract, envFile, guideURL string) (map[string]any, error) {
 	svc := map[string]any{
 		"build":   map[string]any{"context": c.BuildDir},
 		"restart": "unless-stopped",
@@ -193,6 +196,21 @@ func placementService(p domain.ComponentPlacement, c Contract, envFile string) (
 		svc["ports"] = ports
 	}
 
+	env, err := placementEnv(p, c, guideURL)
+	if err != nil {
+		return nil, err
+	}
+	if len(env) > 0 {
+		svc["environment"] = env
+	}
+
+	return svc, nil
+}
+
+// placementEnv builds one placement's inline environment: the listen
+// var, the renderer-derived guide URL for the gateway front, and the
+// operator config keys folded to env names (duplicates rejected).
+func placementEnv(p domain.ComponentPlacement, c Contract, guideURL string) (map[string]string, error) {
 	env := map[string]string{}
 	if c.ListenPort != "" {
 		listen, ok := p.Ports[c.ListenPort]
@@ -200,6 +218,9 @@ func placementService(p domain.ComponentPlacement, c Contract, envFile string) (
 			return nil, fmt.Errorf("%w: %q needs port %q for %s", ErrMissingListen, p.Component, c.ListenPort, c.ListenEnv)
 		}
 		env[c.ListenEnv] = fmt.Sprintf(":%d", listen)
+	}
+	if guideURL != "" && p.Component == domain.ComponentGatewayFront {
+		env["GATEWAY_TOPOLOGY_URL"] = guideURL
 	}
 	keys := make([]string, 0, len(p.Config))
 	for key := range p.Config {
@@ -216,11 +237,7 @@ func placementService(p domain.ComponentPlacement, c Contract, envFile string) (
 		}
 		env[name] = p.Config[key]
 	}
-	if len(env) > 0 {
-		svc["environment"] = env
-	}
-
-	return svc, nil
+	return env, nil
 }
 
 // composeDocument marshals the deterministic top-level compose shape:
@@ -235,6 +252,35 @@ func composeDocument(services map[string]any) (string, error) {
 		return "", fmt.Errorf("render: encode compose: %w", err)
 	}
 	return string(out), nil
+}
+
+// topologydURL derives the gateway's guide source from the declared
+// topologyd placement: host address + http port, the phase-1
+// http://<address>:<port> shape (T3 — the gateway-front template gains
+// GATEWAY_TOPOLOGY_URL from this, never from operator config). Every
+// gap (no placement, no http port, unknown host) degrades to "": the
+// gateway then serves its 404 "not configured" stub.
+func topologydURL(in Input) string {
+	contract, ok := Lookup(domain.ComponentTopologyd)
+	if !ok || contract.ListenPort == "" {
+		return ""
+	}
+	for _, p := range in.Placements {
+		if p.Component != domain.ComponentTopologyd {
+			continue
+		}
+		port, ok := p.Ports[contract.ListenPort]
+		if !ok {
+			return ""
+		}
+		for _, h := range in.Hosts {
+			if h.ID == p.HostID {
+				return fmt.Sprintf("http://%s:%d", h.Address, port)
+			}
+		}
+		return ""
+	}
+	return ""
 }
 
 // StateCompose renders the standalone compose document the state-plane
@@ -268,6 +314,8 @@ func Render(in Input) ([]Artifact, error) {
 		byHost[p.HostID] = append(byHost[p.HostID], p)
 	}
 
+	guideURL := topologydURL(in)
+
 	hostIDs := make([]string, 0, len(in.Hosts))
 	seen := map[string]bool{}
 	for _, h := range in.Hosts {
@@ -296,7 +344,7 @@ func Render(in Input) ([]Artifact, error) {
 			if !ok {
 				return nil, fmt.Errorf("%w: %q (phase-1: %s)", ErrUnknownComponent, p.Component, strings.Join(Allowlist(), ", "))
 			}
-			svc, err := placementService(p, c, in.EnvFiles[p.HostID+"\x00"+p.Component])
+			svc, err := placementService(p, c, in.EnvFiles[p.HostID+"\x00"+p.Component], guideURL)
 			if err != nil {
 				return nil, err
 			}

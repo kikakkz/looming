@@ -19,6 +19,7 @@ import (
 
 	"github.com/kikakkz/looming/topology/internal/config"
 	"github.com/kikakkz/looming/topology/internal/exec"
+	guideport "github.com/kikakkz/looming/topology/internal/guide/port"
 	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
 	hostport "github.com/kikakkz/looming/topology/internal/host/port"
 	"github.com/kikakkz/looming/topology/internal/render"
@@ -38,6 +39,7 @@ type Stores struct {
 	Topology  topologyport.Store
 	Registry  hostport.Registry
 	Artifacts topologyport.ArtifactStore
+	Guides    guideport.Store
 }
 
 // Deps is the pipeline's seam surface — everything that touches the
@@ -95,14 +97,15 @@ type HostResult struct {
 // Result is one apply run's outcome: the persisted revision (0 in
 // dry-run, where nothing is persisted), the per-host converge results,
 // the bootstrap-invite outcome (nil when the config declares no
-// bootstrap section), and — in dry-run — the rendered compose files
-// themselves.
+// bootstrap section), the guide-render outcome, and — in dry-run — the
+// rendered compose files themselves.
 type Result struct {
 	Revision  int64
 	DryRun    bool
 	Hosts     []HostResult
 	Artifacts []render.Artifact
 	Invite    *InviteOutcome
+	Guide     *GuideOutcome
 }
 
 // Failed reports whether any host's converge errored. The pipeline
@@ -180,6 +183,7 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 
 	result := p.convergeHosts(ctx, stores, cfg, topo.Revision, artifacts)
 	p.maybeInvite(ctx, cfg, result, in.PrintInvite)
+	p.renderGuide(ctx, stores, cfg, result)
 	return result, nil
 }
 

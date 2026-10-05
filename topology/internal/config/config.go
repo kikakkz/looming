@@ -28,6 +28,15 @@ import (
 // Version is the only schema version phase-1 apply accepts.
 const Version = 1
 
+// DefaultClusterName is the guide page heading when the config carries
+// no cluster section (topology-l1 §3 journey 3 names the page after the
+// cluster).
+const DefaultClusterName = "looming cluster"
+
+// DefaultCLIDownloadURL is where the guide points end users at the CLI
+// when bootstrap.cli_download_url is unset: the bundle's releases page.
+const DefaultCLIDownloadURL = "https://github.com/kikakkz/looming/releases"
+
 // Config-level sentinels. Each Error wrapping them carries the file
 // (and where cheap, the line) the failure came from.
 var (
@@ -35,6 +44,7 @@ var (
 	ErrInvalidVersion       = errors.New("config: version must be 1")
 	ErrInvalidYAML          = errors.New("config: invalid yaml")
 	ErrInvalidAccess        = errors.New("config: invalid access section")
+	ErrInvalidCluster       = errors.New("config: invalid cluster section")
 	ErrInvalidState         = errors.New("config: invalid state section")
 	ErrNoHosts              = errors.New("config: at least one host is required")
 	ErrInvalidHost          = errors.New("config: invalid host entry")
@@ -69,16 +79,20 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Err }
 
 // Config is the validated desired-state file: the access section, the
-// state plane (bundle Postgres on the first host), the declared hosts,
-// the component placements, and the optional bootstrap section (the
-// first-admin invite apply prints after a successful converge).
+// cluster identity the guide page renders, the state plane (bundle
+// Postgres on the first host), the declared hosts, the component
+// placements, and the optional bootstrap section (the first-admin
+// invite apply prints after a successful converge, plus the guide's
+// CLI download URL).
 type Config struct {
-	Version    int
-	Access     Access
-	State      *State
-	Hosts      []Host
-	Placements []Placement
-	Bootstrap  *Bootstrap
+	Version        int
+	Access         Access
+	ClusterName    string
+	CLIDownloadURL string
+	State          *State
+	Hosts          []Host
+	Placements     []Placement
+	Bootstrap      *Bootstrap
 
 	source string // file path, for error context
 }
@@ -137,9 +151,12 @@ type Placement struct {
 // Bootstrap is the optional first-admin section: after a successful
 // converge (or with --print-invite), apply requests identityd's
 // one-shot bootstrap invite for this email and prints it (topology-l1
-// §4). AdminEmail is required when the section is present.
+// §4). AdminEmail is required when the section is present;
+// CLIDownloadURL is the guide page's CLI link, defaulting to the
+// bundle's releases page.
 type Bootstrap struct {
-	AdminEmail string
+	AdminEmail     string
+	CLIDownloadURL string
 }
 
 // raw mirrors the YAML shape for strict decoding: unknown keys are
@@ -147,10 +164,15 @@ type Bootstrap struct {
 type rawConfig struct {
 	Version    int            `yaml:"version"`
 	Access     rawAccess      `yaml:"access"`
+	Cluster    *rawCluster    `yaml:"cluster"`
 	State      *rawState      `yaml:"state"`
 	Hosts      []rawHost      `yaml:"hosts"`
 	Placements []rawPlacement `yaml:"placements"`
 	Bootstrap  *rawBootstrap  `yaml:"bootstrap"`
+}
+
+type rawCluster struct {
+	Name string `yaml:"name"`
 }
 
 type rawAccess struct {
@@ -186,7 +208,8 @@ type rawPlacement struct {
 }
 
 type rawBootstrap struct {
-	AdminEmail string `yaml:"admin_email"`
+	AdminEmail     string `yaml:"admin_email"`
+	CLIDownloadURL string `yaml:"cli_download_url"`
 }
 
 // portNamePattern and hostIDPattern constrain the vocabulary other
@@ -225,9 +248,14 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		Version: raw.Version,
-		Access:  Access{Mode: raw.Access.Mode, Transport: raw.Access.Transport, Endpoint: raw.Access.Endpoint},
-		source:  path,
+		Version:        raw.Version,
+		Access:         Access{Mode: raw.Access.Mode, Transport: raw.Access.Transport, Endpoint: raw.Access.Endpoint},
+		ClusterName:    DefaultClusterName,
+		CLIDownloadURL: DefaultCLIDownloadURL,
+		source:         path,
+	}
+	if raw.Cluster != nil {
+		cfg.ClusterName = raw.Cluster.Name
 	}
 	if raw.State != nil {
 		cfg.State = &State{Postgres: StatePostgres{
@@ -238,7 +266,10 @@ func Load(path string) (*Config, error) {
 		}}
 	}
 	if raw.Bootstrap != nil {
-		cfg.Bootstrap = &Bootstrap{AdminEmail: raw.Bootstrap.AdminEmail}
+		cfg.Bootstrap = &Bootstrap{AdminEmail: raw.Bootstrap.AdminEmail, CLIDownloadURL: raw.Bootstrap.CLIDownloadURL}
+		if raw.Bootstrap.CLIDownloadURL != "" {
+			cfg.CLIDownloadURL = raw.Bootstrap.CLIDownloadURL
+		}
 	}
 	for _, h := range raw.Hosts {
 		cfg.Hosts = append(cfg.Hosts, Host(h))
@@ -361,6 +392,9 @@ func (c *Config) validate(doc *yaml.Node) error {
 	if err := c.validateAccess(doc); err != nil {
 		return err
 	}
+	if err := c.validateCluster(doc); err != nil {
+		return err
+	}
 	if err := c.validateHosts(doc); err != nil {
 		return err
 	}
@@ -380,6 +414,19 @@ func (c *Config) validateAccess(doc *yaml.Node) error {
 	if _, err := c.DomainAccess(); err != nil {
 		return c.fail(sectionLine(doc, "access"), ErrInvalidAccess, "access: %v", err)
 	}
+	return nil
+}
+
+// validateCluster checks the optional guide-heading section: present
+// means the name is non-empty after trimming (it renders into the
+// public guide page — html-escaped there, but a blank heading is an
+// operator typo, not a style choice).
+func (c *Config) validateCluster(doc *yaml.Node) error {
+	trimmed := strings.TrimSpace(c.ClusterName)
+	if trimmed == "" {
+		return c.fail(sectionLine(doc, "cluster"), ErrInvalidCluster, "cluster.name must not be empty")
+	}
+	c.ClusterName = trimmed
 	return nil
 }
 
@@ -561,6 +608,13 @@ func (c *Config) validateBootstrap(doc *yaml.Node) error {
 		return c.fail(line, ErrInvalidBootstrap, "bootstrap.admin_email %q is not an email address", c.Bootstrap.AdminEmail)
 	}
 	c.Bootstrap.AdminEmail = email
+	if raw := c.Bootstrap.CLIDownloadURL; raw != "" {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return c.fail(line, ErrInvalidBootstrap, "bootstrap.cli_download_url %q must be an http(s) URL", raw)
+		}
+		c.CLIDownloadURL = strings.TrimSpace(raw)
+	}
 	return nil
 }
 

@@ -14,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	guideapp "github.com/kikakkz/looming/topology/internal/guide/app"
+	guidedomain "github.com/kikakkz/looming/topology/internal/guide/domain"
+	guideport "github.com/kikakkz/looming/topology/internal/guide/port"
 	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
 	hostport "github.com/kikakkz/looming/topology/internal/host/port"
 	joinapp "github.com/kikakkz/looming/topology/internal/join/app"
@@ -91,6 +94,24 @@ func (stubTopology) Current(context.Context) (topologydomain.Topology, error) {
 	return topologydomain.Topology{}, topologydomain.ErrNoTopology
 }
 
+// stubGuides serves one scripted guide row for the mux smoke test.
+type stubGuides struct {
+	guide guidedomain.Guide
+	has   bool
+}
+
+func (s *stubGuides) Current(context.Context) (guidedomain.Guide, error) {
+	if !s.has {
+		return guidedomain.Guide{}, guidedomain.ErrNoGuide
+	}
+	return s.guide, nil
+}
+
+func (s *stubGuides) Save(_ context.Context, g guidedomain.Guide) error {
+	s.guide, s.has = g, true
+	return nil
+}
+
 type countingRNG struct{ left int }
 
 func (c *countingRNG) Read(p []byte) (int, error) {
@@ -137,7 +158,8 @@ func TestRouteMuxServesJoinAndRejoin(t *testing.T) {
 	tokens := &stubTokens{}
 	svc := joinapp.NewService(tokens, newStubRegistry(), stubTopology{}, &countingRNG{left: 1024},
 		func() time.Time { return time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC) })
-	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc)))
+	guideSvc := guideapp.NewService(&stubGuides{}, stubTopology{}, newStubRegistry(), time.Now)
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, "tok")))
 	defer server.Close()
 
 	// Mint straight through the service (the admin-side path) so the
@@ -185,7 +207,8 @@ func TestRouteMuxServesJoinAndRejoin(t *testing.T) {
 
 func TestRouteMuxUnknownRoute(t *testing.T) {
 	svc := joinapp.NewService(&stubTokens{}, newStubRegistry(), stubTopology{}, &countingRNG{left: 1024}, time.Now)
-	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc)))
+	guideSvc := guideapp.NewService(&stubGuides{}, stubTopology{}, newStubRegistry(), time.Now)
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, "tok")))
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/v1/nope")
@@ -198,11 +221,66 @@ func TestRouteMuxUnknownRoute(t *testing.T) {
 	}
 }
 
+// TestRouteMuxServesGuide pins the internal guide route end to end
+// over the real mux: token guard first, then the persisted snapshot.
+func TestRouteMuxServesGuide(t *testing.T) {
+	guides := &stubGuides{
+		has: true,
+		guide: guidedomain.Render(guidedomain.Facts{
+			Revision:       2,
+			AccessPublic:   true,
+			ClusterName:    "mux cluster",
+			CLIDownloadURL: "https://releases.example.com/looming",
+			IdentityURL:    "http://10.0.0.12:8081",
+			GatewayURL:     "http://10.0.0.11:8080",
+		}, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)),
+	}
+	svc := joinapp.NewService(&stubTokens{}, newStubRegistry(), stubTopology{}, &countingRNG{left: 1024}, time.Now)
+	guideSvc := guideapp.NewService(guides, stubTopology{}, newStubRegistry(), time.Now)
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, "service-tok")))
+	defer server.Close()
+
+	get := func(token string) *http.Response {
+		req, err := http.NewRequest(http.MethodGet, server.URL+"/v1/internal/guide", nil)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		return resp
+	}
+
+	unauthorized := get("wrong")
+	defer func() { _ = unauthorized.Body.Close() }()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token must 401, got %d", unauthorized.StatusCode)
+	}
+
+	resp := get("service-tok")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("guide must 200, got %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["cluster_name"] != "mux cluster" {
+		t.Fatalf("snapshot must round trip verbatim, got %v", body)
+	}
+}
+
 // Compile-time guards that the stubs really implement the ports.
 var (
 	_ joinport.TokenStore = (*stubTokens)(nil)
 	_ hostport.Registry   = (*stubRegistry)(nil)
 	_ topologyport.Store  = stubTopology{}
+	_ guideport.Store     = (*stubGuides)(nil)
 	_                     = sha256.Size
 	_                     = errors.Is
 )
