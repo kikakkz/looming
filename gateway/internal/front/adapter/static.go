@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package adapter holds the front layer's driven implementations:
-// request parsing and static config-backed stand-ins for the identity
-// projection (replaced by the real cache wiring in a later slice).
+// request parsing and the static config-backed stand-in for the model
+// permission projection (replaced by the real cache wiring in slice
+// D). Authentication is identity-backed now — the control plane's
+// IdentityAuthenticator implements the port (slice B retired the
+// GATEWAY_KEYS stand-in).
 package adapter
 
 import (
@@ -16,20 +19,6 @@ import (
 	"github.com/kikakkz/looming/gateway/internal/front/port"
 )
 
-// StaticAuthenticator validates keys against a configured map — the
-// slice-1 stand-in for the identity context's cache projection.
-type StaticAuthenticator struct {
-	Keys map[string]string // key → subject
-}
-
-func (s StaticAuthenticator) Authenticate(_ context.Context, key string) (string, error) {
-	subject, ok := s.Keys[key]
-	if !ok {
-		return "", errors.New("unknown key")
-	}
-	return subject, nil
-}
-
 // StaticAllowlist serves configured per-subject model lists until the
 // control-plane projection cache feeds the port.
 type StaticAllowlist struct {
@@ -40,7 +29,6 @@ func (s StaticAllowlist) Models(_ context.Context, subject string) ([]string, er
 	return s.ModelsBySubject[subject], nil
 }
 
-var _ port.Authenticator = StaticAuthenticator{}
 var _ port.SubjectAllowlist = StaticAllowlist{}
 
 // chatCompletionsRequest is the minimal body shape the extractor needs.

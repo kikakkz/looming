@@ -27,7 +27,7 @@ func sliceOneFront(t *testing.T, upstream *url.URL) (*Front, *adapter.ChanQueue,
 	queue := adapter.NewChanQueue(8)
 	meters := &meterRecorder{mu: &sync.Mutex{}, meters: &[]frontdomain.MeterRecord{}}
 	front := NewFront(
-		adapter.StaticAuthenticator{Keys: map[string]string{"good-key": "ker"}},
+		stubAuthn{subject: "ker"},
 		adapter.StaticAllowlist{ModelsBySubject: map[string][]string{"ker": {"gpt-5"}}},
 		frontdomain.NewChain(),
 		defaultengine.NewWithUpstream(upstream, ""),

@@ -33,7 +33,9 @@ type update struct {
 // the identity/registry authority. Single-writer event loop
 // (component-patterns #2): one goroutine owns the map; readers take
 // immutable snapshots. No locks across I/O; stale (non-monotonic)
-// revisions are dropped.
+// revisions are dropped. The keyHash → principal projection is a
+// separate cache (keycache.go) — two distinct projections by design,
+// not one generalized type; slice D consumes this one.
 type ModelAllowlistCache struct {
 	in     chan update
 	snap   atomicSnapshot

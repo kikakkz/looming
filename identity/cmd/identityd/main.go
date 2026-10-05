@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,10 @@ import (
 	authnadapter "github.com/kikakkz/looming/identity/internal/authn/adapter"
 	authnapp "github.com/kikakkz/looming/identity/internal/authn/app"
 	authnport "github.com/kikakkz/looming/identity/internal/authn/port"
+	gatewayfeedadapter "github.com/kikakkz/looming/identity/internal/gatewayfeed/adapter"
+	gatewayfeedapp "github.com/kikakkz/looming/identity/internal/gatewayfeed/app"
+	keyadapter "github.com/kikakkz/looming/identity/internal/key/adapter"
+	keyapp "github.com/kikakkz/looming/identity/internal/key/app"
 	policyadapter "github.com/kikakkz/looming/identity/internal/policy/adapter"
 	policyapp "github.com/kikakkz/looming/identity/internal/policy/app"
 	principaladapter "github.com/kikakkz/looming/identity/internal/principal/adapter"
@@ -50,11 +55,27 @@ type config struct {
 	bootstrapPassword string
 	tokenTTL          time.Duration
 	argonConcurrency  int
+	keyIssueLimit     int
+	keyIssueWindow    time.Duration
+	keyMasterKey      []byte
+	gatewayToken      string
+	watchTimeout      time.Duration
 }
 
 // defaultArgonConcurrency bounds simultaneous argon2id operations on
 // the unauthenticated routes (64 MiB of memory each).
 const defaultArgonConcurrency = 16
+
+// serverWriteTimeout bounds response writes; the feed watch must hold
+// strictly below it or every held watch response would miss the
+// deadline (validated against IDENTITY_WATCH_TIMEOUT in loadConfig).
+const serverWriteTimeout = 60 * time.Second
+
+const (
+	defaultKeyIssueLimit  = 10
+	defaultKeyIssueWindow = 24 * time.Hour
+	defaultWatchTimeout   = 30 * time.Second
+)
 
 func loadConfig() (config, error) {
 	cfg := config{
@@ -64,6 +85,10 @@ func loadConfig() (config, error) {
 		bootstrapPassword: os.Getenv("IDENTITY_BOOTSTRAP_ADMIN_PASSWORD"),
 		tokenTTL:          24 * time.Hour,
 		argonConcurrency:  defaultArgonConcurrency,
+		keyIssueLimit:     defaultKeyIssueLimit,
+		keyIssueWindow:    defaultKeyIssueWindow,
+		gatewayToken:      os.Getenv("IDENTITY_GATEWAY_TOKEN"),
+		watchTimeout:      defaultWatchTimeout,
 	}
 	if cfg.listen == "" {
 		cfg.listen = ":8080"
@@ -71,12 +96,30 @@ func loadConfig() (config, error) {
 	if cfg.databaseURL == "" {
 		return config{}, errors.New("missing required config: IDENTITY_DATABASE_URL")
 	}
-	if raw := os.Getenv("IDENTITY_TOKEN_TTL"); raw != "" {
-		ttl, err := time.ParseDuration(raw)
-		if err != nil {
-			return config{}, fmt.Errorf("IDENTITY_TOKEN_TTL must be a duration like 24h: %w", err)
+	if cfg.gatewayToken == "" {
+		return config{}, errors.New("missing required config: IDENTITY_GATEWAY_TOKEN")
+	}
+	var err error
+	if cfg.tokenTTL, err = envDuration("IDENTITY_TOKEN_TTL", cfg.tokenTTL); err != nil {
+		return config{}, err
+	}
+	if keyCfgErr := loadKeyConfig(&cfg); keyCfgErr != nil {
+		return config{}, keyCfgErr
+	}
+	if cfg.watchTimeout, err = envDuration("IDENTITY_WATCH_TIMEOUT", cfg.watchTimeout); err != nil {
+		return config{}, err
+	}
+	// A held watch must flush before the server's write deadline, and
+	// a non-positive timeout would release every watch immediately.
+	if cfg.watchTimeout <= 0 || cfg.watchTimeout >= serverWriteTimeout {
+		return config{}, fmt.Errorf("IDENTITY_WATCH_TIMEOUT must be in (0, %s)", serverWriteTimeout)
+	}
+	if raw := os.Getenv("IDENTITY_KEY_ISSUE_LIMIT"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return config{}, fmt.Errorf("IDENTITY_KEY_ISSUE_LIMIT must be a non-negative integer: %q", raw)
 		}
-		cfg.tokenTTL = ttl
+		cfg.keyIssueLimit = n
 	}
 	if raw := os.Getenv("IDENTITY_ARGON_CONCURRENCY"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -86,6 +129,61 @@ func loadConfig() (config, error) {
 		cfg.argonConcurrency = n
 	}
 	return cfg, nil
+}
+
+// loadKeyConfig fills the key-capability slice of the config: the
+// reveal master key (required, fail fast — the reveal path is part of
+// the component's contract) and the issuance rate-limit knobs.
+func loadKeyConfig(cfg *config) error {
+	masterKey, err := loadMasterKey()
+	if err != nil {
+		return err
+	}
+	cfg.keyMasterKey = masterKey
+	if cfg.keyIssueWindow, err = envDuration("IDENTITY_KEY_ISSUE_WINDOW", cfg.keyIssueWindow); err != nil {
+		return err
+	}
+	if raw := os.Getenv("IDENTITY_KEY_ISSUE_LIMIT"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return fmt.Errorf("IDENTITY_KEY_ISSUE_LIMIT must be a non-negative integer: %q", raw)
+		}
+		cfg.keyIssueLimit = n
+	}
+	return nil
+}
+
+// envDuration parses an optional duration env var, defaulting when
+// unset.
+func envDuration(name string, def time.Duration) (time.Duration, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a duration like 24h: %w", name, err)
+	}
+	return d, nil
+}
+
+// loadMasterKey decodes IDENTITY_KEY_MASTER_KEY (base64, 32 bytes).
+// The reveal path is part of this component's contract, so a missing
+// or wrong-sized key is a boot-time misconfiguration, not a runtime
+// surprise (fail fast).
+func loadMasterKey() ([]byte, error) {
+	raw := os.Getenv("IDENTITY_KEY_MASTER_KEY")
+	if raw == "" {
+		return nil, errors.New("missing required config: IDENTITY_KEY_MASTER_KEY")
+	}
+	key, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("IDENTITY_KEY_MASTER_KEY must be base64: %w", err)
+	}
+	if len(key) != keyadapter.KeyByteLen {
+		return nil, fmt.Errorf("IDENTITY_KEY_MASTER_KEY must decode to %d bytes, got %d", keyadapter.KeyByteLen, len(key))
+	}
+	return key, nil
 }
 
 // run wires and serves; separated from main for the smoke-test shape
@@ -122,13 +220,30 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	keyRepo := keyadapter.NewRepository(db)
+	sealer, sealErr := keyadapter.NewSealer(cfg.keyMasterKey, rand.Reader)
+	if sealErr != nil {
+		return sealErr
+	}
+	keySvc := keyapp.NewService(keyRepo, repo, sealer, rand.Reader, clockFn, cfg.keyIssueLimit, cfg.keyIssueWindow)
+
 	policySvc := policyapp.NewService(policyStore, clockFn)
 	provider := authnadapter.NewLocalProvider(db, cfg.tokenTTL, rand.Reader, clockFn)
 	loginSvc := authnapp.NewLoginService(provider, cfg.tokenTTL, clockFn)
+
+	// The feed's revision hub is bumped by every mutating capability
+	// after a persisted write; the watch endpoint wakes immediately.
+	feedSvc := gatewayfeedapp.NewService(gatewayfeedadapter.NewStore(db), gatewayfeedapp.NewHub(), cfg.watchTimeout)
+	principalSvc.SetRevisionNotifier(feedSvc.Hub())
+	keySvc.SetRevisionNotifier(feedSvc.Hub())
+
 	mux := routeMux(provider, newArgonLimit(cfg.argonConcurrency),
 		principalapp.NewHandler(principalSvc),
 		policyapp.NewHandler(policySvc),
 		authnapp.NewHandler(loginSvc),
+		keyapp.NewHandler(keySvc),
+		gatewayfeedapp.NewHandler(feedSvc),
+		cfg.gatewayToken,
 	)
 
 	server := &http.Server{
@@ -136,7 +251,7 @@ func run(log *slog.Logger) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      serverWriteTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -164,14 +279,21 @@ func run(log *slog.Logger) error {
 }
 
 // routeMux assembles the v1 API. Self register/login are open (the
-// argon limiter bounds their hashing work); every other route carries
-// the Bearer auth middleware, and admin routes additionally require
-// the admin role.
-func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler) *http.ServeMux {
+// argon limiter bounds their hashing work); every other self/admin
+// route carries the Bearer auth middleware (admin routes additionally
+// require the admin role). The gateway-facing routes are the internal
+// data-plane contract: service-token guarded, never user-facing.
+func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler, keyH *keyapp.Handler, feedH *gatewayfeedapp.Handler, gatewayToken string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/self/register", limit.wrap(http.HandlerFunc(principalH.RegisterSelf)))
 	mux.Handle("POST /v1/self/login", limit.wrap(http.HandlerFunc(authnH.Login)))
 	mux.Handle("GET /v1/self/me", requireAuth(provider, false, http.HandlerFunc(principalH.Me)))
+
+	mux.Handle("POST /v1/self/keys", requireAuth(provider, false, http.HandlerFunc(keyH.IssueSelf)))
+	mux.Handle("GET /v1/self/keys", requireAuth(provider, false, http.HandlerFunc(keyH.ListSelf)))
+	mux.Handle("GET /v1/self/keys/{id}", requireAuth(provider, false, http.HandlerFunc(keyH.GetSelf)))
+	mux.Handle("POST /v1/self/keys/{id}/reveal", requireAuth(provider, false, http.HandlerFunc(keyH.RevealSelf)))
+	mux.Handle("DELETE /v1/self/keys/{id}", requireAuth(provider, false, http.HandlerFunc(keyH.RevokeSelf)))
 
 	mux.Handle("POST /v1/admin/principals", requireAuth(provider, true, http.HandlerFunc(principalH.ProvisionAdmin)))
 	mux.Handle("GET /v1/admin/principals", requireAuth(provider, true, http.HandlerFunc(principalH.ListAdmin)))
@@ -179,8 +301,13 @@ func routeMux(provider authnport.Provider, limit *argonLimit, principalH *princi
 	mux.Handle("POST /v1/admin/principals/{id}/approve", requireAuth(provider, true, http.HandlerFunc(principalH.ApproveAdmin)))
 	mux.Handle("POST /v1/admin/principals/{id}/status", requireAuth(provider, true, http.HandlerFunc(principalH.SetStatusAdmin)))
 	mux.Handle("POST /v1/admin/invites", requireAuth(provider, true, http.HandlerFunc(principalH.CreateInviteAdmin)))
+	mux.Handle("GET /v1/admin/principals/{id}/keys", requireAuth(provider, true, http.HandlerFunc(keyH.ListForPrincipalAdmin)))
+	mux.Handle("DELETE /v1/admin/keys/{id}", requireAuth(provider, true, http.HandlerFunc(keyH.RevokeAdmin)))
 	mux.Handle("GET /v1/admin/policy", requireAuth(provider, true, http.HandlerFunc(policyH.GetAdmin)))
 	mux.Handle("PUT /v1/admin/policy", requireAuth(provider, true, http.HandlerFunc(policyH.SetAdmin)))
+
+	mux.Handle("GET /v1/gateway/feed", gatewayfeedapp.RequireServiceToken(gatewayToken, http.HandlerFunc(feedH.Feed)))
+	mux.Handle("POST /v1/gateway/keys/validate", gatewayfeedapp.RequireServiceToken(gatewayToken, http.HandlerFunc(feedH.Validate)))
 	return mux
 }
 

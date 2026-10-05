@@ -2,6 +2,13 @@
 # rule). Version 3 schema (go-arch-lint v1.19): dependencies not
 # declared under deps: are rejected. internal/ visibility plus this
 # matrix are the two gates on package coupling.
+#
+# Slice B adds control-adapter: the identity HTTP client (feed fetch +
+# watch long-poll + validate) and the identity-backed Authenticator
+# implementing the front-port. It depends on control-app for the
+# KeyCache/Syncer shapes and on front-port for the Authenticator
+# contract; the JSON DTOs are defined adapter-side (AD-34 rule 2 — no
+# shared platform lib, each component owns its wire shapes).
 version: 3
 
 allow:
@@ -14,15 +21,16 @@ excludeFiles:
   - "^.*_test\\.go$" # test doubles legitimately cross seams
 
 components:
-  engineplane:    { in: internal/engineplane }
-  front-domain:   { in: internal/front/domain }
-  front-port:     { in: internal/front/port }
-  front-app:      { in: internal/front/app }
-  front-adapter:  { in: internal/front/adapter }
-  control-domain: { in: internal/control/domain }
-  control-app:    { in: internal/control/app }
-  engine-default: { in: internal/engine/default }
-  cmd:            { in: cmd/gateway }
+  engineplane:     { in: internal/engineplane }
+  front-domain:    { in: internal/front/domain }
+  front-port:      { in: internal/front/port }
+  front-app:       { in: internal/front/app }
+  front-adapter:   { in: internal/front/adapter }
+  control-domain:  { in: internal/control/domain }
+  control-app:     { in: internal/control/app }
+  control-adapter: { in: internal/control/adapter }
+  engine-default:  { in: internal/engine/default }
+  cmd:             { in: cmd/gateway }
 
 deps:
   front-app:
@@ -37,8 +45,11 @@ deps:
   control-app:
     mayDependOn: [control-domain]
 
+  control-adapter:
+    mayDependOn: [front-port, control-app]
+
   engine-default:
     mayDependOn: [engineplane]
 
   cmd:
-    mayDependOn: [engineplane, front-domain, front-app, front-adapter, control-app, engine-default]
+    mayDependOn: [engineplane, front-domain, front-app, front-adapter, control-domain, control-app, control-adapter, engine-default]

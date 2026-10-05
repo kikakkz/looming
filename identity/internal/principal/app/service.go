@@ -47,12 +47,30 @@ type PasswordHasher interface {
 
 // Service is the principal use-case orchestrator.
 type Service struct {
-	repo    port.Repository
-	invites port.InviteRepository
-	policy  policyport.Store
-	hasher  PasswordHasher
-	rng     io.Reader
-	clock   func() time.Time
+	repo     port.Repository
+	invites  port.InviteRepository
+	policy   policyport.Store
+	hasher   PasswordHasher
+	notifier RevisionNotifier
+	rng      io.Reader
+	clock    func() time.Time
+}
+
+// RevisionNotifier is the gateway-feed revision hub's consumer-side
+// seam; cmd injects the shared hub. Status changes move keys in and
+// out of the feed (a disabled principal's keys vanish), so the feed
+// must wake on every persisted transition. Nil is tolerated.
+type RevisionNotifier interface {
+	Bump()
+}
+
+// SetRevisionNotifier attaches the feed-revision hub; optional.
+func (s *Service) SetRevisionNotifier(n RevisionNotifier) { s.notifier = n }
+
+func (s *Service) bump() {
+	if s.notifier != nil {
+		s.notifier.Bump()
+	}
 }
 
 // NewService wires the service. clock and rng are injected (AD-25: no
@@ -217,7 +235,12 @@ func (s *Service) Approve(ctx context.Context, id string) (*principaldomain.Prin
 	if err := p.Approve(s.clock()); err != nil {
 		return nil, err
 	}
-	return s.repo.UpdateStatus(ctx, p)
+	approved, updateErr := s.repo.UpdateStatus(ctx, p)
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	s.bump()
+	return approved, nil
 }
 
 // SetStatus disables or re-enables a principal, enforcing the domain
@@ -230,7 +253,12 @@ func (s *Service) SetStatus(ctx context.Context, id string, status principaldoma
 	if err := p.SetStatus(status, s.clock()); err != nil {
 		return nil, err
 	}
-	return s.repo.UpdateStatus(ctx, p)
+	updated, updateErr := s.repo.UpdateStatus(ctx, p)
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	s.bump()
+	return updated, nil
 }
 
 // Get returns one principal.

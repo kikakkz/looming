@@ -59,16 +59,6 @@ func TestLogMeterRecordsALine(t *testing.T) {
 	LogMeter{}.Record(context.Background(), domain.MeterRecord{Subject: "ker", Model: "gpt-5", Outcome: "completed"})
 }
 
-func TestStaticAuthenticator(t *testing.T) {
-	a := StaticAuthenticator{Keys: map[string]string{"k": "ker"}}
-	if s, err := a.Authenticate(context.Background(), "k"); err != nil || s != "ker" {
-		t.Fatalf("valid key: %q %v", s, err)
-	}
-	if _, err := a.Authenticate(context.Background(), "nope"); err == nil {
-		t.Fatal("unknown key must fail closed")
-	}
-}
-
 func TestStaticAllowlistUnknownSubjectEmpty(t *testing.T) {
 	a := StaticAllowlist{ModelsBySubject: map[string][]string{"ker": {"gpt-5"}}}
 	models, err := a.Models(context.Background(), "ghost")

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command gateway runs the slice-1 gateway: front layer served on a
-// port, default engine proxying to a configured upstream, static
-// config stand-ins for the identity projection (cache wiring lands
-// with the control-plane slice).
+// Command gateway runs the slice-B gateway: front layer served on a
+// port, default engine proxying to a configured upstream, and the
+// control plane's identity projection (KeyCache + Syncer over the
+// identity feed) backing authentication. The static GATEWAY_KEYS
+// stand-in is retired — identity is the key authority.
 package main
 
 import (
@@ -12,9 +13,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
+	controladapter "github.com/kikakkz/looming/gateway/internal/control/adapter"
+	controlapp "github.com/kikakkz/looming/gateway/internal/control/app"
+	controldomain "github.com/kikakkz/looming/gateway/internal/control/domain"
 	defaultengine "github.com/kikakkz/looming/gateway/internal/engine/default"
 	"github.com/kikakkz/looming/gateway/internal/front/adapter"
 	frontapp "github.com/kikakkz/looming/gateway/internal/front/app"
@@ -51,8 +57,55 @@ func run(log *slog.Logger) error {
 	engine := defaultengine.NewWithUpstream(upstream, upstreamAuth)
 	queue := adapter.NewChanQueue(queueSize())
 	go adapter.DrainInteractions(context.Background(), queue, log)
+
+	identityURL := os.Getenv("GATEWAY_IDENTITY_URL")
+	if identityURL == "" {
+		return errConfig("GATEWAY_IDENTITY_URL")
+	}
+	identityTarget, err := url.Parse(identityURL)
+	if err != nil {
+		return err
+	}
+	// The service token and raw validate keys ride this link; plain
+	// HTTP needs an explicit trusted-network opt-out (the bundle's
+	// loopback deployments set it, anything crossed-hosts must not).
+	if identityTarget.Scheme != "https" && os.Getenv("GATEWAY_IDENTITY_INSECURE") != "1" {
+		return &configError{name: "GATEWAY_IDENTITY_URL must be https unless GATEWAY_IDENTITY_INSECURE=1 (trusted network)"}
+	}
+	identityToken := os.Getenv("GATEWAY_IDENTITY_TOKEN")
+	if identityToken == "" {
+		return errConfig("GATEWAY_IDENTITY_TOKEN")
+	}
+	watchTimeout, err := envDuration("GATEWAY_IDENTITY_WATCH_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return err
+	}
+	staleAfter, err := envDuration("GATEWAY_IDENTITY_SYNC_STALE_AFTER", 2*watchTimeout)
+	if err != nil {
+		return err
+	}
+
+	// The identity projection: the syncer keeps the KeyCache a faithful
+	// copy of the authority's feed; the authenticator authorizes off
+	// the cache and falls back to the origin validate endpoint. Both
+	// ride the same signal context so process shutdown stops the sync
+	// loop (the server keeps its existing semantics).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	identityClient := controladapter.NewIdentityClient(identityURL, identityToken, watchTimeout)
+	keyCache := controlapp.NewKeyCache(time.Now)
+	syncer := controlapp.NewSyncer(identityClient, keyCache,
+		controldomain.Backoffer{Base: time.Second, Cap: 30 * time.Second},
+		staleAfter, time.Now, log)
+	go func() {
+		if err := syncer.Run(ctx); err != nil {
+			log.Error("identity syncer stopped", "err", err)
+		}
+	}()
+	authn := controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log, syncer.Healthy)
+
 	front := frontapp.NewFront(
-		adapter.StaticAuthenticator{Keys: parseKeys(os.Getenv("GATEWAY_KEYS"))},
+		authn,
 		adapter.StaticAllowlist{ModelsBySubject: parseAllowlists(os.Getenv("GATEWAY_ALLOWLISTS"))},
 		frontdomain.NewChain(), // no chain links yet: jev/laya land with the risk slice
 		engine,
@@ -61,7 +114,7 @@ func run(log *slog.Logger) error {
 		frontapp.WithRecording(queue, adapter.LogMeter{}, transcriptCap()),
 	)
 
-	log.Info("gateway listening", "addr", listen, "upstream", upstreamURL)
+	log.Info("gateway listening", "addr", listen, "upstream", upstreamURL, "identity", identityURL)
 	server := &http.Server{
 		Addr:              listen,
 		Handler:           front,
@@ -73,6 +126,26 @@ func run(log *slog.Logger) error {
 	return server.ListenAndServe()
 }
 
+// positiveTTL is how long an origin-confirmed key authorizes without
+// revalidation; it composes with the feed watch for the revocation
+// bound (watch latency + TTL).
+func positiveTTL() time.Duration { return 30 * time.Second }
+
+// envDuration parses an optional duration env var, defaulting when
+// unset and failing fast on a malformed value (a silent default would
+// misconfigure the sync cadence).
+func envDuration(name string, def time.Duration) (time.Duration, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, &configError{name: name + " must be a duration like 30s"}
+	}
+	return d, nil
+}
+
 func errConfig(name string) error {
 	return &configError{name: name}
 }
@@ -81,18 +154,6 @@ type configError struct{ name string }
 
 func (c *configError) Error() string {
 	return "missing required config: " + c.name
-}
-
-// parseKeys parses "key=subject,key=subject".
-func parseKeys(s string) map[string]string {
-	out := map[string]string{}
-	for _, pair := range strings.Split(s, ",") {
-		kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-		if len(kv) == 2 {
-			out[kv[0]] = kv[1]
-		}
-	}
-	return out
 }
 
 // parseAllowlists parses "subject=model|model,subject=model".

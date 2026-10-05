@@ -465,16 +465,24 @@ func TestProvisionWithRoles(t *testing.T) {
 
 func TestApproveFlow(t *testing.T) {
 	repo := newFakeRepo()
+	notifier := &countingNotifier{}
 	svc := newTestService(repo, newFakeInvites(), policyOf(policydomain.ModeSelfRegisterWithApproval))
+	svc.SetRevisionNotifier(notifier)
 	p, err := svc.Register(context.Background(), RegisterInput{
 		Username: "ker", Password: "correct horse battery",
 	})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
+	if notifier.bumps != 0 {
+		t.Fatalf("registration does not move feed state, got %d bumps", notifier.bumps)
+	}
 	got, err := svc.Approve(context.Background(), p.ID)
 	if err != nil {
 		t.Fatalf("Approve: %v", err)
+	}
+	if notifier.bumps != 1 {
+		t.Fatalf("approve must bump the feed revision once, got %d", notifier.bumps)
 	}
 	if got.Status != domain.StatusActive {
 		t.Fatalf("want active, got %s", got.Status)
@@ -485,6 +493,47 @@ func TestApproveFlow(t *testing.T) {
 	_, err = svc.Approve(context.Background(), p.ID)
 	if !errors.Is(err, domain.ErrInvalidTransition) {
 		t.Fatalf("second approve must fail with ErrInvalidTransition, got %v", err)
+	}
+}
+
+// countingNotifier records feed-revision bumps so the principal
+// capability's half of the watch contract is observable.
+type countingNotifier struct{ bumps int }
+
+func (c *countingNotifier) Bump() { c.bumps++ }
+
+func TestStatusTransitionsBumpFeedRevision(t *testing.T) {
+	repo := newFakeRepo()
+	notifier := &countingNotifier{}
+	svc := newTestService(repo, newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+	svc.SetRevisionNotifier(notifier)
+	p, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "ker", Password: "correct horse battery", Kind: domain.KindHuman,
+	})
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if notifier.bumps != 0 {
+		t.Fatalf("registration and provisioning do not move feed state, got %d bumps", notifier.bumps)
+	}
+	if _, err := svc.SetStatus(context.Background(), p.ID, domain.StatusDisabled); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if notifier.bumps != 1 {
+		t.Fatalf("a persisted status change must bump the feed revision once, got %d", notifier.bumps)
+	}
+	if _, err := svc.SetStatus(context.Background(), p.ID, domain.StatusActive); err != nil {
+		t.Fatalf("re-enable: %v", err)
+	}
+	if notifier.bumps != 2 {
+		t.Fatalf("re-enable must bump again, got %d", notifier.bumps)
+	}
+	// A rejected transition must not bump.
+	if _, err := svc.SetStatus(context.Background(), p.ID, domain.StatusPending); err == nil {
+		t.Fatal("SetStatus(pending) must fail")
+	}
+	if notifier.bumps != 2 {
+		t.Fatalf("a rejected transition must not bump, got %d", notifier.bumps)
 	}
 }
 
