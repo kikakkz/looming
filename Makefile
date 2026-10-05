@@ -1,10 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-coverage
+.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
-ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-coverage
+ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage
 
 check-skills:
 	python3 .ai/tools/check_skills.py
@@ -51,16 +51,22 @@ lint-semgrep:
 		echo "semgrep: not installed, skipped (CI installs it)"; \
 	fi
 
-# Go targets follow the same warn-and-skip policy as shellcheck: missing
-# tools or a missing go.mod skip loudly instead of failing. The CI job
-# that turns these red lands with the first Go component (CI-first rule).
-# Go checks run inside the gateway component (polyglot layout, AD-34):
-# language-specific tools stay under the component they serve.
+# Go components follow the polyglot layout (AD-34): every component owns
+# one go.mod at its directory root. The Go targets below loop over each
+# discovered component; a missing tool skips loudly instead of failing
+# (same warn-and-skip policy as shellcheck; CI installs the tools and
+# turns these red). Language-specific tooling stays under the component
+# it serves: every check runs from inside that component's directory.
+GO_COMPONENTS := $(sort $(patsubst %/go.mod,%,$(wildcard */go.mod)))
+
 lint-go:
-	@if [ ! -f gateway/go.mod ]; then \
-		echo "lint-go: no gateway/go.mod, skipped"; \
+	@if [ -z "$(GO_COMPONENTS)" ]; then \
+		echo "lint-go: no Go components (no */go.mod), skipped"; \
 	elif command -v golangci-lint >/dev/null 2>&1; then \
-		cd gateway && golangci-lint run ./...; \
+		for c in $(GO_COMPONENTS); do \
+			echo "lint-go: $$c"; \
+			(cd $$c && golangci-lint run ./...) || exit 1; \
+		done; \
 	else \
 		echo "golangci-lint: not installed, skipped (CI installs it)"; \
 	fi
@@ -72,35 +78,68 @@ lint-pr-body:
 	@python3 .ai/tools/check_pr_body.py
 
 # AD-23 matrix enforcement (.go-arch-lint.yml); AD-33 extended it for
-# the gateway. Warns and skips when the tool is missing locally.
+# the gateway, AD-34 made it per-component. Warns and skips when the
+# tool is missing locally.
 lint-arch:
-	@if [ ! -f gateway/go.mod ]; then \
-		echo "lint-arch: no gateway/go.mod, skipped"; \
+	@if [ -z "$(GO_COMPONENTS)" ]; then \
+		echo "lint-arch: no Go components (no */go.mod), skipped"; \
 	elif command -v go-arch-lint >/dev/null 2>&1; then \
-		cd gateway && go-arch-lint check; \
+		for c in $(GO_COMPONENTS); do \
+			echo "lint-arch: $$c"; \
+			(cd $$c && go-arch-lint check) || exit 1; \
+		done; \
 	else \
 		echo "go-arch-lint: not installed, skipped (CI installs it)"; \
 	fi
 
 test-unit:
-	@if [ ! -f gateway/go.mod ]; then \
-		echo "test-unit: no gateway/go.mod, skipped"; \
+	@if [ -z "$(GO_COMPONENTS)" ]; then \
+		echo "test-unit: no Go components (no */go.mod), skipped"; \
 	elif command -v gotestsum >/dev/null 2>&1; then \
-		cd gateway && gotestsum --format testname -- -race ./...; \
+		for c in $(GO_COMPONENTS); do \
+			echo "test-unit: $$c"; \
+			(cd $$c && gotestsum --format testname -- -race ./...) || exit 1; \
+		done; \
 	else \
-		cd gateway && go test -race ./...; \
+		for c in $(GO_COMPONENTS); do \
+			echo "test-unit: $$c"; \
+			(cd $$c && go test -race ./...) || exit 1; \
+		done; \
+	fi
+
+# Integration layer (AD-25, `integration` build tag): testcontainers-go
+# needs a Docker daemon; without one the target skips loudly, same
+# warn-and-skip policy as the lint tools (CI provides Docker). Components
+# without integration-tagged files skip per component.
+test-integration:
+	@if [ -z "$(GO_COMPONENTS)" ]; then \
+		echo "test-integration: no Go components (no */go.mod), skipped"; \
+	elif ! docker info >/dev/null 2>&1; then \
+		echo "test-integration: docker daemon unavailable, skipped (CI provides Docker)"; \
+	else \
+		for c in $(GO_COMPONENTS); do \
+			if grep -rqs --include='*.go' -e '^//go:build integration' $$c; then \
+				echo "test-integration: $$c"; \
+				(cd $$c && go test -tags integration ./...) || exit 1; \
+			else \
+				echo "test-integration: $$c has no integration-tagged files, skipped"; \
+			fi; \
+		done; \
 	fi
 
 test-coverage:
-	@if [ ! -f gateway/go.mod ]; then \
-		echo "test-coverage: no gateway/go.mod, skipped"; \
+	@if [ -z "$(GO_COMPONENTS)" ]; then \
+		echo "test-coverage: no Go components (no */go.mod), skipped"; \
 	elif command -v go >/dev/null 2>&1; then \
-		cd gateway && go test -covermode=atomic -coverprofile=coverage.out ./... && \
-		if command -v go-test-coverage >/dev/null 2>&1; then \
-			go-test-coverage -config=.testcoverage.yml; \
-		else \
-			go tool cover -func=coverage.out; \
-		fi; \
+		for c in $(GO_COMPONENTS); do \
+			echo "test-coverage: $$c"; \
+			(cd $$c && go test -covermode=atomic -coverprofile=coverage.out ./... && \
+			if command -v go-test-coverage >/dev/null 2>&1; then \
+				go-test-coverage -config=.testcoverage.yml; \
+			else \
+				go tool cover -func=coverage.out; \
+			fi) || exit 1; \
+		done; \
 	else \
 		echo "go: not installed, skipped (CI installs it)"; \
 	fi
