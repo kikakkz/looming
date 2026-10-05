@@ -17,8 +17,8 @@ import (
 type Mode string
 
 const (
-	ModeAdminOnly             Mode = "admin-only"
-	ModeInvite                Mode = "invite"
+	ModeAdminOnly                Mode = "admin-only"
+	ModeInvite                   Mode = "invite"
 	ModeSelfRegisterWithApproval Mode = "self-register-with-approval"
 )
 

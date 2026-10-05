@@ -3,11 +3,13 @@
 # declared under deps: are rejected. internal/ visibility plus this
 # matrix are the two gates on package coupling.
 #
-# principal-app additionally depends on authn-port for one reason only:
-# the self-service HTTP handlers read the validated session (TokenInfo,
-# including its request-context plumbing — both defined in authn-port)
-# that the authn capability produces. No domain or orchestration
-# coupling crosses capabilities.
+# principal-app and policy-app additionally depend on authn-port for
+# one reason only: their admin handlers read the validated session
+# (TokenInfo, including its request-context plumbing — both defined in
+# authn-port) that the authn middleware produced, e.g. to name the actor
+# in the policy audit column. principal-app also reads policy-domain
+# directly: registration dispatches on the Mode vocabulary of the
+# policy aggregate. No persistence coupling crosses capabilities.
 #
 # authn-adapter queries the principals table via its own SQL (the local
 # provider's private read model: password hash, status, roles); it does
@@ -45,7 +47,7 @@ deps:
     mayDependOn: [principal-domain]
 
   principal-app:
-    mayDependOn: [principal-domain, principal-port, policy-port, authn-port]
+    mayDependOn: [principal-domain, principal-port, policy-domain, policy-port, authn-port]
 
   principal-adapter:
     mayDependOn: [principal-domain, principal-port]
@@ -54,7 +56,7 @@ deps:
     mayDependOn: [policy-domain]
 
   policy-app:
-    mayDependOn: [policy-domain, policy-port]
+    mayDependOn: [policy-domain, policy-port, authn-port]
 
   policy-adapter:
     mayDependOn: [policy-domain, policy-port]
@@ -67,9 +69,6 @@ deps:
 
   authn-adapter:
     mayDependOn: [authn-domain, authn-port]
-
-  migrations:
-    mayDependOn: []
 
   tests:
     mayDependOn: [migrations]

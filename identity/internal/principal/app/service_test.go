@@ -2,7 +2,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"sort"
@@ -186,7 +185,20 @@ func policyOf(mode policydomain.Mode) *fakePolicy {
 }
 
 func newTestService(repo *fakeRepo, invites *fakeInvites, pol *fakePolicy) *Service {
-	return NewService(repo, invites, pol, fakeHasher{}, bytes.NewReader(make([]byte, 32)), func() time.Time { return testNow })
+	return NewService(repo, invites, pol, fakeHasher{}, &seqByteReader{}, func() time.Time { return testNow })
+}
+
+// seqByteReader is an infinite deterministic reader: every generated
+// token differs (a fixed 32-byte buffer would exhaust after one use and
+// collide on every call).
+type seqByteReader struct{ n byte }
+
+func (s *seqByteReader) Read(p []byte) (int, error) {
+	for i := range p {
+		s.n++
+		p[i] = s.n
+	}
+	return len(p), nil
 }
 
 // --- use-case tests ---

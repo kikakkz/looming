@@ -77,13 +77,13 @@ func TestNewRegistrationWithRoles(t *testing.T) {
 func TestNewRegistrationRejectsBadInput(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
-		name    string
-		id      string
+		name     string
+		id       string
 		username string
-		kind    Kind
-		display string
-		status  Status
-		wantErr error
+		kind     Kind
+		display  string
+		status   Status
+		wantErr  error
 	}{
 		{"bad username", "id", "K!", KindHuman, "", StatusPending, ErrInvalidUsername},
 		{"bad kind", "id", "ker", Kind("bot"), "", StatusPending, ErrInvalidKind},
