@@ -24,6 +24,9 @@
 # AD-36 re-validated 2026-10-05: all read_order anchors resolve.
 # 2026-10-05 topology T0 (#107) re-validated: AGENTS.md directory map
 # gains topology/; all read_order anchors resolve.
+# 2026-10-05 topology T1 (#107) re-validated: AGENTS.md directory map
+# topology/ line now names the apply pipeline + cmd/looming-ctl;
+# all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
