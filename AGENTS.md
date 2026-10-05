@@ -51,37 +51,32 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   `Closes`/`Fixes` need no reason. Skips without a PR body — in CI
   the `pull_request` job feeds it via `PR_BODY`; locally pass
   `PR_BODY="$(cat body.md)" make lint-pr-body`.
-- `make lint-arch` — AD-23 dependency-matrix enforcement via
-  go-arch-lint (`gateway/.go-arch-lint.yml`, AD-33/AD-34 for the gateway); deps not
-  listed are rejected. Warns and skips when the tool is missing.
 - `make check-branch` — validate the current branch name against the
   naming rule before push (same rule as the `branch-name` CI check). Run
   `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
   check prefix/title consistency.
-- `make validate-locks` — validate `.ai/*.lock.toml` files and the memory
-  bank.
+- `make validate-locks` — validate `.ai/*.lock.toml` files and the memory bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
 - `make check-adr` — validate decision-record links and index freshness.
-- `make check-docs` — doc-repo consistency: documented make targets
-  exist, ci-gate prerequisites are named here, skill counts and memory
-  wikilinks resolve.
+- `make check-docs` — doc-repo consistency: documented make targets exist,
+  ci-gate prerequisites are named here, skill counts and memory wikilinks resolve.
 - `make lint-sh` — shellcheck over the repo scripts.
-- `make check-skills` — validate every `.ai/skills/*/SKILL.md` against
-  the Agent Skills frontmatter contract.
-- `make check-index` — validate `.ai/index.yaml`: parseable under the
-  constrained subset, no unknown sections, every anchor (files, dirs,
-  rule pointers) exists.
-- `make lint-semgrep` — validate the custom rule fixtures
-  (`semgrep --test`) and scan `.ai/tools` with the rule pack
-  (`.ai/semgrep/rules`); warns and skips when semgrep is missing locally.
-- `make lint-go` — golangci-lint in `gateway/` (complexity budgets,
-  AD-24); warns and skips when golangci-lint or `gateway/go.mod` is missing.
-- `make test-unit` — Go unit tests with `-race`; falls back to plain
-  `go test` in `gateway/` without gotestsum; skips when
-  `gateway/go.mod` is missing.
-- `make test-coverage` — coverage profile plus the go-test-coverage
-  threshold check (`.testcoverage.yml`, AD-25) when installed.
+- `make check-skills` — validate every `.ai/skills/*/SKILL.md` against the Agent Skills frontmatter contract.
+- `make check-index` — validate `.ai/index.yaml`: parseable under the constrained subset, no unknown sections, every anchor (files, dirs, rule pointers) exists.
+- `make lint-semgrep` — validate the custom rule fixtures (`semgrep --test`) and scan `.ai/tools` with the rule pack (`.ai/semgrep/rules`); warns and skips when semgrep is missing locally.
+- `make lint-go` — golangci-lint per Go component (complexity budgets,
+  AD-24); warns and skips when golangci-lint or any `*/go.mod` is missing.
+- `make lint-arch` — AD-23 dependency-matrix enforcement per component
+  via go-arch-lint (`<component>/.go-arch-lint.yml`, AD-33/AD-34); warns
+  and skips when the tool is missing.
+- `make test-unit` — Go unit tests with `-race` per component; falls back
+  to plain `go test` without gotestsum; skips when no `*/go.mod` exists.
+- `make test-integration` — `integration`-tagged tests (testcontainers-go,
+  AD-25) per component; loud skip without a Docker daemon or
+  integration-tagged files.
+- `make test-coverage` — per-component coverage profile plus the
+  go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
 
 ## Go engineering standards
 
@@ -99,15 +94,17 @@ implementations). `<component>/cmd/<binary>/` holds only `main`
 wiring. The repo root stays language-neutral; other languages claim
 their own top-level component directories.
 
-**Architecture (AD-23).** The bounded contexts and their dependency
-matrix are declared in `gateway/.go-arch-lint.yml`; dependencies not listed
-there are rejected by the linter. V0 contexts: `gateway/dp`,
+**Architecture (AD-23).** Each component's bounded contexts and their
+dependency matrix are declared in its own `.go-arch-lint.yml`
+(`gateway/.go-arch-lint.yml`, `identity/.go-arch-lint.yml`); dependencies
+not listed there are rejected by the linter. V0 contexts: `gateway/dp`,
 `gateway/cp`, `cicd`, `agentruntime`, `registry` — all independent.
 Extending the map requires a superseding AD in the same PR.
 
 **TDD and complexity (AD-24).** Red-green-refactor; the failing test
 lands before the implementation, in the same PR. Budgets enforced by
-`gateway/.golangci.yml`: ≤ 50 statements per function (funlen), gocognit ≤ 30,
+each component's `.golangci.yml` (gateway's verbatim where components
+share the ratchet): ≤ 50 statements per function (funlen), gocognit ≤ 30,
 cyclomatic ≤ 15. Budgets only ratchet down, via a superseding AD-24.
 Every `//nolint` names its linter, explains itself, and must be in use
 (nolintlint).
@@ -118,16 +115,17 @@ disk, or wall-clock), `integration` (testcontainers-go; GitLab CE via
 Regression protection is replay/fixture tests inside the unit and
 integration layers, added with every bug fix. Assertions: testify +
 go-cmp. Coverage ≥ 80% at file, package, and total granularity
-(go-test-coverage, `gateway/.testcoverage.yml`). A skipped test cites its
-`kind/flake` issue number; test-only helpers live under `tests/` and
-are never imported by production code.
+(go-test-coverage, each component's `.testcoverage.yml`). A skipped test
+cites its `kind/flake` issue number; test-only helpers live under
+`tests/` and are never imported by production code.
 
 ## Directory map
 
 - `gateway/` — the model-gateway component (Go): `go.mod`, `cmd/`,
   `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33),
-  and the Go tool configs. First component; others claim their own
-  top-level directories as they land (AD-34).
+  and the Go tool configs. First component (AD-34).
+- `identity/` — the identity component (Go, AD-34): principals,
+  registration policy, local authn (design: `docs/architecture/identity-l1.md`, AD-35).
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
   tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap
