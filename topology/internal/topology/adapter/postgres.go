@@ -61,14 +61,16 @@ func (s *Store) Save(ctx context.Context, t domain.Topology) error {
 	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO topology (id, access_mode, revision, updated_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO topology (id, access_mode, access_transport, access_endpoint, revision, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO UPDATE
-		SET access_mode = EXCLUDED.access_mode,
-		    revision    = EXCLUDED.revision,
-		    updated_at  = EXCLUDED.updated_at
-		WHERE topology.revision = $3 - 1`,
-		t.ID, string(t.Access.Mode), t.Revision, t.UpdatedAt)
+		SET access_mode     = EXCLUDED.access_mode,
+		    access_transport = EXCLUDED.access_transport,
+		    access_endpoint = EXCLUDED.access_endpoint,
+		    revision        = EXCLUDED.revision,
+		    updated_at      = EXCLUDED.updated_at
+		WHERE topology.revision = $5 - 1`,
+		t.ID, string(t.Access.Mode), string(t.Access.Transport), string(t.Access.Endpoint), t.Revision, t.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("topology: save upsert: %w", err)
 	}
@@ -113,8 +115,9 @@ func (s *Store) Current(ctx context.Context) (domain.Topology, error) {
 	var t domain.Topology
 	t.ID = domain.SingletonID
 	err := s.db.QueryRowContext(ctx,
-		`SELECT access_mode, revision, updated_at FROM topology WHERE id = $1`, domain.SingletonID).
-		Scan(&t.Access.Mode, &t.Revision, &t.UpdatedAt)
+		`SELECT access_mode, access_transport, access_endpoint, revision, updated_at
+		   FROM topology WHERE id = $1`, domain.SingletonID).
+		Scan(&t.Access.Mode, &t.Access.Transport, &t.Access.Endpoint, &t.Revision, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Topology{}, domain.ErrNoTopology
 	}

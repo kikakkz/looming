@@ -18,6 +18,7 @@ import (
 	hostadapter "github.com/kikakkz/looming/topology/internal/host/adapter"
 	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
 	"github.com/kikakkz/looming/topology/internal/topology/adapter"
+	"github.com/kikakkz/looming/topology/internal/topology/app"
 	"github.com/kikakkz/looming/topology/internal/topology/domain"
 	"github.com/kikakkz/looming/topology/tests/pgtest"
 )
@@ -104,14 +105,46 @@ func TestStoreSaveCurrentRoundTrip(t *testing.T) {
 	got, err := store.Current(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, want.Revision, got.Revision)
-	// The schema persists the access mode only (the topology file stays
-	// the source of truth for the phase-1 transport/endpoint shape).
-	assert.Equal(t, want.Access.Mode, got.Access.Mode)
+	// The full access triple must round trip: converge-idempotency
+	// compares the reloaded value against the next declare.
+	assert.Equal(t, want.Access, got.Access)
 	assert.True(t, want.UpdatedAt.Equal(got.UpdatedAt),
 		"updated-at instant mismatch: %v vs %v", want.UpdatedAt, got.UpdatedAt)
 	if diff := cmp.Diff(want.Placements, got.Placements, byComponentHost()); diff != "" {
 		t.Fatalf("save/current placement round trip (-want +got):\n%s", diff)
 	}
+}
+
+// TestDeclareIsIdempotentAcrossReload is the regression guard for the
+// full-access round trip: a fresh Service over the same store — what
+// every `looming-ctl apply` invocation is — must no-op on an unchanged
+// declaration instead of bumping the revision.
+func TestDeclareIsIdempotentAcrossReload(t *testing.T) {
+	db := pgtest.NewDB(t)
+	registerHosts(t, db, hostA, hostB)
+	store := adapter.NewStore(db)
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	tick := func() time.Time { return now }
+
+	in := app.DeclareInput{
+		Hosts:      []string{hostA, hostB},
+		Placements: gatewayAndEngine(),
+		Access:     access(t, "public"),
+	}
+	first, err := app.NewService(store, tick).Declare(ctx, in)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), first.Revision)
+
+	second, err := app.NewService(store, tick).Declare(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, first.Revision, second.Revision, "a reload against unchanged desired state must not bump the revision")
+	assert.True(t, second.Matches(in.Access, in.Placements),
+		"the reloaded topology must describe the same desired state")
+	assert.True(t, first.UpdatedAt.Equal(second.UpdatedAt))
+
+	stored, err := store.Current(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), stored.Revision)
 }
 
 // byComponentHost orders placements by (component, host ID): Current

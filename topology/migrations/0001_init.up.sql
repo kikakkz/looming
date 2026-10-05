@@ -4,12 +4,18 @@
 
 -- Desired-state snapshot: exactly one row by fixed PK, so the
 -- singleton invariant holds structurally. Uninitialized (zero rows) is
--- a real state: Store.Current maps it to domain.ErrNoTopology.
+-- a real state: Store.Current maps it to domain.ErrNoTopology. The
+-- full access triple is persisted — not just the mode — because
+-- converge-idempotency compares the reloaded value against the next
+-- declare: a mode-only row would make every fresh-process apply bump
+-- the revision.
 CREATE TABLE topology (
-    id          text PRIMARY KEY,
-    access_mode text NOT NULL,
-    revision    bigint NOT NULL DEFAULT 1,
-    updated_at  timestamptz NOT NULL DEFAULT now()
+    id              text PRIMARY KEY,
+    access_mode     text NOT NULL,
+    access_transport text NOT NULL,
+    access_endpoint text NOT NULL,
+    revision        bigint NOT NULL DEFAULT 1,
+    updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
 -- Registered machines. address unique is the Host aggregate's uniqueness
