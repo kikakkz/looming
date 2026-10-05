@@ -1,0 +1,13 @@
+name: looming
+services:
+    gateway-front:
+        build:
+            context: gateway
+        environment:
+            GATEWAY_IDENTITY_INSECURE: "1"
+            GATEWAY_IDENTITY_URL: http://10.0.0.12:8081
+            GATEWAY_LISTEN: :8080
+            GATEWAY_UPSTREAM: http://10.0.0.13:4000
+        ports:
+            - 8080:8080
+        restart: unless-stopped

@@ -23,6 +23,10 @@ var (
 // lifts the invariant to N).
 const ComponentGatewayFront = "gateway-front"
 
+// ComponentIdentityd is the identity service's placement name — the
+// second member of the phase-1 render allowlist (T1).
+const ComponentIdentityd = "identityd"
+
 // ComponentPlacement is one component's desired placement: which host
 // it runs on, the named ports it claims, and free-form config. The
 // (Component, HostID) pair is unique within a declare set — the
