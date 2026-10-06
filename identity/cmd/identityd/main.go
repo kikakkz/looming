@@ -193,9 +193,12 @@ func loadEngineConfig(cfg *config) error {
 // engineURLIsSecure reports whether an engine admin URL may carry the
 // master key: HTTPS anywhere, or plain HTTP only on loopback — a local
 // dev engine — where no network crossing exists for a passive observer.
+// The URL must be a bare origin plus optional base path: a query or
+// fragment would break the client's path-appended endpoints, and the
+// admin channel has no use for either.
 func engineURLIsSecure(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.ForceQuery || u.RawQuery != "" || u.Fragment != "" {
 		return false
 	}
 	if u.Scheme == "https" {

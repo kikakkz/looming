@@ -244,6 +244,7 @@ func TestEngineURLIsSecure(t *testing.T) {
 	}{
 		{"https host", "https://litellm.internal:4000", true},
 		{"https with path", "https://engine.example.com/proxy/", true},
+		{"https semicolon path segment", "https://engine.example.com/a;b", true},
 		{"http localhost", "http://localhost:4000", true},
 		{"http loopback v4", "http://127.0.0.1:4000", true},
 		{"http loopback any", "http://127.1.2.3:4000", true},
@@ -251,6 +252,9 @@ func TestEngineURLIsSecure(t *testing.T) {
 		{"http dot localhost", "http://dev.localhost:4000", true},
 		{"http remote host", "http://litellm.internal:4000", false},
 		{"http subdomain", "http://engine.example.com", false},
+		{"query string", "https://engine.example.com?token=1", false},
+		{"forced query", "https://engine.example.com/?", false},
+		{"fragment", "https://engine.example.com/#admin", false},
 		{"ftp scheme", "ftp://localhost/engine", false},
 		{"garbage", "not-a-url", false},
 		{"empty", "", false},
