@@ -29,9 +29,14 @@ type CredentialRef string
 
 // Forwarder is the engine's data face: payload-preserving forwarding.
 // The model id travels inside the request untouched (AD-32: the front
-// layer does not route).
+// layer does not route). credential is the per-key engine credential
+// the identity feed provisioned for this caller (empty when
+// unprovisioned): the engine injects it as the upstream Authorization
+// when present and falls back to its configured default otherwise —
+// the front layer never puts the LoomingKey in the request it hands
+// over (gateway-l1 §6: engine credential southbound only).
 type Forwarder interface {
-	Forward(ctx context.Context, w http.ResponseWriter, r *http.Request) error
+	Forward(ctx context.Context, w http.ResponseWriter, r *http.Request, credential string) error
 }
 
 // EngineAdmin is the engine's control face: provisioning operations.
