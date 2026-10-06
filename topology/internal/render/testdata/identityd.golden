@@ -2,6 +2,8 @@ name: looming
 services:
     identityd:
         build:
+            args:
+                - GOPROXY
             context: identity
         environment:
             IDENTITY_DATABASE_URL: postgres://postgres:pw@10.0.0.11:5432/identity

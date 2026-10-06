@@ -385,19 +385,21 @@ func buildPlan(cfg *config.Config) (plan, error) {
 			return plan{}, fmt.Errorf("apply: placement of %q references unknown host %q", pl.Component, pl.Host)
 		}
 		p.domainPlacements = append(p.domainPlacements, domain.ComponentPlacement{
-			Component: pl.Component,
-			HostID:    dbHost,
-			Ports:     pl.Ports,
-			Config:    pl.Config,
+			Component:  pl.Component,
+			HostID:     dbHost,
+			Ports:      pl.Ports,
+			Config:     pl.Config,
+			ExtraHosts: pl.ExtraHosts,
 		})
 		// The render skeleton groups by operator-facing host id (the
 		// artifact key space); the dry-run path renders from it
 		// directly.
 		p.render.Placements = append(p.render.Placements, domain.ComponentPlacement{
-			Component: pl.Component,
-			HostID:    pl.Host,
-			Ports:     pl.Ports,
-			Config:    pl.Config,
+			Component:  pl.Component,
+			HostID:     pl.Host,
+			Ports:      pl.Ports,
+			Config:     pl.Config,
+			ExtraHosts: pl.ExtraHosts,
 		})
 	}
 	return p, nil

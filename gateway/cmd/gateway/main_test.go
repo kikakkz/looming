@@ -122,3 +122,73 @@ func TestGuideRouteOnlyClaimsRoot(t *testing.T) {
 		t.Fatalf("POST / must reach the front, got %q", rec.Body.String())
 	}
 }
+
+// TestLoadUpstreamEnvMatrix pins the upstream wiring contract: the
+// static auth value may ride plain HTTP only behind the explicit
+// trusted-network opt-out — the CWE-319 gate production wiring relies
+// on (the bundle e2e's loopback deployment is the opt-out's consumer).
+func TestLoadUpstreamEnvMatrix(t *testing.T) {
+	t.Setenv("GATEWAY_UPSTREAM", "")
+	t.Setenv("GATEWAY_UPSTREAM_AUTH", "")
+	t.Setenv("GATEWAY_UPSTREAM_INSECURE", "")
+
+	t.Run("absent upstream fails fast", func(t *testing.T) {
+		if _, _, err := loadUpstream(); err == nil || !strings.Contains(err.Error(), "GATEWAY_UPSTREAM") {
+			t.Fatalf("want a GATEWAY_UPSTREAM config error, got %v", err)
+		}
+	})
+
+	t.Run("auth over https is fine", func(t *testing.T) {
+		t.Setenv("GATEWAY_UPSTREAM", "https://api.example.com")
+		t.Setenv("GATEWAY_UPSTREAM_AUTH", "sk-static")
+		upstream, auth, err := loadUpstream()
+		if err != nil {
+			t.Fatalf("loadUpstream: %v", err)
+		}
+		if upstream.Scheme != "https" || auth != "sk-static" {
+			t.Fatalf("want https upstream with the static auth, got %v %q", upstream, auth)
+		}
+	})
+
+	t.Run("auth over plain http fails closed", func(t *testing.T) {
+		t.Setenv("GATEWAY_UPSTREAM", "http://host.docker.internal:4000")
+		t.Setenv("GATEWAY_UPSTREAM_AUTH", "sk-static")
+		if _, _, err := loadUpstream(); err == nil || !strings.Contains(err.Error(), "GATEWAY_UPSTREAM_INSECURE") {
+			t.Fatalf("want a GATEWAY_UPSTREAM_INSECURE config error, got %v", err)
+		}
+	})
+
+	t.Run("auth over plain http opts out explicitly", func(t *testing.T) {
+		t.Setenv("GATEWAY_UPSTREAM", "http://host.docker.internal:4000")
+		t.Setenv("GATEWAY_UPSTREAM_AUTH", "sk-static")
+		t.Setenv("GATEWAY_UPSTREAM_INSECURE", "1")
+		upstream, auth, err := loadUpstream()
+		if err != nil {
+			t.Fatalf("loadUpstream: %v", err)
+		}
+		if upstream.Scheme != "http" || auth != "sk-static" {
+			t.Fatalf("want the trusted-network opt-out to hold, got %v %q", upstream, auth)
+		}
+	})
+
+	t.Run("plain http requires the opt-out even without a static auth", func(t *testing.T) {
+		// Per-request engine credentials (provisioned keys) also ride
+		// this link, so the https gate is unconditional — absence of
+		// GATEWAY_UPSTREAM_AUTH is not a safe configuration.
+		t.Setenv("GATEWAY_UPSTREAM", "http://localhost:4000")
+		t.Setenv("GATEWAY_UPSTREAM_AUTH", "")
+		t.Setenv("GATEWAY_UPSTREAM_INSECURE", "")
+		if _, _, err := loadUpstream(); err == nil || !strings.Contains(err.Error(), "GATEWAY_UPSTREAM_INSECURE") {
+			t.Fatalf("want a GATEWAY_UPSTREAM_INSECURE config error, got %v", err)
+		}
+	})
+
+	t.Run("plain http with the explicit opt-out holds", func(t *testing.T) {
+		t.Setenv("GATEWAY_UPSTREAM", "http://localhost:4000")
+		t.Setenv("GATEWAY_UPSTREAM_AUTH", "")
+		t.Setenv("GATEWAY_UPSTREAM_INSECURE", "1")
+		if _, _, err := loadUpstream(); err != nil {
+			t.Fatalf("loadUpstream: %v", err)
+		}
+	})
+}

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -312,4 +313,94 @@ func TestStateComposeValidatesPort(t *testing.T) {
 func TestHashIsSha256Prefixed(t *testing.T) {
 	h := render.Hash("abc")
 	assert.Equal(t, "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", h)
+}
+
+// TestPlacementExtraHostsPassthrough pins the compose-level host-alias
+// channel placements gained for the bundle e2e (#107): entries render
+// into the service's extra_hosts, sorted (the content hash is the
+// render-diff anchor), and never into the inline environment.
+func TestPlacementExtraHostsPassthrough(t *testing.T) {
+	artifacts, err := render.Render(render.Input{
+		Hosts: []render.Host{{ID: "local", Address: "127.0.0.1"}},
+		Placements: []domain.ComponentPlacement{
+			{
+				Component:  domain.ComponentGatewayFront,
+				HostID:     "local",
+				Ports:      map[string]int{"http": 8080},
+				ExtraHosts: []string{"fake.upstream:10.0.0.99", "host.docker.internal:host-gateway"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, artifacts, 1)
+	assert.Contains(t, artifacts[0].Compose, "- host.docker.internal:host-gateway")
+	assert.Contains(t, artifacts[0].Compose, "- fake.upstream:10.0.0.99")
+	// Sorted: the fake upstream mapping sorts before the alias.
+	aliasAt := strings.Index(artifacts[0].Compose, "host.docker.internal:host-gateway")
+	fakeAt := strings.Index(artifacts[0].Compose, "fake.upstream:10.0.0.99")
+	assert.Greater(t, aliasAt, fakeAt, "extra_hosts must render sorted")
+	assert.NotContains(t, artifacts[0].Compose, "EXTRA_HOSTS", "extra_hosts never becomes an env name")
+
+	// Same set, different declared order: identical artifact (pure
+	// function of the declared set).
+	again, err := render.Render(render.Input{
+		Hosts: []render.Host{{ID: "local", Address: "127.0.0.1"}},
+		Placements: []domain.ComponentPlacement{
+			{
+				Component:  domain.ComponentGatewayFront,
+				HostID:     "local",
+				Ports:      map[string]int{"http": 8080},
+				ExtraHosts: []string{"host.docker.internal:host-gateway", "fake.upstream:10.0.0.99"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, artifacts[0].Compose, again[0].Compose)
+}
+
+// TestLoopbackTopologydGuideURL pins the loopback single-host
+// derivation: the gateway container cannot reach the host's loopback,
+// so the derived GATEWAY_TOPOLOGY_URL targets host.docker.internal
+// (config validation requires the matching host-gateway alias on the
+// gateway-front placement). Remote addresses keep the plain derivation.
+func TestLoopbackTopologydGuideURL(t *testing.T) {
+	placement := func() domain.ComponentPlacement {
+		return domain.ComponentPlacement{
+			Component: domain.ComponentTopologyd,
+			HostID:    "local",
+			Ports:     map[string]int{"http": 8181},
+		}
+	}
+	gateway := func() domain.ComponentPlacement {
+		return domain.ComponentPlacement{
+			Component: domain.ComponentGatewayFront,
+			HostID:    "local",
+			Ports:     map[string]int{"http": 8080},
+		}
+	}
+
+	renderOne := func(addr string) string {
+		artifacts, err := render.Render(render.Input{
+			Hosts:      []render.Host{{ID: "local", Address: addr}},
+			Placements: []domain.ComponentPlacement{gateway(), placement()},
+		})
+		require.NoError(t, err)
+		require.Len(t, artifacts, 1)
+		return artifacts[0].Compose
+	}
+
+	assert.Contains(t, renderOne("127.0.0.1"),
+		"GATEWAY_TOPOLOGY_URL: http://host.docker.internal:8181")
+	assert.Contains(t, renderOne("10.0.0.11"),
+		"GATEWAY_TOPOLOGY_URL: http://10.0.0.11:8181")
+}
+
+// TestIsLoopbackAddress pins the address classification both the
+// renderer's derivation and config validation rely on.
+func TestIsLoopbackAddress(t *testing.T) {
+	assert.True(t, render.IsLoopbackAddress("127.0.0.1"))
+	assert.True(t, render.IsLoopbackAddress("::1"))
+	assert.False(t, render.IsLoopbackAddress("10.0.0.11"))
+	assert.False(t, render.IsLoopbackAddress("host.docker.internal"))
+	assert.False(t, render.IsLoopbackAddress(""))
 }

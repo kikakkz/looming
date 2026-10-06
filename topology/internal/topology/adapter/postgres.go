@@ -31,11 +31,14 @@ func NewStore(db *sql.DB) *Store {
 
 var _ port.Store = (*Store)(nil)
 
-// placementDoc is the placements.config jsonb payload: the named ports
-// and the free-form config of one placement.
+// placementDoc is the placements.config jsonb payload: the named
+// ports, the free-form config, and the compose host aliases of one
+// placement. ExtraHosts is omitempty so rows written before the field
+// existed (ports+config only) still decode.
 type placementDoc struct {
-	Ports  map[string]int    `json:"ports"`
-	Config map[string]string `json:"config"`
+	Ports      map[string]int    `json:"ports"`
+	Config     map[string]string `json:"config"`
+	ExtraHosts []string          `json:"extra_hosts,omitempty"`
 }
 
 // isUniqueViolation reports whether err is a postgres 23505 — the
@@ -86,7 +89,7 @@ func (s *Store) Save(ctx context.Context, t domain.Topology) error {
 		return fmt.Errorf("topology: save clear placements: %w", err)
 	}
 	for _, p := range t.Placements {
-		payload, err := json.Marshal(placementDoc{Ports: p.Ports, Config: p.Config})
+		payload, err := json.Marshal(placementDoc{Ports: p.Ports, Config: p.Config, ExtraHosts: p.ExtraHosts})
 		if err != nil {
 			return fmt.Errorf("topology: save encode placement %q on %q: %w", p.Component, p.HostID, err)
 		}
@@ -145,7 +148,7 @@ func (s *Store) Current(ctx context.Context) (domain.Topology, error) {
 		if err := json.Unmarshal(payload, &doc); err != nil {
 			return domain.Topology{}, fmt.Errorf("topology: current placements decode %q on %q: %w", p.Component, p.HostID, err)
 		}
-		p.Ports, p.Config = doc.Ports, doc.Config
+		p.Ports, p.Config, p.ExtraHosts = doc.Ports, doc.Config, doc.ExtraHosts
 		t.Placements = append(t.Placements, p)
 	}
 	if err := rows.Err(); err != nil {

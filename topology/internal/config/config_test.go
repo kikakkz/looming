@@ -588,3 +588,101 @@ placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
 		require.NoError(t, err)
 	})
 }
+
+// TestGuideLoopbackHostGatewayWiring pins the bundle-e2e wiring rule:
+// topologyd on the loopback host makes the renderer derive
+// GATEWAY_TOPOLOGY_URL against host.docker.internal — reachable from
+// the gateway container only through the host-gateway extra_hosts
+// entry, so the config must declare it (otherwise the config applies
+// cleanly and the guide 503s forever). Remote-address topologyd keeps
+// the plain derivation and needs no alias.
+func TestGuideLoopbackHostGatewayWiring(t *testing.T) {
+	base := `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: PLACEHOLDER_ADDR}]
+placements:
+  - {component: gateway-front, host: only, ports: {http: 8080}, env_file: /etc/looming/gateway.envPLACEHOLDER_GW}
+  - {component: topologyd, host: only, ports: {http: 8181}, env_file: /etc/looming/topologyd.env}
+`
+	cases := []struct {
+		name    string
+		addr    string
+		gw      string
+		wantErr string // "" means valid
+	}{
+		{"loopback with host-gateway alias", "127.0.0.1", ", extra_hosts: [\"host.docker.internal:host-gateway\"]", ""},
+		{"loopback without the alias", "127.0.0.1", "", "host.docker.internal"},
+		{"remote address needs no alias", "10.0.0.11", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlDoc := strings.Replace(base, "PLACEHOLDER_ADDR", tc.addr, 1)
+			yamlDoc = strings.Replace(yamlDoc, "PLACEHOLDER_GW", tc.gw, 1)
+			_, err := load(t, yamlDoc)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, config.ErrInvalidPlacement)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+// TestPlacementExtraHostsValidation pins the entry shape the compose
+// passthrough accepts: every entry must be a hostname:address pair.
+func TestPlacementExtraHostsValidation(t *testing.T) {
+	base := `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.11}]
+placements:
+  - {component: gateway-front, host: only, ports: {http: 8080}, extra_hosts: [PLACEHOLDER]}
+`
+	cases := []struct {
+		name    string
+		entry   string
+		wantErr bool
+	}{
+		{"host-gateway alias", `"host.docker.internal:host-gateway"`, false},
+		{"plain ip mapping", `"fake.upstream:10.0.0.99"`, false},
+		{"missing address", `"host.docker.internal"`, true},
+		{"empty hostname", `":host-gateway"`, true},
+		{"empty entry", `""`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, strings.Replace(base, "PLACEHOLDER", tc.entry, 1))
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, config.ErrInvalidPlacement)
+				assert.Contains(t, err.Error(), "extra_hosts")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestGuideLoopbackSplitHostRejected pins the split-host guard: a
+// loopback topologyd derives the guide URL against host.docker.internal,
+// which resolves on the gateway container's OWN docker host — so a
+// gateway-front placed on a different host would reach the wrong host
+// entirely. Phase 1 rejects the combination instead of wiring a lie.
+func TestGuideLoopbackSplitHostRejected(t *testing.T) {
+	_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts:
+  - {id: local, address: 127.0.0.1}
+  - {id: remote, address: 10.0.0.11}
+placements:
+  - {component: gateway-front, host: remote, ports: {http: 8080}, env_file: /etc/looming/gateway.env}
+  - {component: topologyd, host: local, ports: {http: 8181}, env_file: /etc/looming/topologyd.env}
+`)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, config.ErrInvalidPlacement)
+	assert.Contains(t, err.Error(), "place gateway-front on host")
+}

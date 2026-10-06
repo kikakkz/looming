@@ -123,7 +123,11 @@ never forced there. Its env_file carries `TOPOLOGY_SERVICE_TOKEN`
 (the internal guide endpoint's guard); the renderer derives
 `GATEWAY_TOPOLOGY_URL` for the gateway front from this placement, so
 apply validates that both env_files are declared — an unwired token
-would crash-loop the gateway at boot or 503 the guide forever.
+would crash-loop the gateway at boot or 503 the guide forever. On the
+loopback single-host shape the derived URL targets
+`host.docker.internal` (the gateway container cannot use host
+loopback), so apply also requires the gateway-front placement to carry
+the `host.docker.internal:host-gateway` extra_hosts entry there.
 
 - `POST /v1/join` `{token, host: {id?, address, labels}}` →
   `201 {host_id, credential, cluster: {access}}`: validates and
@@ -176,3 +180,8 @@ invariant).
 - **T1** — apply converge: YAML → validate → DB → render.
 - **T2** — pull-join + tokens.
 - **T3** — guide render + gateway public route.
+
+The bundle e2e suite (`tests/e2e/`, AD-25's e2e layer) proves this
+design's spine end to end against real containers — apply → invite →
+first admin → member/key/quota → gateway forward → guide page toggle →
+pull-join → teardown (`make test-e2e`).

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 )
 
 // Placement-set invariants (topology-l1 §5: ComponentPlacement and
@@ -34,15 +35,21 @@ const ComponentIdentityd = "identityd"
 const ComponentTopologyd = "topologyd"
 
 // ComponentPlacement is one component's desired placement: which host
-// it runs on, the named ports it claims, and free-form config. The
-// (Component, HostID) pair is unique within a declare set — the
-// invariant is enforced here and by the placements table's
-// UNIQUE(component, host_id) constraint.
+// it runs on, the named ports it claims, free-form config, and optional
+// compose-level host aliases (extra_hosts). The (Component, HostID)
+// pair is unique within a declare set — the invariant is enforced here
+// and by the placements table's UNIQUE(component, host_id) constraint.
 type ComponentPlacement struct {
 	Component string
 	HostID    string
 	Ports     map[string]int
 	Config    map[string]string
+	// ExtraHosts is the compose service's extra_hosts passthrough:
+	// "hostname:address" entries (the docker host-gateway alias shape
+	// included) a container needs that plain env wiring cannot
+	// express. It renders into the service map only — never into the
+	// inline environment.
+	ExtraHosts []string
 }
 
 // ValidatePlacements enforces the phase-1 placement-set invariants
@@ -113,7 +120,19 @@ func samePlacement(a, b ComponentPlacement) bool {
 	return a.Component == b.Component &&
 		a.HostID == b.HostID &&
 		maps.Equal(a.Ports, b.Ports) &&
-		maps.Equal(a.Config, b.Config)
+		maps.Equal(a.Config, b.Config) &&
+		equalStringsUnordered(a.ExtraHosts, b.ExtraHosts)
+}
+
+// equalStringsUnordered compares two string sets ignoring order: the
+// renderer sorts extra_hosts, so a declaration-order change produces
+// the same compose artifact and must not bump the topology revision
+// (converge-idempotency).
+func equalStringsUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }
 
 // copyPlacements deep-copies a placement set so aggregates never alias
@@ -122,10 +141,11 @@ func copyPlacements(in []ComponentPlacement) []ComponentPlacement {
 	out := make([]ComponentPlacement, len(in))
 	for i, p := range in {
 		out[i] = ComponentPlacement{
-			Component: p.Component,
-			HostID:    p.HostID,
-			Ports:     maps.Clone(p.Ports),
-			Config:    maps.Clone(p.Config),
+			Component:  p.Component,
+			HostID:     p.HostID,
+			Ports:      maps.Clone(p.Ports),
+			Config:     maps.Clone(p.Config),
+			ExtraHosts: slices.Clone(p.ExtraHosts),
 		}
 	}
 	return out

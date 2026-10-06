@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -137,15 +138,17 @@ type Host struct {
 
 // Placement declares one component on one host: the named ports it
 // claims, free-form config entries that render into the component's
-// documented env prefix, and an optional operator-prepared env file —
-// the phase-1 secret channel (values stay out of the rendered inline
+// documented env prefix, compose-level host aliases (extra_hosts) the
+// container needs, and an optional operator-prepared env file — the
+// phase-1 secret channel (values stay out of the rendered inline
 // environment and out of the artifact's persisted content).
 type Placement struct {
-	Component string
-	Host      string
-	Ports     map[string]int
-	Config    map[string]string
-	EnvFile   string
+	Component  string
+	Host       string
+	Ports      map[string]int
+	Config     map[string]string
+	ExtraHosts []string
+	EnvFile    string
 }
 
 // Bootstrap is the optional first-admin section: after a successful
@@ -200,11 +203,12 @@ type rawHost struct {
 }
 
 type rawPlacement struct {
-	Component string            `yaml:"component"`
-	Host      string            `yaml:"host"`
-	Ports     map[string]int    `yaml:"ports"`
-	Config    map[string]string `yaml:"config"`
-	EnvFile   string            `yaml:"env_file"`
+	Component  string            `yaml:"component"`
+	Host       string            `yaml:"host"`
+	Ports      map[string]int    `yaml:"ports"`
+	Config     map[string]string `yaml:"config"`
+	ExtraHosts []string          `yaml:"extra_hosts"`
+	EnvFile    string            `yaml:"env_file"`
 }
 
 type rawBootstrap struct {
@@ -275,6 +279,8 @@ func Load(path string) (*Config, error) {
 		cfg.Hosts = append(cfg.Hosts, Host(h))
 	}
 	for _, p := range raw.Placements {
+		// Field-for-field convertible with rawPlacement: the compiler
+		// keeps the two structs in lockstep.
 		cfg.Placements = append(cfg.Placements, Placement(p))
 	}
 
@@ -537,11 +543,18 @@ func placementPortChecks(index int, p Placement, contract render.Contract, hostP
 }
 
 // placementConfigChecks validates the env wiring details: the optional
-// env_file path shape and config keys' env-name uniqueness after
-// folding. It returns "" when valid, else the operator-facing message.
+// env_file path shape, the extra_hosts entry shape, and config keys'
+// env-name uniqueness after folding. It returns "" when valid, else
+// the operator-facing message.
 func placementConfigChecks(p Placement, contract render.Contract) string {
 	if p.EnvFile != "" && !filepath.IsAbs(p.EnvFile) {
 		return fmt.Sprintf("env_file %q on %q must be an absolute path", p.EnvFile, p.Component)
+	}
+	for _, entry := range p.ExtraHosts {
+		host, address, ok := strings.Cut(entry, ":")
+		if !ok || strings.TrimSpace(host) == "" || strings.TrimSpace(address) == "" || strings.Contains(address, " ") {
+			return fmt.Sprintf("extra_hosts entry %q on %q is not a hostname:address pair", entry, p.Component)
+		}
 	}
 	envNames := map[string]string{contract.ListenEnv: "(listen port)"}
 	for key := range p.Config {
@@ -578,6 +591,13 @@ func renderConfigKey(key string) bool {
 // gateway token crash-loops the gateway at boot (fail fast), an
 // unwired topologyd token 503s the guide endpoint forever. Tokens
 // never render inline, so env_file presence is the checkable contract.
+//
+// Loopback addendum (bundle e2e, #107): when topologyd sits on the
+// loopback host, the derived URL targets HostGatewayAlias — reachable
+// from the gateway container only through the host-gateway mapping —
+// so the gateway-front placement must carry that extra_hosts entry.
+// Without the check the config applies cleanly and the guide 503s
+// forever, the exact failure mode this wiring section exists to catch.
 func (c *Config) validateGuideWiring(doc *yaml.Node) error {
 	var gatewayFront, topologyd *Placement
 	for i := range c.Placements {
@@ -607,7 +627,33 @@ func (c *Config) validateGuideWiring(doc *yaml.Node) error {
 		return c.fail(line, ErrInvalidPlacement,
 			"topologyd is placed, so the gateway front needs its guide token — declare an env_file on the gateway-front placement carrying GATEWAY_TOPOLOGY_TOKEN (tokens never render inline)")
 	}
+	if gatewayFront != nil && c.hostIsLoopback(topologyd.Host) {
+		if idx := placementIndex(c.Placements, *gatewayFront); idx < len(lines) {
+			line = lines[idx]
+		}
+		if gatewayFront.Host != topologyd.Host {
+			return c.fail(line, ErrInvalidPlacement,
+				"topologyd uses a loopback address, so the derived GATEWAY_TOPOLOGY_URL (%s) only resolves on that host — place gateway-front on host %q too; split loopback placements are not reachable in phase 1",
+				render.HostGatewayAlias, topologyd.Host)
+		}
+		if !slices.Contains(gatewayFront.ExtraHosts, render.HostGatewayMapping) {
+			return c.fail(line, ErrInvalidPlacement,
+				"topologyd sits on the loopback host, so the derived GATEWAY_TOPOLOGY_URL targets %s — add extra_hosts [%q] to the gateway-front placement so the container can reach the host's published port",
+				render.HostGatewayAlias, render.HostGatewayMapping)
+		}
+	}
 	return nil
+}
+
+// hostIsLoopback reports whether the declared host's address names this
+// very machine (the renderer's loopback guide-URL rule fires there).
+func (c *Config) hostIsLoopback(hostID string) bool {
+	for _, h := range c.Hosts {
+		if h.ID == hostID {
+			return render.IsLoopbackAddress(h.Address)
+		}
+	}
+	return false
 }
 
 // placementIndex finds a placement's position in the slice (the

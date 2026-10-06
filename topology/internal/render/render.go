@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"sort"
 	"strings"
@@ -35,6 +36,28 @@ const ComponentBundlePostgres = "bundle-postgres"
 // postgresDataTarget is the in-container path the bundle Postgres
 // data_dir bind-mounts onto.
 const postgresDataTarget = "/var/lib/postgresql/data"
+
+// HostGatewayAlias is the container-side alias for the docker host:
+// the loopback single-host deployment derives container-audience URLs
+// (the gateway's guide link) against it, and placements make it
+// resolvable through the host-gateway mapping entry. Config validation
+// and the renderer share these constants so the derivation rule and its
+// wiring requirement cannot drift apart.
+const HostGatewayAlias = "host.docker.internal"
+
+// HostGatewayMapping is the extra_hosts entry that resolves
+// HostGatewayAlias to the docker host from inside a container.
+const HostGatewayMapping = HostGatewayAlias + ":host-gateway"
+
+// IsLoopbackAddress reports whether addr names this very machine's
+// loopback (the phase-1 single-host degenerate case): the single-host
+// deployment is where containers need HostGatewayAlias to reach
+// host-published ports. Anything else — hostnames, remote IPs — is a
+// real network address containers (and other hosts) can already use.
+func IsLoopbackAddress(addr string) bool {
+	ip := net.ParseIP(addr)
+	return ip != nil && ip.IsLoopback()
+}
 
 // Render errors. These surface as config errors at the apply boundary:
 // they mean the declared topology asks for something phase-1 render
@@ -174,7 +197,14 @@ func postgresService(sp StatePostgres) map[string]any {
 // link, never an operator config key.
 func placementService(p domain.ComponentPlacement, c Contract, envFile, guideURL string) (map[string]any, error) {
 	svc := map[string]any{
-		"build":   map[string]any{"context": c.BuildDir},
+		// GOPROXY rides the build-args passthrough so a mirrored or
+		// offline build environment overrides the module proxy without
+		// editing the Dockerfile: compose takes a name-only arg from
+		// the invoking environment (the ctl shells out with the
+		// operator's env, and CI uses the Go default). First real
+		// container build this suite runs — pinned here so the hazard
+		// stays visible (bundle e2e, #107).
+		"build":   map[string]any{"context": c.BuildDir, "args": []string{"GOPROXY"}},
 		"restart": "unless-stopped",
 	}
 	if c.Entrypoint != "" {
@@ -182,6 +212,11 @@ func placementService(p domain.ComponentPlacement, c Contract, envFile, guideURL
 	}
 	if envFile != "" {
 		svc["env_file"] = []string{envFile}
+	}
+	if len(p.ExtraHosts) > 0 {
+		// Sorted copy: the compose hash is the render-diff anchor, so
+		// the artifact must be a pure function of the declared set.
+		svc["extra_hosts"] = sortedStrings(p.ExtraHosts)
 	}
 
 	ports := make([]string, 0, len(p.Ports))
@@ -260,6 +295,14 @@ func composeDocument(services map[string]any) (string, error) {
 // GATEWAY_TOPOLOGY_URL from this, never from operator config). Every
 // gap (no placement, no http port, unknown host) degrades to "": the
 // gateway then serves its 404 "not configured" stub.
+//
+// Loopback special case: when topologyd sits on this very host
+// (address 127.0.0.1), the URL is consumed from INSIDE the gateway
+// container, where loopback is the container itself — the derivation
+// therefore targets the docker host via HostGatewayAlias instead (the
+// published port is the host's). Config validation requires the
+// gateway-front placement to carry the matching host-gateway
+// extra_hosts entry whenever this rule fires, so the alias resolves.
 func topologydURL(in Input) string {
 	contract, ok := Lookup(domain.ComponentTopologyd)
 	if !ok || contract.ListenPort == "" {
@@ -275,12 +318,24 @@ func topologydURL(in Input) string {
 		}
 		for _, h := range in.Hosts {
 			if h.ID == p.HostID {
-				return fmt.Sprintf("http://%s:%d", h.Address, port)
+				host := h.Address
+				if IsLoopbackAddress(host) {
+					host = HostGatewayAlias
+				}
+				return fmt.Sprintf("http://%s:%d", host, port)
 			}
 		}
 		return ""
 	}
 	return ""
+}
+
+// sortedStrings returns a sorted copy of in — the deterministic output
+// the content hash needs.
+func sortedStrings(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
 }
 
 // StateCompose renders the standalone compose document the state-plane

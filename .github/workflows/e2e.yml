@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Bundle e2e (AD-25 e2e layer): runs the bootstrap scenario in
+# tests/e2e/ against real component containers on the runner's docker.
+# Deliberately separate from ci.yml's gate — this layer owns its cost
+# (own workflow, generous timeout), and pull requests see it as its own
+# check rather than inside the always-required gate.
+name: e2e
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      # Same install pattern as ci.yml's Go tooling step, scoped to
+      # what the suite compiles with.
+      - name: Install Go tooling
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Bundle bootstrap scenario (real containers)
+        run: make test-e2e

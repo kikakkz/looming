@@ -35,13 +35,34 @@ func main() {
 	}
 }
 
-// run wires and serves; separated from main for the smoke test.
-func run(log *slog.Logger) error {
+// loadUpstream resolves the engine upstream from the environment and
+// enforces the credential-safety gate: credentials ride the wire to
+// the upstream — the static GATEWAY_UPSTREAM_AUTH and, per request,
+// provisioned per-key engine credentials (Engine.Forward) — so plain
+// HTTP would hand them to any passive observer (CWE-319). HTTPS is
+// required unconditionally; plain HTTP only behind the explicit
+// trusted-network opt-out, the GATEWAY_IDENTITY_INSECURE precedent.
+// (The bundle e2e's loopback deployment sets the opt-out: its upstream
+// is a host-reachable fake engine, never a wire crossing.)
+func loadUpstream() (*url.URL, string, error) {
 	upstreamURL := os.Getenv("GATEWAY_UPSTREAM")
 	if upstreamURL == "" {
-		return errConfig("GATEWAY_UPSTREAM")
+		return nil, "", errConfig("GATEWAY_UPSTREAM")
 	}
 	upstream, err := url.Parse(upstreamURL)
+	if err != nil {
+		return nil, "", err
+	}
+	upstreamAuth := os.Getenv("GATEWAY_UPSTREAM_AUTH")
+	if upstream.Scheme != "https" && os.Getenv("GATEWAY_UPSTREAM_INSECURE") != "1" {
+		return nil, "", &configError{name: "GATEWAY_UPSTREAM must be https (trusted-network plain HTTP opts out with GATEWAY_UPSTREAM_INSECURE=1; engine credentials ride this link, static or per-request)"}
+	}
+	return upstream, upstreamAuth, nil
+}
+
+// run wires and serves; separated from main for the smoke test.
+func run(log *slog.Logger) error {
+	upstream, upstreamAuth, err := loadUpstream()
 	if err != nil {
 		return err
 	}
@@ -50,10 +71,6 @@ func run(log *slog.Logger) error {
 		listen = ":8080"
 	}
 
-	upstreamAuth := os.Getenv("GATEWAY_UPSTREAM_AUTH")
-	if upstreamAuth != "" && upstream.Scheme != "https" {
-		return &configError{name: "GATEWAY_UPSTREAM must be https when GATEWAY_UPSTREAM_AUTH is set"}
-	}
 	engine := defaultengine.NewWithUpstream(upstream, upstreamAuth)
 	queue := adapter.NewChanQueue(queueSize())
 	go adapter.DrainInteractions(context.Background(), queue, log)
@@ -92,7 +109,7 @@ func run(log *slog.Logger) error {
 	mux.Handle("GET /{$}", guide)
 	mux.Handle("/", front)
 
-	log.Info("gateway listening", "addr", listen, "upstream", upstreamURL, "identity", identityURL)
+	log.Info("gateway listening", "addr", listen, "upstream", upstream.String(), "identity", identityURL)
 	server := &http.Server{
 		Addr:              listen,
 		Handler:           mux,
