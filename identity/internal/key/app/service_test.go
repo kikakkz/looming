@@ -518,6 +518,7 @@ func (f *fakeProvisioner) Delete(_ context.Context, ref string) error {
 type fakeMapRepo struct {
 	mu        sync.Mutex
 	rows      map[string]*provisiondomain.IdentityMap
+	listErr   error
 	deleteErr error
 }
 
@@ -528,6 +529,9 @@ func newFakeMapRepo() *fakeMapRepo {
 func (f *fakeMapRepo) ListByKey(_ context.Context, keyID string) ([]*provisiondomain.IdentityMap, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	out := []*provisiondomain.IdentityMap{}
 	for _, m := range f.rows {
 		if m.KeyID == keyID {
@@ -786,5 +790,29 @@ func TestRevokeWithoutProvisionerLeavesMapAlone(t *testing.T) {
 	}
 	if len(repo.mapRows) != 0 {
 		t.Fatal("without an engine no map rows may exist")
+	}
+}
+
+func TestRevokeFallsBackToAliasDeleteWhenMapListFails(t *testing.T) {
+	repo := newFakeKeyRepo()
+	prov := newFakeProvisioner()
+	maps := newFakeMapRepo()
+	maps.listErr = errors.New("db down")
+	svc := provisionedService(repo, onePrincipal(), prov, maps, &fakeQuotaRepo{})
+
+	k, _, err := svc.Issue(ownerCtx(), "p-1", "engine")
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	prov.deletes = nil
+
+	if err := svc.Revoke(ownerCtx(), "p-1", k.ID); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	// The map is unreadable, but the credential's deterministic alias
+	// must still be deleted — a revoked key's engine credential cannot
+	// be allowed to outlive the revocation.
+	if len(prov.deletes) != 1 || prov.deletes[0] != "looming-"+k.ID {
+		t.Fatalf("fallback delete must target the deterministic alias, got %v", prov.deletes)
 	}
 }

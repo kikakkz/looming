@@ -161,6 +161,13 @@ func (s *Service) Issue(ctx context.Context, principalID, name string) (*keydoma
 	return k, secret, nil
 }
 
+// engineAlias is the deterministic engine-side name of the credential
+// for one LoomingKey. It anchors idempotency at creation (a rollback
+// and re-issue of the same key id lands the same alias) and lets
+// revocation delete the credential even when the map row is
+// unreachable (identity-l1 §7).
+func engineAlias(keyID string) string { return "looming-" + keyID }
+
 // issueProvisioned persists a key together with its engine credential.
 // Order matters (identity-l1 §4): the engine credential is created
 // FIRST, then the identity rows in one transaction; an identity-write
@@ -173,9 +180,7 @@ func (s *Service) issueProvisioned(ctx context.Context, k *keydomain.LoomingKey)
 	if err != nil {
 		return err
 	}
-	// The alias anchors idempotency (identity-l1 §7): a rollback and
-	// re-issue of the same key id lands the same engine-side name.
-	alias := "looming-" + k.ID
+	alias := engineAlias(k.ID)
 	ref, value, err := s.provisioner.Create(ctx, alias, quota)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrProvisionFailed, err)
@@ -297,8 +302,10 @@ func (s *Service) AdminRevoke(ctx context.Context, keyID string) error {
 // revocation). The map entry dies FIRST so the feed stops serving the
 // credential immediately; the engine delete is best-effort and failure
 // never blocks revocation — the map row is gone either way, so nothing
-// references the credential, and an orphaned engine credential is inert.
-// Failures are logged for an operator.
+// references the credential, and an orphaned engine credential is
+// inert. When the map itself is unreadable, the credential is deleted
+// by its deterministic creation alias instead. Failures are logged for
+// an operator.
 func (s *Service) revokeProvision(ctx context.Context, keyID string) {
 	if s.provisioner == nil || s.maps == nil {
 		return
@@ -306,6 +313,15 @@ func (s *Service) revokeProvision(ctx context.Context, keyID string) {
 	entries, err := s.maps.ListByKey(ctx, keyID)
 	if err != nil {
 		slog.ErrorContext(ctx, "identity: provision map list failed at revoke", "key_id", keyID, "err", err)
+		// The map row is unreachable, but the credential still has a
+		// deterministic engine-side name (engineAlias): delete it
+		// best-effort so a revoked key's credential cannot outlive the
+		// revocation — without this the LiteLLM key would remain valid
+		// for anyone holding it even though the feed hides it.
+		if derr := s.provisioner.Delete(ctx, engineAlias(keyID)); derr != nil {
+			slog.ErrorContext(ctx, "identity: fallback engine delete failed at revoke; orphan credential is inert",
+				"key_id", keyID, "credential_ref", engineAlias(keyID), "err", derr)
+		}
 		return
 	}
 	for _, entry := range entries {

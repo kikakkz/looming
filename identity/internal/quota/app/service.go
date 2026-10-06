@@ -60,7 +60,9 @@ func NewService(repo quotaport.Repository, principals principalport.Repository, 
 // projection: every active engine credential mapped to the principal's
 // keys receives SetBudget. Sweep failures are collected, never fatal —
 // the response stays 200 and the lag is visible in
-// budget_update_failures.
+// budget_update_failures, including a failed sweep itself: the
+// authority already changed, so the client must see the new quota
+// (re-PUT is idempotent when the projection recovers).
 func (s *Service) Set(ctx context.Context, principalID string, amount int64, unit string, windowDays int, actor string) (*quotadomain.Quota, []BudgetFailure, error) {
 	q, err := quotadomain.NewQuota(principalID, amount, quotadomain.Unit(unit), windowDays, actor, s.clock())
 	if err != nil {
@@ -74,7 +76,13 @@ func (s *Service) Set(ctx context.Context, principalID string, amount int64, uni
 	}
 	failures, err := s.propagate(ctx, q)
 	if err != nil {
-		return nil, nil, err
+		// The sweep itself failed (the map listing is identity-side, so
+		// this is not an engine outage): the persisted authority still
+		// returns 200 — the projection state is unknown and the failure
+		// entry says so. The detail stays server-side (CWE-209).
+		slog.ErrorContext(ctx, "identity: quota propagation sweep failed",
+			"principal_id", q.PrincipalID, "err", err)
+		return q, []BudgetFailure{{Message: "propagation sweep failed: engine budget projection state unknown"}}, nil
 	}
 	return q, failures, nil
 }
@@ -103,8 +111,9 @@ func (s *Service) propagate(ctx context.Context, q *quotadomain.Quota) ([]Budget
 	}
 	entries, _, err := s.maps.ListByPrincipal(ctx, q.PrincipalID, 0, 0)
 	if err != nil {
-		// The authority changed already; a sweep failure surfaces as an
-		// error so the operator retries the idempotent PUT.
+		// The authority changed already; the caller reports the sweep
+		// failure as a marker failure entry on the 200 (the detail stays
+		// in this wrapped error, logged server-side).
 		return nil, fmt.Errorf("identity: quota propagation sweep: %w", err)
 	}
 	failures := []BudgetFailure{}

@@ -333,18 +333,28 @@ func TestSetPropagatesFullOutageWith200Semantics(t *testing.T) {
 	}
 }
 
-func TestSetSurfacesMapSweepFailure(t *testing.T) {
+func TestSetSurfacesMapSweepFailureWith200Semantics(t *testing.T) {
 	repo := newFakeQuotaRepo()
 	principals := &fakePrincipalRepo{byID: map[string]*principaldomain.Principal{"p-1": activePrincipalMap("p-1")}}
 	maps := newFakeMapRepo()
 	maps.listErr = errors.New("db down")
 	svc := newTestService(repo, principals, maps, newFakeProvisioner())
 
-	if _, _, err := svc.Set(context.Background(), "p-1", 700, "usd", 30, "admin-1"); err == nil {
-		t.Fatal("a sweep failure must surface (quota persisted; the operator retries)")
+	// The sweep itself failed but the authority already changed: the
+	// client sees the new quota with a projection-state-unknown marker,
+	// never a 500 that would hide the persisted block/unblock.
+	q, failures, err := svc.Set(context.Background(), "p-1", 700, "usd", 30, "admin-1")
+	if err != nil {
+		t.Fatalf("a sweep failure must not fail the set, got %v", err)
+	}
+	if q.Amount != 700 {
+		t.Fatalf("the persisted quota must be returned: %+v", q)
 	}
 	if repo.upserts != 1 {
 		t.Fatalf("the authority change must land before the sweep, got %d upserts", repo.upserts)
+	}
+	if len(failures) != 1 || failures[0].Message == "" || failures[0].KeyID != "" {
+		t.Fatalf("one marker failure expected: %+v", failures)
 	}
 }
 
