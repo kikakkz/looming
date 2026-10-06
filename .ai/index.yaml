@@ -42,6 +42,8 @@
 # engine_credential consumption, Identity authenticator shape,
 # EnginePlane.Forward credential, per-request upstream auth with static
 # fallback); all read_order anchors resolve.
+# 2026-10-06 CLI L1 (#108) re-validated: AD-37 lands (regenerated
+# decisions/README.md); all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
