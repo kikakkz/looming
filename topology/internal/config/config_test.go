@@ -665,3 +665,24 @@ placements:
 		})
 	}
 }
+
+// TestGuideLoopbackSplitHostRejected pins the split-host guard: a
+// loopback topologyd derives the guide URL against host.docker.internal,
+// which resolves on the gateway container's OWN docker host — so a
+// gateway-front placed on a different host would reach the wrong host
+// entirely. Phase 1 rejects the combination instead of wiring a lie.
+func TestGuideLoopbackSplitHostRejected(t *testing.T) {
+	_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts:
+  - {id: local, address: 127.0.0.1}
+  - {id: remote, address: 10.0.0.11}
+placements:
+  - {component: gateway-front, host: remote, ports: {http: 8080}, env_file: /etc/looming/gateway.env}
+  - {component: topologyd, host: local, ports: {http: 8181}, env_file: /etc/looming/topologyd.env}
+`)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, config.ErrInvalidPlacement)
+	assert.Contains(t, err.Error(), "place gateway-front on host")
+}

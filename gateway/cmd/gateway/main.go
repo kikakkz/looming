@@ -36,12 +36,14 @@ func main() {
 }
 
 // loadUpstream resolves the engine upstream from the environment and
-// enforces the credential-safety gate: a static upstream auth value
-// rides the wire to the upstream, so plain HTTP would hand it to any
-// passive observer (CWE-319) — forbidden unless the operator opts out
-// explicitly for a trusted network, the GATEWAY_IDENTITY_INSECURE
-// precedent. (The bundle e2e's loopback deployment sets the opt-out:
-// its upstream is a host-reachable fake engine, never a wire crossing.)
+// enforces the credential-safety gate: credentials ride the wire to
+// the upstream — the static GATEWAY_UPSTREAM_AUTH and, per request,
+// provisioned per-key engine credentials (Engine.Forward) — so plain
+// HTTP would hand them to any passive observer (CWE-319). HTTPS is
+// required unconditionally; plain HTTP only behind the explicit
+// trusted-network opt-out, the GATEWAY_IDENTITY_INSECURE precedent.
+// (The bundle e2e's loopback deployment sets the opt-out: its upstream
+// is a host-reachable fake engine, never a wire crossing.)
 func loadUpstream() (*url.URL, string, error) {
 	upstreamURL := os.Getenv("GATEWAY_UPSTREAM")
 	if upstreamURL == "" {
@@ -52,8 +54,8 @@ func loadUpstream() (*url.URL, string, error) {
 		return nil, "", err
 	}
 	upstreamAuth := os.Getenv("GATEWAY_UPSTREAM_AUTH")
-	if upstreamAuth != "" && upstream.Scheme != "https" && os.Getenv("GATEWAY_UPSTREAM_INSECURE") != "1" {
-		return nil, "", &configError{name: "GATEWAY_UPSTREAM must be https when GATEWAY_UPSTREAM_AUTH is set (trusted-network plain HTTP opts out with GATEWAY_UPSTREAM_INSECURE=1)"}
+	if upstream.Scheme != "https" && os.Getenv("GATEWAY_UPSTREAM_INSECURE") != "1" {
+		return nil, "", &configError{name: "GATEWAY_UPSTREAM must be https (trusted-network plain HTTP opts out with GATEWAY_UPSTREAM_INSECURE=1; engine credentials ride this link, static or per-request)"}
 	}
 	return upstream, upstreamAuth, nil
 }

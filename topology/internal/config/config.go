@@ -627,13 +627,20 @@ func (c *Config) validateGuideWiring(doc *yaml.Node) error {
 		return c.fail(line, ErrInvalidPlacement,
 			"topologyd is placed, so the gateway front needs its guide token — declare an env_file on the gateway-front placement carrying GATEWAY_TOPOLOGY_TOKEN (tokens never render inline)")
 	}
-	if gatewayFront != nil && c.hostIsLoopback(topologyd.Host) && !slices.Contains(gatewayFront.ExtraHosts, render.HostGatewayMapping) {
+	if gatewayFront != nil && c.hostIsLoopback(topologyd.Host) {
 		if idx := placementIndex(c.Placements, *gatewayFront); idx < len(lines) {
 			line = lines[idx]
 		}
-		return c.fail(line, ErrInvalidPlacement,
-			"topologyd sits on the loopback host, so the derived GATEWAY_TOPOLOGY_URL targets %s — add extra_hosts [%q] to the gateway-front placement so the container can reach the host's published port",
-			render.HostGatewayAlias, render.HostGatewayMapping)
+		if gatewayFront.Host != topologyd.Host {
+			return c.fail(line, ErrInvalidPlacement,
+				"topologyd uses a loopback address, so the derived GATEWAY_TOPOLOGY_URL (%s) only resolves on that host — place gateway-front on host %q too; split loopback placements are not reachable in phase 1",
+				render.HostGatewayAlias, topologyd.Host)
+		}
+		if !slices.Contains(gatewayFront.ExtraHosts, render.HostGatewayMapping) {
+			return c.fail(line, ErrInvalidPlacement,
+				"topologyd sits on the loopback host, so the derived GATEWAY_TOPOLOGY_URL targets %s — add extra_hosts [%q] to the gateway-front placement so the container can reach the host's published port",
+				render.HostGatewayAlias, render.HostGatewayMapping)
+		}
 	}
 	return nil
 }

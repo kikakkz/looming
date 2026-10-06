@@ -275,13 +275,18 @@ func step4GatewayForward(t *testing.T, f *fixture) {
 func step5GuidePageToggle(t *testing.T, f *fixture) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	status, body := get(t, client, f.gatewayBase()+"/", nil)
-	require.Equal(t, http.StatusOK, status)
-	page := string(body)
-	assert.Contains(t, page, "e2e cluster", "the cluster name heads the page")
-	assert.Contains(t, page, "Download the CLI", "the CLI download link renders")
-	assert.Contains(t, page, "/v1/self/register", "the register step renders")
-	assert.Contains(t, page, fmt.Sprintf("127.0.0.1:%d", portGateway), "the member-facing gateway endpoint renders")
+	// The first page read can land while a previous converge is still
+	// settling (the guide fetch is cached and single-flighted, and a
+	// cold cache surfaces as a transient 503) — poll like every other
+	// container-facing assertion in the suite.
+	waitFor(t, 60*time.Second, 2*time.Second, "the public guide page rendering", func() bool {
+		status, body := get(t, client, f.gatewayBase()+"/", nil)
+		return status == http.StatusOK &&
+			strings.Contains(string(body), "e2e cluster") &&
+			strings.Contains(string(body), "Download the CLI") &&
+			strings.Contains(string(body), "/v1/self/register") &&
+			strings.Contains(string(body), fmt.Sprintf("127.0.0.1:%d", portGateway))
+	})
 
 	// access.private: the compose does not change (access is guide
 	// data, not service config), so apply's host line is "skipped" —

@@ -637,10 +637,11 @@ func newFakeUpstream(t *testing.T) *fakeUpstream {
 }
 
 func (fu *fakeUpstream) handle(w http.ResponseWriter, r *http.Request) {
+	auth := r.Header.Get("Authorization")
 	fu.mu.Lock()
 	fu.requests++
-	fu.lastAuth = r.Header.Get("Authorization")
-	if fu.lastAuth != "Bearer "+staticUpstreamAuth {
+	fu.lastAuth = auth
+	if auth != "Bearer "+staticUpstreamAuth {
 		fu.authFailed = true
 	}
 	var body struct {
@@ -650,7 +651,7 @@ func (fu *fakeUpstream) handle(w http.ResponseWriter, r *http.Request) {
 	fu.sawModel = body.Model
 	fu.mu.Unlock()
 
-	if fu.lastAuth != "Bearer "+staticUpstreamAuth {
+	if auth != "Bearer "+staticUpstreamAuth {
 		http.Error(w, "upstream auth contract violated", http.StatusInternalServerError)
 		return
 	}

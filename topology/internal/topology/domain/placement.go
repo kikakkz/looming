@@ -121,7 +121,18 @@ func samePlacement(a, b ComponentPlacement) bool {
 		a.HostID == b.HostID &&
 		maps.Equal(a.Ports, b.Ports) &&
 		maps.Equal(a.Config, b.Config) &&
-		slices.Equal(a.ExtraHosts, b.ExtraHosts)
+		equalStringsUnordered(a.ExtraHosts, b.ExtraHosts)
+}
+
+// equalStringsUnordered compares two string sets ignoring order: the
+// renderer sorts extra_hosts, so a declaration-order change produces
+// the same compose artifact and must not bump the topology revision
+// (converge-idempotency).
+func equalStringsUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }
 
 // copyPlacements deep-copies a placement set so aggregates never alias

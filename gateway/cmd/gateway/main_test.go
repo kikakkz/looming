@@ -171,10 +171,22 @@ func TestLoadUpstreamEnvMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("no auth over plain http stays allowed", func(t *testing.T) {
+	t.Run("plain http requires the opt-out even without a static auth", func(t *testing.T) {
+		// Per-request engine credentials (provisioned keys) also ride
+		// this link, so the https gate is unconditional — absence of
+		// GATEWAY_UPSTREAM_AUTH is not a safe configuration.
 		t.Setenv("GATEWAY_UPSTREAM", "http://localhost:4000")
 		t.Setenv("GATEWAY_UPSTREAM_AUTH", "")
 		t.Setenv("GATEWAY_UPSTREAM_INSECURE", "")
+		if _, _, err := loadUpstream(); err == nil || !strings.Contains(err.Error(), "GATEWAY_UPSTREAM_INSECURE") {
+			t.Fatalf("want a GATEWAY_UPSTREAM_INSECURE config error, got %v", err)
+		}
+	})
+
+	t.Run("plain http with the explicit opt-out holds", func(t *testing.T) {
+		t.Setenv("GATEWAY_UPSTREAM", "http://localhost:4000")
+		t.Setenv("GATEWAY_UPSTREAM_AUTH", "")
+		t.Setenv("GATEWAY_UPSTREAM_INSECURE", "1")
 		if _, _, err := loadUpstream(); err != nil {
 			t.Fatalf("loadUpstream: %v", err)
 		}

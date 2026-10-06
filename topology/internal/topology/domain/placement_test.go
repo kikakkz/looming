@@ -109,3 +109,23 @@ func TestNextDeepCopiesExtraHosts(t *testing.T) {
 	hosts[0] = "tampered:10.0.0.99"
 	assert.Equal(t, "host.docker.internal:host-gateway", topo.Placements[0].ExtraHosts[0])
 }
+
+// TestMatchesIgnoresExtraHostsOrder pins the converge-idempotency
+// refinement: the renderer sorts extra_hosts, so a declaration-order
+// change produces the identical compose artifact and must not register
+// as a placement change.
+func TestMatchesIgnoresExtraHostsOrder(t *testing.T) {
+	access := domain.Access{}
+	topo := domain.Uninitialized().Next(access, []domain.ComponentPlacement{{
+		Component:  domain.ComponentGatewayFront,
+		HostID:     hostA,
+		Ports:      map[string]int{"http": 8080},
+		ExtraHosts: []string{"b.example:10.0.0.2", "a.example:10.0.0.1"},
+	}}, time.Now())
+	assert.True(t, topo.Matches(access, []domain.ComponentPlacement{{
+		Component:  domain.ComponentGatewayFront,
+		HostID:     hostA,
+		Ports:      map[string]int{"http": 8080},
+		ExtraHosts: []string{"a.example:10.0.0.1", "b.example:10.0.0.2"},
+	}}))
+}
