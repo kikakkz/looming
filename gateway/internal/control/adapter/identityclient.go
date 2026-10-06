@@ -32,10 +32,13 @@ const (
 
 // feedKeyDTO / feedDTO / validateDTOs are the independently-defined
 // gateway-side shapes of identity's /v1/gateway contract.
+// EngineCredential rides only on provisioned rows (identity slice C):
+// absent on the wire means "unprovisioned", never null.
 type feedKeyDTO struct {
-	Hash        string `json:"hash"`
-	PrincipalID string `json:"principal_id"`
-	Status      string `json:"status"`
+	Hash             string `json:"hash"`
+	PrincipalID      string `json:"principal_id"`
+	Status           string `json:"status"`
+	EngineCredential string `json:"engine_credential"`
 }
 
 type feedPrincipalDTO struct {
@@ -149,7 +152,7 @@ func toFeedResponse(dto feedDTO) (app.FeedResponse, error) {
 		}
 		var hash [32]byte
 		copy(hash[:], raw)
-		out.Keys = append(out.Keys, app.FeedKey{Hash: hash, PrincipalID: k.PrincipalID, Status: k.Status})
+		out.Keys = append(out.Keys, app.FeedKey{Hash: hash, PrincipalID: k.PrincipalID, Status: k.Status, EngineCredential: k.EngineCredential})
 	}
 	return out, nil
 }

@@ -314,7 +314,9 @@ func TestFrontLogsNeverCarryCredentials(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "key_sha="+hashKey("good-key")) {
+	// The bad-key request is the denied one: its log line carries the
+	// key hash, never the raw key.
+	if !strings.Contains(out, "key_sha="+hashKey("bad-key")) {
 		t.Fatalf("denial/audit lines must carry the key hash for correlation, got: %s", out)
 	}
 	for _, secret := range []string{"good-key", "bad-key", "eng-cred-log-canary"} {

@@ -359,6 +359,9 @@ func TestAuthnOriginFallbackHasEmptyCredential(t *testing.T) {
 	if id.Subject != "p-origin" {
 		t.Fatalf("want the origin principal, got %q", id.Subject)
 	}
+	if origin.callCount() != 1 {
+		t.Fatalf("the fallback must revalidate at the origin exactly once, got %d", origin.callCount())
+	}
 	if id.EngineCredential != "" {
 		t.Fatalf("the validate fallback carries no credential, got %q", id.EngineCredential)
 	}
@@ -461,6 +464,8 @@ func engineFrontRequest(rawKey, seq, body string) *http.Request {
 func TestFrontEndToEndEngineCredentialInjection(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	cache, origin, upstream, engine := newEngineFrontRig(t, "static-fallback-secret")
+	defer cache.Close()
+	defer upstream.srv.Close()
 	authn := NewIdentityAuthenticator(cache, origin, 30*time.Second, func() time.Time { return authnNow }, nil, nil)
 	front := newEngineFront(authn, engine)
 
@@ -525,6 +530,8 @@ func TestFrontEndToEndRecordingNeverCarriesCredentials(t *testing.T) {
 	const engineCred = "e2e-engine-cred-canary"
 
 	cache, origin, upstream, engine := newEngineFrontRig(t, "static-fallback-secret")
+	defer cache.Close()
+	defer upstream.srv.Close()
 	queue := &recordingQueue{}
 	front := newEngineFront(
 		NewIdentityAuthenticator(cache, origin, 30*time.Second, func() time.Time { return authnNow }, nil, nil),
@@ -577,6 +584,8 @@ func (interactionMeter) Record(context.Context, frontdomain.MeterRecord) {}
 func TestFrontEndToEndConcurrentDistinctKeysNoBleed(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	cache, origin, upstream, engine := newEngineFrontRig(t, "static-fallback-secret")
+	defer cache.Close()
+	defer upstream.srv.Close()
 	authn := NewIdentityAuthenticator(cache, origin, 30*time.Second, func() time.Time { return authnNow }, nil, nil)
 	front := newEngineFront(authn, engine)
 

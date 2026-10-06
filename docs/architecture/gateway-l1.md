@@ -70,6 +70,26 @@ revocation is 401 immediately-ish (watch latency + TTL bound).
 ModelAllowlistCache remains the unwired slice-D seam for the model
 permission check.
 
+Slice C consumes the feed's per-key `engine_credential` (identity PR
+#125/#126): the KeyCache projection carries it per row, the
+IdentityAuthenticator returns `Identity{Subject, EngineCredential}`
+(the front-port Authenticator's house shape), and the front hands the
+engine slot ONLY the credential — the LoomingKey is deleted at the
+authn boundary and never enters the engine call path (§6's "Looming
+key northbound only, engine credential southbound only", now enforced
+in code). `EnginePlane.Forward` takes the credential as an explicit
+parameter; the default engine injects it as the per-request upstream
+`Authorization`, falling back to the configured static upstream auth,
+falling back to stripping the header. Identity's validate endpoint
+answers (principal, status) only — an origin fallback therefore
+authorizes with an empty credential and the feed fills the value on its
+next sync (bounded by the watch latency); confirms never overwrite a
+feed-projected credential. The transcript recorder carries bodies only
+— no header fields exist on InteractionBody — so neither the LoomingKey
+nor any engine credential can land in a captured record by
+construction, and the invariant is pinned by assertion tests both
+ways.
+
 ## 5. Modules
 
 - **gateway/dp** — the front layer: authn, ModelAllowed, chain,

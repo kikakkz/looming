@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/kikakkz/looming/gateway/internal/control/app"
-	"github.com/kikakkz/looming/gateway/internal/front/port"
+	frontport "github.com/kikakkz/looming/gateway/internal/front/port"
 )
 
 // errAuthFailure is the single northbound authn failure: revoked,
@@ -71,16 +71,21 @@ func NewIdentityAuthenticator(cache *app.KeyCache, origin originValidator, ttl t
 	return &IdentityAuthenticator{cache: cache, origin: origin, ttl: ttl, clock: clock, log: log, healthy: healthy}
 }
 
-var _ port.Authenticator = (*IdentityAuthenticator)(nil)
+var _ frontport.Authenticator = (*IdentityAuthenticator)(nil)
 
-// Authenticate resolves the LoomingKey to its principal subject.
-func (a *IdentityAuthenticator) Authenticate(ctx context.Context, loomKey string) (string, error) {
+// Authenticate resolves the LoomingKey to its caller identity: the
+// subject plus the provisioned engine credential. The cache-hit path
+// returns the projected credential; the origin fallback authorizes
+// with an EMPTY credential — identity's validate answers (principal,
+// status) only, so the feed fills the value on its next sync and the
+// engine falls back to its configured default until then.
+func (a *IdentityAuthenticator) Authenticate(ctx context.Context, loomKey string) (frontport.Identity, error) {
 	hash := sha256.Sum256([]byte(loomKey))
 	snap := a.cache.Get()
 	if entry, ok := snap.V[hash]; ok && entry.Status == "active" {
 		fresh := a.clock().Sub(entry.SyncedAt) < a.ttl
 		if fresh || (!entry.Confirmed && a.healthy()) {
-			return entry.PrincipalID, nil
+			return frontport.Identity{Subject: entry.PrincipalID, EngineCredential: entry.EngineCredential}, nil
 		}
 		// A stale confirmed entry is only as good as its last origin
 		// check; a feed entry with a stalled syncer is a snapshot of
@@ -95,14 +100,14 @@ func (a *IdentityAuthenticator) Authenticate(ctx context.Context, loomKey string
 		// shape northbound; the log line is the only distinction.
 		a.log.InfoContext(ctx, "key validation failed closed",
 			"reason", classifyValidateError(err), "err", err)
-		return "", errAuthFailure
+		return frontport.Identity{}, errAuthFailure
 	}
 	if status != "active" {
 		a.log.InfoContext(ctx, "key validation returned non-active status", "status", status)
-		return "", errAuthFailure
+		return frontport.Identity{}, errAuthFailure
 	}
 	a.cache.Confirm(hash, principalID)
-	return principalID, nil
+	return frontport.Identity{Subject: principalID}, nil
 }
 
 // classifyValidateError keeps the log distinction (observability)

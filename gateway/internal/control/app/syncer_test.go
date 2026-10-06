@@ -31,11 +31,12 @@ type feedRow struct {
 // and lets each test move the state forward, fail requests, or roll
 // the revision back (restart).
 type fakeIdentity struct {
-	mu     sync.Mutex
-	rev    uint64
-	keys   map[string]feedRow // base64 hash -> row
-	ch     chan struct{}      // closed on every state change
-	srv    *httptest.Server
+	mu      sync.Mutex
+	rev     uint64
+	keys    map[string]feedRow // base64 hash -> row
+	revoked map[string]bool    // base64 hash -> revoked marker
+	ch      chan struct{}      // closed on every state change
+	srv     *httptest.Server
 
 	failures int // next N feed requests answer 500
 	requests int // total feed requests served (observability)
@@ -43,7 +44,7 @@ type fakeIdentity struct {
 
 func newFakeIdentity(t *testing.T) *fakeIdentity {
 	t.Helper()
-	f := &fakeIdentity{keys: map[string]feedRow{}, ch: make(chan struct{})}
+	f := &fakeIdentity{keys: map[string]feedRow{}, revoked: map[string]bool{}, ch: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/gateway/feed", f.handleFeed)
 	f.srv = httptest.NewServer(mux)
