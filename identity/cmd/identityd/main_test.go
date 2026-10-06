@@ -235,3 +235,31 @@ func TestRequireBootstrapKey(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineURLIsSecure(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		want bool
+	}{
+		{"https host", "https://litellm.internal:4000", true},
+		{"https with path", "https://engine.example.com/proxy/", true},
+		{"http localhost", "http://localhost:4000", true},
+		{"http loopback v4", "http://127.0.0.1:4000", true},
+		{"http loopback any", "http://127.1.2.3:4000", true},
+		{"http loopback v6", "http://[::1]:4000", true},
+		{"http dot localhost", "http://dev.localhost:4000", true},
+		{"http remote host", "http://litellm.internal:4000", false},
+		{"http subdomain", "http://engine.example.com", false},
+		{"ftp scheme", "ftp://localhost/engine", false},
+		{"garbage", "not-a-url", false},
+		{"empty", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := engineURLIsSecure(tc.url); got != tc.want {
+				t.Fatalf("engineURLIsSecure(%q) = %v, want %v", tc.url, got, tc.want)
+			}
+		})
+	}
+}

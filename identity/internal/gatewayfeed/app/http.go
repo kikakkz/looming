@@ -120,15 +120,21 @@ func parseSinceRev(r *http.Request) (uint64, error) {
 }
 
 // snapshotView renders the full projection: base64 key hashes, both
-// projections, and the stamping revision.
+// projections, and the stamping revision. engine_credential rides only
+// on rows that carry one — absent means "not provisioned", and the
+// gateway falls back per its own contract (identity-l1 §6, slice C).
 func snapshotView(snap *domain.Snapshot) map[string]any {
 	keys := make([]any, 0, len(snap.Keys))
 	for _, k := range snap.Keys {
-		keys = append(keys, map[string]any{
+		row := map[string]any{
 			"hash":         base64.StdEncoding.EncodeToString(k.Hash),
 			"principal_id": k.PrincipalID,
 			"status":       k.Status,
-		})
+		}
+		if k.EngineCredential != "" {
+			row["engine_credential"] = k.EngineCredential
+		}
+		keys = append(keys, row)
 	}
 	principals := make([]any, 0, len(snap.Principals))
 	for _, p := range snap.Principals {

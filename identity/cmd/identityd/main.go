@@ -16,10 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,6 +39,12 @@ import (
 	policyapp "github.com/kikakkz/looming/identity/internal/policy/app"
 	principaladapter "github.com/kikakkz/looming/identity/internal/principal/adapter"
 	principalapp "github.com/kikakkz/looming/identity/internal/principal/app"
+	provisionadapter "github.com/kikakkz/looming/identity/internal/provision/adapter"
+	"github.com/kikakkz/looming/identity/internal/provision/adapter/litellm"
+	provisionapp "github.com/kikakkz/looming/identity/internal/provision/app"
+	provisionport "github.com/kikakkz/looming/identity/internal/provision/port"
+	quotaadapter "github.com/kikakkz/looming/identity/internal/quota/adapter"
+	quotaapp "github.com/kikakkz/looming/identity/internal/quota/app"
 	"github.com/kikakkz/looming/identity/migrations"
 )
 
@@ -60,6 +69,9 @@ type config struct {
 	keyMasterKey     []byte
 	gatewayToken     string
 	watchTimeout     time.Duration
+	engineURL        string
+	engineKey        string
+	engineName       string
 }
 
 // defaultArgonConcurrency bounds simultaneous argon2id operations on
@@ -75,6 +87,13 @@ const (
 	defaultKeyIssueLimit  = 10
 	defaultKeyIssueWindow = 24 * time.Hour
 	defaultWatchTimeout   = 30 * time.Second
+	// defaultEngineName identifies the phase-1 engine deployment in
+	// identity_map and the feed's credential join; overridable when a
+	// deployment fronts several engines later.
+	defaultEngineName = "litellm"
+	// engineHTTPTimeout bounds one engine admin call (provision,
+	// budget, delete) so a hung engine cannot park an issuance.
+	engineHTTPTimeout = 15 * time.Second
 )
 
 func loadConfig() (config, error) {
@@ -113,21 +132,84 @@ func loadConfig() (config, error) {
 	if cfg.watchTimeout <= 0 || cfg.watchTimeout >= serverWriteTimeout {
 		return config{}, fmt.Errorf("IDENTITY_WATCH_TIMEOUT must be in (0, %s)", serverWriteTimeout)
 	}
+	if err := loadEngineConfig(&cfg); err != nil {
+		return config{}, err
+	}
+	if err := loadRuntimeLimits(&cfg); err != nil {
+		return config{}, err
+	}
+	return cfg, nil
+}
+
+// loadRuntimeLimits parses the concurrency knobs: the issuance rate
+// limit and the argon2id permit pool. loadKeyConfig re-reads the issue
+// limit for its window pairing; a drift between the two parses would
+// contradict, so the limit is parsed once here and loadKeyConfig reads
+// the env only for the window.
+func loadRuntimeLimits(cfg *config) error {
 	if raw := os.Getenv("IDENTITY_KEY_ISSUE_LIMIT"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			return config{}, fmt.Errorf("IDENTITY_KEY_ISSUE_LIMIT must be a non-negative integer: %q", raw)
+			return fmt.Errorf("IDENTITY_KEY_ISSUE_LIMIT must be a non-negative integer: %q", raw)
 		}
 		cfg.keyIssueLimit = n
 	}
 	if raw := os.Getenv("IDENTITY_ARGON_CONCURRENCY"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 {
-			return config{}, fmt.Errorf("IDENTITY_ARGON_CONCURRENCY must be a positive integer: %q", raw)
+			return fmt.Errorf("IDENTITY_ARGON_CONCURRENCY must be a positive integer: %q", raw)
 		}
 		cfg.argonConcurrency = n
 	}
-	return cfg, nil
+	return nil
+}
+
+// loadEngineConfig fills the engine-provisioning slice (identity slice
+// C). Everything is optional: without IDENTITY_ENGINE_URL identity runs
+// key-only issuance and the gateway falls back per the feed contract.
+// With it, the master key is mandatory — fail fast rather than 502ing
+// every issuance — and the URL must be able to carry that key safely:
+// HTTPS anywhere, or plain HTTP only on loopback (a local dev engine
+// never crosses a wire; CWE-319).
+func loadEngineConfig(cfg *config) error {
+	cfg.engineURL = os.Getenv("IDENTITY_ENGINE_URL")
+	cfg.engineKey = os.Getenv("IDENTITY_ENGINE_KEY")
+	cfg.engineName = os.Getenv("IDENTITY_ENGINE_NAME")
+	if cfg.engineName == "" {
+		cfg.engineName = defaultEngineName
+	}
+	if cfg.engineURL == "" {
+		return nil
+	}
+	if cfg.engineKey == "" {
+		return errors.New("missing required config: IDENTITY_ENGINE_KEY (set when IDENTITY_ENGINE_URL is set)")
+	}
+	if !engineURLIsSecure(cfg.engineURL) {
+		return fmt.Errorf("IDENTITY_ENGINE_URL must be https:// (or http:// on loopback), got %q", cfg.engineURL)
+	}
+	return nil
+}
+
+// engineURLIsSecure reports whether an engine admin URL may carry the
+// master key: HTTPS anywhere, or plain HTTP only on loopback — a local
+// dev engine — where no network crossing exists for a passive observer.
+func engineURLIsSecure(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // loadKeyConfig fills the key-capability slice of the config: the
@@ -142,13 +224,8 @@ func loadKeyConfig(cfg *config) error {
 	if cfg.keyIssueWindow, err = envDuration("IDENTITY_KEY_ISSUE_WINDOW", cfg.keyIssueWindow); err != nil {
 		return err
 	}
-	if raw := os.Getenv("IDENTITY_KEY_ISSUE_LIMIT"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			return fmt.Errorf("IDENTITY_KEY_ISSUE_LIMIT must be a non-negative integer: %q", raw)
-		}
-		cfg.keyIssueLimit = n
-	}
+	// The issue limit itself is parsed once in loadRuntimeLimits; only
+	// the window pairs here.
 	return nil
 }
 
@@ -183,6 +260,53 @@ func loadMasterKey() ([]byte, error) {
 		return nil, fmt.Errorf("IDENTITY_KEY_MASTER_KEY must decode to %d bytes, got %d", keyadapter.KeyByteLen, len(key))
 	}
 	return key, nil
+}
+
+// provisionBundle carries the slice-C wiring the key, quota, and
+// provision capabilities share. A nil provisioner means no engine is
+// configured: issuance stays key-only, the map stays empty, and the
+// feed omits engine_credential (feedEngineName empty — leftover
+// identity_map rows from a since-removed engine must not project).
+type provisionBundle struct {
+	provisioner    provisionport.EngineProvisioner
+	quotaRepo      *quotaadapter.Repository
+	mapRepo        *provisionadapter.MapRepository
+	feedEngineName string
+}
+
+// wireProvision builds the bundle. The LiteLLM client gets a bounded
+// HTTP client (AD-25: no globals in production wiring) whose redirect
+// policy refuses any hop that may not carry the master key (CWE-319);
+// an engine without a master key or with an unsafe URL is a boot-time
+// misconfiguration, caught in loadEngineConfig.
+func wireProvision(cfg config, db *sql.DB) provisionBundle {
+	bundle := provisionBundle{
+		quotaRepo: quotaadapter.NewRepository(db),
+		mapRepo:   provisionadapter.NewMapRepository(db),
+	}
+	if cfg.engineURL != "" {
+		bundle.provisioner = litellm.NewClient(cfg.engineURL, cfg.engineKey, engineAdminClient())
+		bundle.feedEngineName = cfg.engineName
+	}
+	return bundle
+}
+
+// engineAdminClient bounds one engine admin call (provision, budget,
+// delete) so a hung engine cannot park an issuance, and pins the
+// redirect policy: the master key rides the Authorization header, so
+// every redirect hop must satisfy the same URL safety rule as the
+// configured base URL — a same-host or subdomain redirect to http must
+// not silently forward the key.
+func engineAdminClient() *http.Client {
+	return &http.Client{
+		Timeout: engineHTTPTimeout,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if !engineURLIsSecure(req.URL.String()) {
+				return fmt.Errorf("identity: refusing engine redirect to non-HTTPS endpoint %q", req.URL.Redacted())
+			}
+			return nil
+		},
+	}
 }
 
 // run wires and serves; separated from main for the smoke-test shape
@@ -227,9 +351,24 @@ func run(log *slog.Logger) error {
 	provider := authnadapter.NewLocalProvider(db, cfg.tokenTTL, rand.Reader, clockFn)
 	loginSvc := authnapp.NewLoginService(provider, cfg.tokenTTL, clockFn)
 
+	// Engine provisioning (identity slice C): nil provisioner means no
+	// engine is configured — issuance stays key-only, the map stays
+	// empty, and the feed omits engine_credential, so the gateway falls
+	// back per its contract.
+	bundle := wireProvision(cfg, db)
+	if bundle.provisioner != nil {
+		keySvc.SetEngineProvisioner(bundle.provisioner, bundle.mapRepo, bundle.quotaRepo, cfg.engineName)
+	}
+	quotaSvc := quotaapp.NewService(bundle.quotaRepo, repo, bundle.mapRepo, bundle.provisioner, clockFn)
+	provisionSvc := provisionapp.NewService(bundle.mapRepo)
+
 	// The feed's revision hub is bumped by every mutating capability
 	// after a persisted write; the watch endpoint wakes immediately.
-	feedSvc := gatewayfeedapp.NewService(gatewayfeedadapter.NewStore(db), gatewayfeedapp.NewHub(), cfg.watchTimeout)
+	// The store also projects engine credentials: it unseals
+	// identity_map rows for the data plane behind the service token.
+	feedSvc := gatewayfeedapp.NewService(
+		gatewayfeedadapter.NewStore(db, bundle.feedEngineName, sealer),
+		gatewayfeedapp.NewHub(), cfg.watchTimeout)
 	principalSvc.SetRevisionNotifier(feedSvc.Hub())
 	keySvc.SetRevisionNotifier(feedSvc.Hub())
 
@@ -238,6 +377,8 @@ func run(log *slog.Logger) error {
 		policyapp.NewHandler(policySvc),
 		authnapp.NewHandler(loginSvc),
 		keyapp.NewHandler(keySvc),
+		quotaapp.NewHandler(quotaSvc),
+		provisionapp.NewHandler(provisionSvc),
 		gatewayfeedapp.NewHandler(feedSvc),
 		cfg.gatewayToken,
 		cfg.bootstrapKey,
@@ -282,7 +423,7 @@ func run(log *slog.Logger) error {
 // key-guarded (IDENTITY_BOOTSTRAP_KEY, constant-time). The
 // gateway-facing routes are the internal data-plane contract:
 // service-token guarded, never user-facing.
-func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler, keyH *keyapp.Handler, feedH *gatewayfeedapp.Handler, gatewayToken, bootstrapKey string) *http.ServeMux {
+func routeMux(provider authnport.Provider, limit *argonLimit, principalH *principalapp.Handler, policyH *policyapp.Handler, authnH *authnapp.Handler, keyH *keyapp.Handler, quotaH *quotaapp.Handler, provisionH *provisionapp.Handler, feedH *gatewayfeedapp.Handler, gatewayToken, bootstrapKey string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/self/register", limit.wrap(http.HandlerFunc(principalH.RegisterSelf)))
 	mux.Handle("POST /v1/self/login", limit.wrap(http.HandlerFunc(authnH.Login)))
@@ -293,6 +434,7 @@ func routeMux(provider authnport.Provider, limit *argonLimit, principalH *princi
 	mux.Handle("GET /v1/self/keys/{id}", requireAuth(provider, false, http.HandlerFunc(keyH.GetSelf)))
 	mux.Handle("POST /v1/self/keys/{id}/reveal", requireAuth(provider, false, http.HandlerFunc(keyH.RevealSelf)))
 	mux.Handle("DELETE /v1/self/keys/{id}", requireAuth(provider, false, http.HandlerFunc(keyH.RevokeSelf)))
+	mux.Handle("GET /v1/self/quota", requireAuth(provider, false, http.HandlerFunc(quotaH.GetSelf)))
 
 	mux.Handle("POST /v1/admin/principals", requireAuth(provider, true, http.HandlerFunc(principalH.ProvisionAdmin)))
 	mux.Handle("GET /v1/admin/principals", requireAuth(provider, true, http.HandlerFunc(principalH.ListAdmin)))
@@ -302,6 +444,9 @@ func routeMux(provider authnport.Provider, limit *argonLimit, principalH *princi
 	mux.Handle("POST /v1/admin/invites", requireAuth(provider, true, http.HandlerFunc(principalH.CreateInviteAdmin)))
 	mux.Handle("GET /v1/admin/principals/{id}/keys", requireAuth(provider, true, http.HandlerFunc(keyH.ListForPrincipalAdmin)))
 	mux.Handle("DELETE /v1/admin/keys/{id}", requireAuth(provider, true, http.HandlerFunc(keyH.RevokeAdmin)))
+	mux.Handle("PUT /v1/admin/principals/{id}/quota", requireAuth(provider, true, http.HandlerFunc(quotaH.SetAdmin)))
+	mux.Handle("GET /v1/admin/principals/{id}/quota", requireAuth(provider, true, http.HandlerFunc(quotaH.GetAdmin)))
+	mux.Handle("GET /v1/admin/identitymap", requireAuth(provider, true, http.HandlerFunc(provisionH.InspectAdmin)))
 	mux.Handle("GET /v1/admin/policy", requireAuth(provider, true, http.HandlerFunc(policyH.GetAdmin)))
 	mux.Handle("PUT /v1/admin/policy", requireAuth(provider, true, http.HandlerFunc(policyH.SetAdmin)))
 

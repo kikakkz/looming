@@ -16,9 +16,13 @@ Principal (kind: human | service)
   ├─ LoomingKey   (dual-track: SHA-256 hash for validation + AES-GCM
   │               sealed for repeatable reveal; masked by default;
   │               one-way revoke)
-  ├─ Quota        (amount/window; engine budgets are its projection)
+  ├─ Quota        (per-principal; amount ≥ 0 in unit tokens|usd over a
+  │               1|7|30|90-day window; no row = unlimited; amount 0 =
+  │               blocked. Engine budgets are its projection.)
   └─ Roles ──► Permissions (effective set = union)
-IdentityMap       (LoomingKey → engine credential REFERENCE only)
+IdentityMap       (LoomingKey → engine credential REFERENCE only; the
+                   sealed credential value rides the same dual-track as
+                   LoomingKey — never plaintext at rest, AD-35)
 RegistrationPolicy (admin-only | invite | self-register-with-approval)
 ```
 
@@ -56,8 +60,8 @@ revocation propagates symmetrically to that key's credential only.
 |---|---|
 | Principal | one identity primitive; service kind carries blueprint ref; status: pending → active → disabled |
 | LoomingKey | dual-track at rest (SHA-256 hash for validation, AES-GCM sealed for reveal); masked by default (prefix + last4); reveal repeatable, owner or admin; one-way revoke; per-principal rate limit on issuance |
-| Quota | per-principal; window semantics owned here, execution in engine (AD-32) |
-| IdentityMap | maps **LoomingKey** (not principal) → engine credential reference; no plaintext credentials (credential proxy owns those, AD-27 §6) |
+| Quota | per-principal; one row per principal, absence = unlimited default, amount 0 = blocked; amount ≥ 0, unit ∈ {tokens, usd}, window_days ∈ {1, 7, 30, 90}; window semantics owned here, execution in engine (AD-32); engine budgets are its lagging projection — set-quota propagates best-effort and failures ride the response |
+| IdentityMap | maps **LoomingKey** (not principal) → engine credential reference; no plaintext credentials (the sealed value rides the LoomingKey dual-track; AD-27 §6, AD-35); UNIQUE(key_id, engine) — idempotent per (key, engine); revocation deletes the row and best-effort deletes the engine credential (an orphan is inert: nothing references it) |
 | RegistrationPolicy | exactly one active policy; policy change is audited |
 | Role/Permission | builtin roles immutable; custom roles are additive; permission namespace per component |
 
@@ -66,7 +70,21 @@ revocation propagates symmetrically to that key's credential only.
 - **AuthNProvider**: builtin (local credentials, invite tokens) |
   OIDC (Keycloak-compatible; OA systems as same-contract adapters).
   Bootstrap selects; aggregates oblivious.
-- **EngineProvisioner**: outbound to the engine admin channel.
+- **EngineProvisioner**: outbound to the engine admin channel —
+  `Create(ctx, alias, quota) (ref, value, err)`, `SetBudget(ctx, ref,
+  quota) error`, `Delete(ctx, ref) error`. One credential per LoomingKey
+  (the alias anchors idempotency); the credential value leaves the seam
+  exactly once from Create and is sealed immediately (the LoomingKey
+  dual-track precedent) — identity persists only the reference. LiteLLM
+  is the first adapter (virtual-key admin API; usd quotas map to
+  `max_budget` cents→dollars + `budget_duration`; a tokens unit returns
+  a typed unsupported error). Provision-on-issue is synchronous
+  two-step with immediate rollback: engine create first, then the
+  identity rows in one transaction, and an identity-write failure
+  deletes the engine credential in the same operation (AD-30: rollback
+  at the point of failure, not a compensation layer). An unconfigured
+  engine (no `IDENTITY_ENGINE_URL`) skips the step entirely: keys issue
+  unprovisioned and the gateway falls back per the feed contract.
 - **AuditEmitter**: decision events (approvals, role changes) — records plane shapes.
 - **Read side for the gateway** (slice B contract): REST + JSON over
   HTTP, same mux style as the admin/self API — not gRPC/GraphQL. Three
@@ -80,7 +98,14 @@ revocation propagates symmetrically to that key's credential only.
   the Consul blocking-query shape until the in-process revision
   advances or `IDENTITY_WATCH_TIMEOUT` (30s default) elapses, then
   returns the current snapshot regardless — the response is always a
-  full projection, never a delta. The revision is in-process monotonic
+  full projection, never a delta. Key entries may carry
+  `engine_credential` — the provisioned engine credential value for
+  that key (slice C contract for the gateway half): PRESENT only when
+  the key is provisioned and active, ABSENT otherwise (never
+  provisioned, or revoked — revocation deletes the map row, and the
+  join filters to active keys regardless), so consumers treat absence
+  as "fall back to the default upstream credential". The revision is
+  in-process monotonic
   and resets on restart; a response rev below the consumer's
   last-seen rev is the documented restart signal (the consumer
   refetches with `since_rev=0`, a full resync). Key issue/revoke and
@@ -100,11 +125,29 @@ revocation propagates symmetrically to that key's credential only.
 - Admin: principals CRUD + approve, roles assign, policy get/set,
   quota set, keys list/revoke (any; reveal via the self reveal route
   with an admin session), IdentityMap inspect.
+  - Quota: `PUT /v1/admin/principals/{id}/quota`
+    `{amount, unit, window_days}` (all required — an omitted amount is
+    a 400, never a silent block) → 200 with the stored quota plus
+    `budget_update_failures: [...]`: set-quota propagates `SetBudget`
+    to every active engine credential of the principal best-effort, and
+    per-entry failures ride the 200 (full outage → 200 with every entry
+    listed; the authority changed, the projection lags visibly).
+    `GET /v1/admin/principals/{id}/quota` → 200, or 404 `no_quota` when
+    the principal carries no row (the unlimited default).
+  - IdentityMap inspect: `GET /v1/admin/identitymap?principal={id}`
+    (paged via `limit`/`offset`) → `{items: [{key_id, engine,
+    credential_ref, status, created_at, updated_at}], total}`. The
+    response is REFERENCE-only — the credential value and its sealed
+    blob never render northbound.
 - Self: register, login (provider-selected), keys issue (raw shown
-  once at issue) / list (masked: id, name, prefix, last4, status,
-  created_at) / get (masked) / reveal (owner or admin, repeatable) /
-  revoke (own; one-way, 409 on a repeat), effective permissions view,
-  quota view.
+  once at issue; with an engine configured the issue also provisions
+  the engine credential — a provisioning failure fails the issue with
+  502 `provision_failed` and nothing persists) / list (masked: id,
+  name, prefix, last4, status, created_at) / get (masked) / reveal
+  (owner or admin, repeatable) / revoke (own; one-way, 409 on a repeat;
+  revokes the engine credential best-effort — the map entry dies first
+  so the feed stops serving it), effective permissions view, quota view
+  (`GET /v1/self/quota`, same 404 `no_quota` shape).
 - Bootstrap (first admin, topology-l1 §4): `POST /v1/bootstrap/invite`
   `{email}` → 201 `{token, expires_at, invite_url_path}` — mints the
   one-time invite for the deployment's pre-selected
@@ -123,9 +166,10 @@ revocation propagates symmetrically to that key's credential only.
   and lands the principal active with roles `[admin, member]` (member
   keeps key self-service working per §2).
 - Gateway-facing: key validate (hash + status) — plus the feed
-  snapshot and blocking watch described in §5. Effective permissions
-  for (principal) and IdentityMap resolve remain the two further seams
-  the data plane consumes (slices D and C respectively).
+  snapshot and blocking watch described in §5 (whose key entries carry
+  `engine_credential` when provisioned). Effective permissions
+  for (principal) remain the further seam the data plane consumes
+  (slice D).
 
 ## 7. Aspects
 
@@ -133,7 +177,8 @@ PEP (permission checks execute at the gateway, data lives here);
 identity propagation (Looming key northbound only — unchanged);
 audit emission (registration/role/quota decisions); revisions and
 idempotency (key issuance idempotency keys, provisioning idempotent
-per (principal, engine) — both from slice-0 patterns).
+per (LoomingKey, engine) via the UNIQUE(key_id, engine) anchor — both
+from slice-0 patterns).
 
 ## 8. Deferred (named triggers)
 

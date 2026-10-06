@@ -19,6 +19,8 @@ exclude:
     - internal/policy/adapter
     - internal/authn/adapter
     - internal/key/adapter
+    - internal/quota/adapter
+    - internal/provision/adapter
     - internal/gatewayfeed/adapter
     - migrations
     - tests

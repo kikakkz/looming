@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kikakkz/looming/identity/internal/key/domain"
+	provisiondomain "github.com/kikakkz/looming/identity/internal/provision/domain"
 )
 
 // Sealer reversibly protects the raw secret for the reveal path
@@ -32,6 +33,13 @@ type Repository interface {
 	// Create inserts a new key. A duplicate key hash fails with
 	// domain.ErrConflict.
 	Create(ctx context.Context, k *domain.LoomingKey) error
+	// CreateWithProvision inserts a key and its engine-credential map
+	// entry in ONE transaction: issuance with provisioning persists
+	// both rows or neither (the principal-adapter
+	// CreateWithInviteConsume precedent). A duplicate key hash or a
+	// duplicate (key_id, engine) map entry fails with domain.ErrConflict
+	// and rolls the whole transaction back.
+	CreateWithProvision(ctx context.Context, k *domain.LoomingKey, m *provisiondomain.IdentityMap) error
 	// ByID returns the key or domain.ErrNotFound.
 	ByID(ctx context.Context, id string) (*domain.LoomingKey, error)
 	// ListByPrincipal returns the principal's keys in stable creation

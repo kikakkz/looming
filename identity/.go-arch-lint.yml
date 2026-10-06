@@ -14,8 +14,11 @@
 # authn-adapter queries the principals table via its own SQL (the local
 # provider's private read model: password hash, status, roles); it does
 # not import principal-port for that. gatewayfeed-adapter does the same
-# on principals + loom_keys: the feed is a projection of both
-# aggregates, not either aggregate.
+# on principals + loom_keys + identity_map: the feed is a projection of
+# all three tables, not any aggregate. Its credential unsealing goes
+# through a CredentialOpener interface defined in gatewayfeed-port and
+# satisfied structurally by the key sealer in cmd — the feed seam stays
+# feed-local (the RevisionNotifier precedent).
 #
 # key-app depends on principal-port for the issuance gate (exists +
 # active) and on authn-port for the validated session its self handlers
@@ -27,6 +30,24 @@
 # capabilities as a consumer-side RevisionNotifier interface defined in
 # each app package, so no new coupling edge is needed for it (the
 # PasswordHasher precedent).
+#
+# Slice C (quota + provisioning) adds the same shape of deliberate
+# edges:
+# - provision-port imports quota-domain because the EngineProvisioner
+#   contract speaks in Quota values (identity-l1 §5); key-app and
+#   quota-app consume the provisioner without touching adapter code.
+# - key-app additionally depends on quota-port/domain (the provision
+#   step reads the principal's quota) and on provision-port (the
+#   provisioner + the map reads at revocation) — the Issue use case is
+#   the orchestration home of provision-on-issue (identity-l1 §3).
+# - key-port and key-adapter import provision-domain for
+#   CreateWithProvision: the issuance transaction spans loom_keys and
+#   identity_map, so the key repository persists the provision
+#   aggregate's row inside one tx (the CreateWithInviteConsume
+#   precedent: one adapter, one tx, both aggregates or neither).
+# - The IdentityMap aggregate lives in provision-domain; its sealed
+#   credential blob is the LoomingKey dual-track precedent (AD-35:
+#   plaintext credentials never enter this context).
 version: 3
 
 allow:
@@ -55,6 +76,15 @@ components:
   key-port:           { in: internal/key/port }
   key-app:            { in: internal/key/app }
   key-adapter:        { in: internal/key/adapter }
+  quota-domain:       { in: internal/quota/domain }
+  quota-port:         { in: internal/quota/port }
+  quota-app:          { in: internal/quota/app }
+  quota-adapter:      { in: internal/quota/adapter }
+  provision-domain:   { in: internal/provision/domain }
+  provision-port:     { in: internal/provision/port }
+  provision-app:      { in: internal/provision/app }
+  provision-adapter:  { in: internal/provision/adapter }
+  provision-adapter-litellm: { in: internal/provision/adapter/litellm }
   gatewayfeed-domain: { in: internal/gatewayfeed/domain }
   gatewayfeed-port:   { in: internal/gatewayfeed/port }
   gatewayfeed-app:    { in: internal/gatewayfeed/app }
@@ -92,13 +122,34 @@ deps:
     mayDependOn: [authn-domain, authn-port]
 
   key-port:
-    mayDependOn: [key-domain]
+    mayDependOn: [key-domain, provision-domain]
 
   key-app:
-    mayDependOn: [key-domain, key-port, principal-domain, principal-port, authn-port]
+    mayDependOn: [key-domain, key-port, principal-domain, principal-port, authn-port, provision-domain, provision-port, quota-domain, quota-port]
 
   key-adapter:
-    mayDependOn: [key-domain, key-port]
+    mayDependOn: [key-domain, key-port, provision-domain]
+
+  quota-port:
+    mayDependOn: [quota-domain]
+
+  quota-app:
+    mayDependOn: [quota-domain, quota-port, principal-domain, principal-port, authn-port, provision-port]
+
+  quota-adapter:
+    mayDependOn: [quota-domain, quota-port]
+
+  provision-port:
+    mayDependOn: [provision-domain, quota-domain]
+
+  provision-app:
+    mayDependOn: [provision-domain, provision-port]
+
+  provision-adapter:
+    mayDependOn: [provision-domain, provision-port]
+
+  provision-adapter-litellm:
+    mayDependOn: [provision-domain, provision-port, quota-domain]
 
   gatewayfeed-port:
     mayDependOn: [gatewayfeed-domain]
@@ -113,4 +164,4 @@ deps:
     mayDependOn: [migrations]
 
   cmd:
-    mayDependOn: [principal-domain, principal-port, principal-app, principal-adapter, policy-domain, policy-port, policy-app, policy-adapter, authn-domain, authn-port, authn-app, authn-adapter, key-port, key-app, key-adapter, gatewayfeed-app, gatewayfeed-adapter, migrations]
+    mayDependOn: [principal-domain, principal-port, principal-app, principal-adapter, policy-domain, policy-port, policy-app, policy-adapter, authn-domain, authn-port, authn-app, authn-adapter, key-port, key-app, key-adapter, quota-port, quota-app, quota-adapter, provision-port, provision-app, provision-adapter, provision-adapter-litellm, gatewayfeed-app, gatewayfeed-adapter, migrations]
