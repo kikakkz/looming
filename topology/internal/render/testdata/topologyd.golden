@@ -2,6 +2,8 @@ name: looming
 services:
     topologyd:
         build:
+            args:
+                - GOPROXY
             context: topology
         entrypoint:
             - /usr/local/bin/topologyd

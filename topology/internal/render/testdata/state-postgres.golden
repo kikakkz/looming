@@ -11,6 +11,8 @@ services:
             - /var/lib/looming/postgres:/var/lib/postgresql/data
     gateway-front:
         build:
+            args:
+                - GOPROXY
             context: gateway
         environment:
             GATEWAY_LISTEN: :8080

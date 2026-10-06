@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage
+.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage test-e2e
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
@@ -153,4 +153,19 @@ test-coverage:
 		done; \
 	else \
 		echo "go: not installed, skipped (CI installs it)"; \
+	fi
+
+# Bundle e2e layer (AD-25, `e2e` build tag): the onboarding scenario
+# driven through the real looming-ctl against real component
+# containers. Deliberately OUTSIDE ci-gate — AD-25 deferred this layer
+# until a runner budget exists, and this target IS that layer landing:
+# its cost stays visible as its own target (and its own CI job in
+# .github/workflows/e2e.yml), never folded into the gate. First run
+# builds every component image; expect minutes, not seconds.
+test-e2e:
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "test-e2e: docker daemon unavailable, skipped (the e2e suite drives real containers; CI provides Docker)"; \
+	else \
+		echo "test-e2e: building component images and running the bootstrap scenario (first run takes a while)"; \
+		(cd tests/e2e && go test -tags e2e -v -count=1 -timeout 30m ./...); \
 	fi

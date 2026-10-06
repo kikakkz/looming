@@ -58,7 +58,13 @@ func access(t *testing.T, mode string) domain.Access {
 
 func gatewayAndEngine() []domain.ComponentPlacement {
 	return []domain.ComponentPlacement{
-		{Component: domain.ComponentGatewayFront, HostID: hostA, Ports: map[string]int{"http": 8080}, Config: map[string]string{"tls": "off"}},
+		{
+			Component:  domain.ComponentGatewayFront,
+			HostID:     hostA,
+			Ports:      map[string]int{"http": 8080},
+			Config:     map[string]string{"tls": "off"},
+			ExtraHosts: []string{"host.docker.internal:host-gateway"},
+		},
 		{Component: "engine", HostID: hostB, Ports: map[string]int{"grpc": 9090}},
 	}
 }

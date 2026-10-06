@@ -35,13 +35,32 @@ func main() {
 	}
 }
 
-// run wires and serves; separated from main for the smoke test.
-func run(log *slog.Logger) error {
+// loadUpstream resolves the engine upstream from the environment and
+// enforces the credential-safety gate: a static upstream auth value
+// rides the wire to the upstream, so plain HTTP would hand it to any
+// passive observer (CWE-319) — forbidden unless the operator opts out
+// explicitly for a trusted network, the GATEWAY_IDENTITY_INSECURE
+// precedent. (The bundle e2e's loopback deployment sets the opt-out:
+// its upstream is a host-reachable fake engine, never a wire crossing.)
+func loadUpstream() (*url.URL, string, error) {
 	upstreamURL := os.Getenv("GATEWAY_UPSTREAM")
 	if upstreamURL == "" {
-		return errConfig("GATEWAY_UPSTREAM")
+		return nil, "", errConfig("GATEWAY_UPSTREAM")
 	}
 	upstream, err := url.Parse(upstreamURL)
+	if err != nil {
+		return nil, "", err
+	}
+	upstreamAuth := os.Getenv("GATEWAY_UPSTREAM_AUTH")
+	if upstreamAuth != "" && upstream.Scheme != "https" && os.Getenv("GATEWAY_UPSTREAM_INSECURE") != "1" {
+		return nil, "", &configError{name: "GATEWAY_UPSTREAM must be https when GATEWAY_UPSTREAM_AUTH is set (trusted-network plain HTTP opts out with GATEWAY_UPSTREAM_INSECURE=1)"}
+	}
+	return upstream, upstreamAuth, nil
+}
+
+// run wires and serves; separated from main for the smoke test.
+func run(log *slog.Logger) error {
+	upstream, upstreamAuth, err := loadUpstream()
 	if err != nil {
 		return err
 	}
@@ -50,10 +69,6 @@ func run(log *slog.Logger) error {
 		listen = ":8080"
 	}
 
-	upstreamAuth := os.Getenv("GATEWAY_UPSTREAM_AUTH")
-	if upstreamAuth != "" && upstream.Scheme != "https" {
-		return &configError{name: "GATEWAY_UPSTREAM must be https when GATEWAY_UPSTREAM_AUTH is set"}
-	}
 	engine := defaultengine.NewWithUpstream(upstream, upstreamAuth)
 	queue := adapter.NewChanQueue(queueSize())
 	go adapter.DrainInteractions(context.Background(), queue, log)
@@ -92,7 +107,7 @@ func run(log *slog.Logger) error {
 	mux.Handle("GET /{$}", guide)
 	mux.Handle("/", front)
 
-	log.Info("gateway listening", "addr", listen, "upstream", upstreamURL, "identity", identityURL)
+	log.Info("gateway listening", "addr", listen, "upstream", upstream.String(), "identity", identityURL)
 	server := &http.Server{
 		Addr:              listen,
 		Handler:           mux,

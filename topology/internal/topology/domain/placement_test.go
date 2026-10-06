@@ -4,6 +4,7 @@ package domain_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -67,4 +68,44 @@ func TestValidatePlacementsAllowsSamePortOnDifferentHosts(t *testing.T) {
 	placements[1].Component = "engine"
 	placements[1].HostID = hostB
 	assert.NoError(t, domain.ValidatePlacements([]string{hostA, hostB}, placements))
+}
+
+// TestMatchesIsSensitiveToExtraHosts pins the converge-idempotency
+// contract for the compose host-alias channel: an extra_hosts change
+// is a placement change — the declare must not no-op on it, or the new
+// alias would never converge.
+func TestMatchesIsSensitiveToExtraHosts(t *testing.T) {
+	access := domain.Access{}
+	topo := domain.Uninitialized().Next(access, []domain.ComponentPlacement{{
+		Component:  domain.ComponentGatewayFront,
+		HostID:     hostA,
+		Ports:      map[string]int{"http": 8080},
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
+	}}, time.Now())
+	assert.True(t, topo.Matches(access, []domain.ComponentPlacement{{
+		Component:  domain.ComponentGatewayFront,
+		HostID:     hostA,
+		Ports:      map[string]int{"http": 8080},
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
+	}}))
+	assert.False(t, topo.Matches(access, []domain.ComponentPlacement{{
+		Component: domain.ComponentGatewayFront,
+		HostID:    hostA,
+		Ports:     map[string]int{"http": 8080},
+	}}))
+}
+
+// TestNextDeepCopiesExtraHosts pins the aggregate aliasing rule for
+// the new placement field: mutating the caller's slice after Next must
+// not move the persisted snapshot.
+func TestNextDeepCopiesExtraHosts(t *testing.T) {
+	hosts := []string{"host.docker.internal:host-gateway"}
+	topo := domain.Uninitialized().Next(domain.Access{}, []domain.ComponentPlacement{{
+		Component:  domain.ComponentGatewayFront,
+		HostID:     hostA,
+		Ports:      map[string]int{"http": 8080},
+		ExtraHosts: hosts,
+	}}, time.Now())
+	hosts[0] = "tampered:10.0.0.99"
+	assert.Equal(t, "host.docker.internal:host-gateway", topo.Placements[0].ExtraHosts[0])
 }

@@ -2,6 +2,8 @@ name: looming
 services:
     gateway-front:
         build:
+            args:
+                - GOPROXY
             context: gateway
         environment:
             GATEWAY_IDENTITY_INSECURE: "1"
@@ -14,6 +16,8 @@ services:
         restart: unless-stopped
     topologyd:
         build:
+            args:
+                - GOPROXY
             context: topology
         entrypoint:
             - /usr/local/bin/topologyd

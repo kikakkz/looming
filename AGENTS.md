@@ -43,24 +43,20 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 
 ## Commands
 
-- `make ci-gate` — run the full local gate (branch name, locks, tool
-  tests, trailer checks, ADR check, shell lint, semgrep rules,
-  PR-body lint).
-- `make lint-pr-body` — PR-body lint (AD-30 prevention, #92): every
-  `Refs #N` must state on the same line why the issue stays open;
-  `Closes`/`Fixes` need no reason. Skips without a PR body — in CI
-  the `pull_request` job feeds it via `PR_BODY`; locally pass
+- `make ci-gate` — run the full local gate (branch name, locks, tool tests,
+  trailer checks, ADR check, shell lint, semgrep rules, PR-body lint).
+- `make lint-pr-body` — PR-body lint (AD-30 prevention, #92): every `Refs #N`
+  must state on the same line why the issue stays open; `Closes`/`Fixes` need
+  no reason. Skips without a PR body — CI feeds it via `PR_BODY`; locally pass
   `PR_BODY="$(cat body.md)" make lint-pr-body`.
-- `make check-branch` — validate the current branch name against the
-  naming rule before push (same rule as the `branch-name` CI check). Run
-  `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also
-  check prefix/title consistency.
+- `make check-branch` — validate the current branch name against the naming
+  rule before push (same rule as the `branch-name` CI check). Run
+  `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also check prefix/title consistency.
 - `make validate-locks` — validate `.ai/*.lock.toml` files and the memory bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
 - `make check-adr` — validate decision-record links and index freshness.
-- `make check-docs` — doc-repo consistency: documented make targets exist,
-  ci-gate prerequisites are named here, skill counts and memory wikilinks resolve.
+- `make check-docs` — doc-repo consistency: documented make targets exist, ci-gate prerequisites are named here, skill counts and memory wikilinks resolve.
 - `make lint-sh` — shellcheck over the repo scripts.
 - `make check-skills` — validate every `.ai/skills/*/SKILL.md` against the Agent Skills frontmatter contract.
 - `make check-index` — validate `.ai/index.yaml`: parseable under the constrained subset, no unknown sections, every anchor (files, dirs, rule pointers) exists.
@@ -70,16 +66,17 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make lint-arch` — AD-23 dependency-matrix enforcement per component
   via go-arch-lint (`<component>/.go-arch-lint.yml`, AD-33/AD-34); warns
   and skips when the tool is missing.
-- `make test-unit` — Go unit tests with `-race` per component; falls back
-  to plain `go test` without gotestsum; skips when no `*/go.mod` exists.
+- `make test-unit` — Go unit tests with `-race` per component; falls back to plain `go test` without gotestsum; skips when no `*/go.mod` exists.
 - `make test-integration` — `integration`-tagged tests (testcontainers-go,
   AD-25) per component; loud skip without a Docker daemon or
-  integration-tagged files. A component shipping
-  `.testcoverage.integration.yml` also gets its integration profile
-  threshold-checked there (adapters and migrations are covered by this
-  layer, not the unit profile).
+  integration-tagged files. A component shipping `.testcoverage.integration.yml`
+  also gets its integration profile threshold-checked there (adapters and
+  migrations are covered by this layer, not the unit profile).
 - `make test-coverage` — per-component coverage profile plus the
   go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
+- `make test-e2e` — bundle e2e layer (AD-25 `e2e` tag): the onboarding
+  scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI
+  job; loud skip without docker; first run builds all images.
 
 ## Go engineering standards
 
@@ -114,7 +111,8 @@ Every `//nolint` names its linter, explains itself, and must be in use
 
 **Testing (AD-25).** Layers by build tag: unit (default — no network,
 disk, or wall-clock), `integration` (testcontainers-go; GitLab CE via
-`GenericContainer`), `e2e` (deferred until a runner budget exists).
+`GenericContainer`), `e2e` (bundle layer: `tests/e2e/` runs the onboarding
+scenario against real containers via `make test-e2e` — landed with the suite, not deferred to a runner budget).
 Regression protection is replay/fixture tests inside the unit and
 integration layers, added with every bug fix. Assertions: testify +
 go-cmp. Coverage ≥ 80% at file, package, and total granularity
@@ -129,6 +127,8 @@ cites its `kind/flake` issue number; test-only helpers live under
   tool configs. First component (AD-34); slice C (#114) added per-key engine credentials: feed `engine_credential` consumption (`Identity{Subject, EngineCredential}` authenticator shape), explicit `EnginePlane.Forward` credential, per-request upstream auth with static fallback.
 - `identity/` — the identity component (Go, AD-34): principals, registration policy, local authn (design: `docs/architecture/identity-l1.md`, AD-35); slice C (#114) added the Quota aggregate and engine provisioning (EngineProvisioner port, LiteLLM adapter, per-LoomingKey IdentityMap, feed `engine_credential` contract).
 - `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1 (#107) added the `apply` converge pipeline (config loader, renderer, executor, `cmd/looming-ctl` — placement temporary pending #108); T2 (#107) added the join capability (`internal/join`) + the `cmd/topologyd` join/rejoin service; T3 (#107) added the guide capability (`internal/guide`, topologyd's `GET /v1/internal/guide`) and the gateway's public onboarding page at `GET /` (TTL-cached fetch of the guide).
+- `tests/e2e/` — the bundle e2e suite (AD-25 `e2e` layer): cross-component,
+  AD-34-neutral, own `go.mod`; drives the real ctl and real containers through the onboarding scenario.
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
   tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap
@@ -192,7 +192,7 @@ cites its `kind/flake` issue number; test-only helpers live under
 - Hybrid versioning: components carry independent semver image tags; a
   bundle release is a git tag plus a manifest pinning every component's
   exact version. Only changed components are published per release.
-- Release details: [.ai/skills/release/SKILL.md](.ai/skills/release/SKILL.md).
+  Release details: [.ai/skills/release/SKILL.md](.ai/skills/release/SKILL.md).
 
 ## Bootstrap exception
 
