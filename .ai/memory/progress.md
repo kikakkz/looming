@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-01
+updated: 2026-10-06
 type: progress
 ---
 
@@ -97,3 +97,42 @@ open-state truth lives in the issue tracker -->
   pr_watch in ci-gate; 60+ tool tests green; open issues are #21
   (parking lot) and #20 (judge evaluation — deferred by maintainer
   until wait-agent practice matures).
+
+## 2026-10-06 — Three-track autonomous push, all merged gate-green (#107, #114, #108, e2e)
+
+- Maintainer away; three tracks pushed autonomously through the normal
+  loop (branch + reviewed PR), every PR gate-green. Stable identifiers
+  only; the tracker and [[decisions]] are the SSoT.
+- **#107 bootstrap/topology plane** — issue closed with named leftovers.
+  Design PR #117 (topology-l1, AD-36, context-map #12, Identity-row
+  drift fixed back to AD-35 vocabulary) → T0 skeleton #118 → T1 apply
+  converge #119 (state plane, per-host compose render, SSH docker
+  executor, render-diff) → T2 PR-A #120 (bootstrap-invite one-shot
+  window; BOOTSTRAP_ADMIN retired) + PR-B #121 (topologyd, pull-join,
+  host credentials, apply prints the invite) → T3 #122/#124 (guide
+  render + gateway public page).
+- **#114 slice C** — #125/#126 identity: Quota aggregate + admin/self
+  API, IdentityMap reference-only with sealed value, EngineProvisioner
+  port + LiteLLM adapter, provision-on-issue two-step with immediate
+  rollback, feed `engine_credential` contract. #127 gateway: per-key
+  engine credentials, Authenticator → Identity{Subject,
+  EngineCredential}, Forwarder credential param, recorder non-leak
+  pinned. Slice-B latent race fixed along the way (shared
+  ReverseProxy.ErrorHandler).
+- **#108 CLI design** — #128: cli-l1 + AD-37. Single binary, two faces
+  (docker precedent); cli/ component; platform/go extraction deferred
+  to CLI-1 (AD-34 two-consumer rule); configure does managed-block
+  reconciliation (--undo scoped to the managed region after review);
+  slices CLI-0/1/2 in the issue body.
+- **Bundle e2e** — #129: tests/e2e suite lands the AD-25 e2e layer.
+  TestBootstrapScenario: 7 steps green (cold 235 s incl. first-ever
+  image builds, warm 62 s). `make test-e2e` + a separate CI job (not
+  in ci-gate). Exposed real bugs, filed: #130 (component-database
+  provisioning missing at first boot), #131 (invite-vs-readiness
+  race); the suite is their regression net.
+- Environment notes for future sessions: go1.25 toolchain at
+  /opt/data/source/3rd/go-1.25/bin (GOROOT must be unset); docker
+  compose v2 at ~/.docker/cli-plugins; GOPROXY=goproxy.cn; GitHub
+  flaky — use retry loops; kroki/mermaid IP-rate-limited.
+- Open after this session: #114 slices D (RBAC read side) + E (OIDC);
+  #108 slices CLI-0/1/2; #130/#131; #105 + #123 flake tracking.
