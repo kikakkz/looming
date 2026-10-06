@@ -1,25 +1,29 @@
 ---
-updated: 2026-10-01
+updated: 2026-10-06
 type: activeContext
 ---
 
 # Active Context
 
-## Current focus
+Links-only snapshot — SSoT: [[progress]], [[decisions]], the tracker.
+Orientation: the 2026-10-06 entry in [[progress]].
 
-- Engineering-tooling suite complete — see the 2026-10-01 entry in
-  [[progress]] (#19, #23, #39).
+## Open threads (tracker is the truth)
 
-## Next (each gated by maintainer instruction)
+- #114 — remaining work defined in the issue body.
+- #108 — remaining slices defined in the issue body; design [[AD-37]]
+  (#128).
+- #130, #131 — see the issues; regression net at tests/e2e.
+- #105, #123 — flakes.
 
-- Overall architecture discussion with the maintainer before any
-  feature work — the gateway stays frozen ([[AD-3]]); the agentgateway
-  research and runtime spike ([[AD-15]]) precede it.
-- Event-stream schema: deferred by decision; its own issue when
-  unblocked.
+## Landed anchors
 
-## Open questions
+- #107 closed.
+- Latest decisions: [[AD-36]], [[AD-37]]; e2e layer [[AD-25]].
+- E2E suite: tests/e2e.
 
-- E2E runner budget — the `e2e` layer is defined in [[AD-25]].
-- Review-gate economics at scale — see the 2026-10-01 entry in
-  [[progress]]; `.ai/skills/pr-watch/` implements the current levers.
+## Standing pointers
+
+- Memory protocol + addressing rule: `.ai/AGENTS.md` memory rules
+  (AD-22).
+- Environment notes: the 2026-10-06 entry in [[progress]].
