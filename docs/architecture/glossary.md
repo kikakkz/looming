@@ -7,6 +7,8 @@ changes that need them.
 | Term | Meaning |
 |------|---------|
 | **Surface** | A thin renderer of the session stream (our CLI, IM bots, later web). AD-27 §3. |
+| **Profile** | A CLI-local connection profile: name, gateway/identity endpoints, and a credential reference, stored under `~/.looming/profiles/`; the shareable half of local CLI state — credentials never ride inside it (AD-27 §4, AD-37). |
+| **AgentAdapter** | A CLI plugin that reconciles a Profile into a local agent CLI's config file via a managed block (`# looming:managed` fence or the agent's native include): byte-idempotent merge, backup before first mutation, `--undo` removes the block and restores the pre-managed content of the managed region — out-of-region edits survive (AD-27 §4, AD-37). |
 | **Session** | Durable runtime identity plus the append-only event stream; the proprietary core. |
 | **Harness** | An agent runtime executing work (our runtime, or codex/claude/kimi-code/goose in sandboxes); attaches via the harness-adapter protocol. |
 | **ker** | The platform agent entry point (`ker_start`/`ker_events`/`ker_reply`/`ker_stop`); the only door for spawned sub-agents. |
