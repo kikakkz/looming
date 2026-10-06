@@ -255,6 +255,7 @@ func TestEngineURLIsSecure(t *testing.T) {
 		{"query string", "https://engine.example.com?token=1", false},
 		{"forced query", "https://engine.example.com/?", false},
 		{"fragment", "https://engine.example.com/#admin", false},
+		{"empty fragment marker", "https://engine.example.com/#", false},
 		{"ftp scheme", "ftp://localhost/engine", false},
 		{"garbage", "not-a-url", false},
 		{"empty", "", false},
