@@ -44,6 +44,9 @@
 # fallback); all read_order anchors resolve.
 # 2026-10-06 CLI L1 (#108) re-validated: AD-37 lands (regenerated
 # decisions/README.md); all read_order anchors resolve.
+# 2026-10-06 bundle e2e (#107) re-validated: AGENTS.md Commands gains
+# make test-e2e, the Testing section names the landed e2e layer, and
+# the directory map gains tests/e2e/; all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
