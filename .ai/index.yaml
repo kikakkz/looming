@@ -33,6 +33,10 @@
 # 2026-10-06 topology T3 (#107) re-validated: AGENTS.md directory map
 # topology/ line now names the guide capability + the gateway's public
 # guide route; all read_order anchors resolve.
+# 2026-10-06 identity slice C (#114) re-validated: AGENTS.md directory
+# map identity/ line now names the Quota aggregate + engine
+# provisioning (EngineProvisioner, LiteLLM adapter, IdentityMap);
+# all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
