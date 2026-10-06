@@ -5,27 +5,25 @@ type: activeContext
 
 # Active Context
 
-Links-only snapshot — SSoT details live in [[progress]], [[decisions]],
-and the tracker. How we got here: the 2026-10-06 entry in [[progress]].
+Links-only snapshot — SSoT: [[progress]], [[decisions]], the tracker.
+Orientation: the 2026-10-06 entry in [[progress]].
 
 ## Open threads (tracker is the truth)
 
-- #114 — slices D (RBAC read side) + E (OIDC) remain.
-- #108 — design landed (#128, AD-37); slices CLI-0/1/2 to implement.
-- #130, #131 — real bugs surfaced by the bundle e2e suite.
-- #105, #123 — flake tracking.
+- #114 — remaining work defined in the issue body.
+- #108 — remaining slices defined in the issue body; design [[AD-37]]
+  (#128).
+- #130, #131 — see the issues; regression net at tests/e2e.
+- #105, #123 — flakes.
 
 ## Landed anchors
 
-- #107 closed (bootstrap/topology plane; leftovers named in the issue).
-- AD-36 (topology plane) and AD-37 (CLI) are the latest decisions.
-- Bundle e2e suite: tests/e2e — AD-25 e2e layer; `make test-e2e`, own
-  CI job, not in ci-gate.
+- #107 closed.
+- Latest decisions: [[AD-36]], [[AD-37]]; e2e layer [[AD-25]].
+- E2E suite: tests/e2e.
 
-## Standing
+## Standing pointers
 
-- Memory updates ride branch + reviewed PR (AD-22); stable identifiers
-  only (#N / AD-N).
-- Environment: go1.25 at /opt/data/source/3rd/go-1.25/bin (GOROOT
-  unset); GOPROXY=goproxy.cn; GitHub-flaky — retry loops. Full notes
-  in the 2026-10-06 [[progress]] entry.
+- Memory protocol + addressing rule: `.ai/AGENTS.md` memory rules
+  (AD-22).
+- Environment notes: the 2026-10-06 entry in [[progress]].
