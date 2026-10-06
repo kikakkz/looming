@@ -70,8 +70,8 @@ revocation is 401 immediately-ish (watch latency + TTL bound).
 ModelAllowlistCache remains the unwired slice-D seam for the model
 permission check.
 
-Slice C consumes the feed's per-key `engine_credential` (identity PR
-#125/#126): the KeyCache projection carries it per row, the
+Slice C consumes the feed's per-key `engine_credential` (identity
+PR #125/#126): the KeyCache projection carries it per row, the
 IdentityAuthenticator returns `Identity{Subject, EngineCredential}`
 (the front-port Authenticator's house shape), and the front hands the
 engine slot ONLY the credential — the LoomingKey is deleted at the
