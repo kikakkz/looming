@@ -225,12 +225,9 @@ func TestForwardConcurrentMixedCredentialsNoBleed(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer gateway-key-"+seq)
 				req.Header.Set("X-Seq", seq)
 				rrec := httptest.NewRecorder()
-				var cred string
-				switch {
-				case g%3 == 0:
+				cred := "engine-cred-" + seq
+				if g%3 == 0 {
 					cred = "" // fallback to the static auth
-				default:
-					cred = "engine-cred-" + seq // per-request credential
 				}
 				if err := engine.Forward(req.Context(), rrec, req, cred); err != nil {
 					errs <- err

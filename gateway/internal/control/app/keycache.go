@@ -118,19 +118,8 @@ func (c *KeyCache) loop(ctx context.Context) {
 				c.snap.store(KeySnapshot{Rev: rev, V: cloneKeyMap(state)})
 			case u.confirm:
 				// Origin confirmation: new information, never stale;
-				// the projection revision does not move. The confirm
-				// carries (principal, active) only — the feed is the
-				// credential authority — so an existing entry's
-				// credential survives the upsert.
-				for _, h := range u.deletes {
-					delete(state, h)
-				}
-				for h, e := range u.upserts {
-					if prev, ok := state[h]; ok && e.EngineCredential == "" {
-						e.EngineCredential = prev.EngineCredential
-					}
-					state[h] = e
-				}
+				// the projection revision does not move.
+				applyConfirm(state, u.upserts, u.deletes)
 				c.snap.store(KeySnapshot{Rev: rev, V: cloneKeyMap(state)})
 			case u.rev > rev:
 				for _, h := range u.deletes {
@@ -202,4 +191,19 @@ func cloneKeyMap(m map[[32]byte]KeyEntry) map[[32]byte]KeyEntry {
 		out[k] = v
 	}
 	return out
+}
+
+// applyConfirm merges an origin confirmation into the writer state. The
+// confirm carries (principal, active) only — the feed is the credential
+// authority — so an existing entry's credential survives the upsert.
+func applyConfirm(state, upserts map[[32]byte]KeyEntry, deletes [][32]byte) {
+	for _, h := range deletes {
+		delete(state, h)
+	}
+	for h, e := range upserts {
+		if prev, ok := state[h]; ok && e.EngineCredential == "" {
+			e.EngineCredential = prev.EngineCredential
+		}
+		state[h] = e
+	}
 }

@@ -317,7 +317,7 @@ func TestClientMapsEngineCredential(t *testing.T) {
 	if cred := got[string(plain[:])]; cred != "" {
 		t.Fatalf("an unprovisioned key must map an empty credential, got %q", cred)
 	}
-	if cred := got[string(prov[:])]; cred != "engine-cred-42" {
+	if cred := got[string(prov[:])]; cred != "engine-cred-42" { //nolint:gosec // test-only fixture value, not a credential.
 		t.Fatalf("a provisioned key must map its credential, got %q", cred)
 	}
 }

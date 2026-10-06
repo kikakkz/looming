@@ -527,6 +527,7 @@ func TestFrontEndToEndEngineCredentialInjection(t *testing.T) {
 func TestFrontEndToEndRecordingNeverCarriesCredentials(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	const loomKey = "lk-e2e-canary-key"
+	//nolint:gosec // test-only canary string, not a credential.
 	const engineCred = "e2e-engine-cred-canary"
 
 	cache, origin, upstream, engine := newEngineFrontRig(t, "static-fallback-secret")
@@ -598,7 +599,8 @@ func TestFrontEndToEndConcurrentDistinctKeysNoBleed(t *testing.T) {
 		if i%3 != 0 {
 			entry.EngineCredential = fmt.Sprintf("conc-cred-%d", i)
 		}
-		cache.Apply(app.Revision(i+1), map[[32]byte]app.KeyEntry{hash: entry}, nil)
+		cache.Apply(app.Revision(i+1), //nolint:gosec // test-only revision counter; the loop bound keeps i+1 far below any overflow.
+			map[[32]byte]app.KeyEntry{hash: entry}, nil)
 	}
 
 	var wg sync.WaitGroup

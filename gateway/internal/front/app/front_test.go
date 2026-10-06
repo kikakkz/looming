@@ -248,6 +248,7 @@ func (m *recordingMeter) Record(_ context.Context, r frontdomain.MeterRecord) {
 func TestFrontRecordingNeverCarriesCredentials(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	const loomKey = "lk-canary-never-leak"
+	//nolint:gosec // test-only canary string, not a credential.
 	const engineCred = "eng-cred-canary-never-leak"
 	authn := stubAuthnFunc(func(_ context.Context, key string) (port.Identity, error) {
 		if key == loomKey {
