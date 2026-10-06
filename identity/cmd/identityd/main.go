@@ -16,10 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -165,7 +168,9 @@ func loadRuntimeLimits(cfg *config) error {
 // C). Everything is optional: without IDENTITY_ENGINE_URL identity runs
 // key-only issuance and the gateway falls back per the feed contract.
 // With it, the master key is mandatory — fail fast rather than 502ing
-// every issuance.
+// every issuance — and the URL must be able to carry that key safely:
+// HTTPS anywhere, or plain HTTP only on loopback (a local dev engine
+// never crosses a wire; CWE-319).
 func loadEngineConfig(cfg *config) error {
 	cfg.engineURL = os.Getenv("IDENTITY_ENGINE_URL")
 	cfg.engineKey = os.Getenv("IDENTITY_ENGINE_KEY")
@@ -173,10 +178,38 @@ func loadEngineConfig(cfg *config) error {
 	if cfg.engineName == "" {
 		cfg.engineName = defaultEngineName
 	}
-	if cfg.engineURL != "" && cfg.engineKey == "" {
+	if cfg.engineURL == "" {
+		return nil
+	}
+	if cfg.engineKey == "" {
 		return errors.New("missing required config: IDENTITY_ENGINE_KEY (set when IDENTITY_ENGINE_URL is set)")
 	}
+	if !engineURLIsSecure(cfg.engineURL) {
+		return fmt.Errorf("IDENTITY_ENGINE_URL must be https:// (or http:// on loopback), got %q", cfg.engineURL)
+	}
 	return nil
+}
+
+// engineURLIsSecure reports whether an engine admin URL may carry the
+// master key: HTTPS anywhere, or plain HTTP only on loopback — a local
+// dev engine — where no network crossing exists for a passive observer.
+func engineURLIsSecure(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // loadKeyConfig fills the key-capability slice of the config: the
@@ -232,27 +265,48 @@ func loadMasterKey() ([]byte, error) {
 // provisionBundle carries the slice-C wiring the key, quota, and
 // provision capabilities share. A nil provisioner means no engine is
 // configured: issuance stays key-only, the map stays empty, and the
-// feed omits engine_credential.
+// feed omits engine_credential (feedEngineName empty — leftover
+// identity_map rows from a since-removed engine must not project).
 type provisionBundle struct {
-	provisioner provisionport.EngineProvisioner
-	quotaRepo   *quotaadapter.Repository
-	mapRepo     *provisionadapter.MapRepository
+	provisioner    provisionport.EngineProvisioner
+	quotaRepo      *quotaadapter.Repository
+	mapRepo        *provisionadapter.MapRepository
+	feedEngineName string
 }
 
 // wireProvision builds the bundle. The LiteLLM client gets a bounded
-// HTTP client (AD-25: no globals in production wiring); an engine
-// without a master key is a boot-time misconfiguration, caught in
-// loadEngineConfig.
+// HTTP client (AD-25: no globals in production wiring) whose redirect
+// policy refuses any hop that may not carry the master key (CWE-319);
+// an engine without a master key or with an unsafe URL is a boot-time
+// misconfiguration, caught in loadEngineConfig.
 func wireProvision(cfg config, db *sql.DB) provisionBundle {
 	bundle := provisionBundle{
 		quotaRepo: quotaadapter.NewRepository(db),
 		mapRepo:   provisionadapter.NewMapRepository(db),
 	}
 	if cfg.engineURL != "" {
-		bundle.provisioner = litellm.NewClient(cfg.engineURL, cfg.engineKey,
-			&http.Client{Timeout: engineHTTPTimeout})
+		bundle.provisioner = litellm.NewClient(cfg.engineURL, cfg.engineKey, engineAdminClient())
+		bundle.feedEngineName = cfg.engineName
 	}
 	return bundle
+}
+
+// engineAdminClient bounds one engine admin call (provision, budget,
+// delete) so a hung engine cannot park an issuance, and pins the
+// redirect policy: the master key rides the Authorization header, so
+// every redirect hop must satisfy the same URL safety rule as the
+// configured base URL — a same-host or subdomain redirect to http must
+// not silently forward the key.
+func engineAdminClient() *http.Client {
+	return &http.Client{
+		Timeout: engineHTTPTimeout,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if !engineURLIsSecure(req.URL.String()) {
+				return fmt.Errorf("identity: refusing engine redirect to non-HTTPS endpoint %q", req.URL.Redacted())
+			}
+			return nil
+		},
+	}
 }
 
 // run wires and serves; separated from main for the smoke-test shape
@@ -298,8 +352,9 @@ func run(log *slog.Logger) error {
 	loginSvc := authnapp.NewLoginService(provider, cfg.tokenTTL, clockFn)
 
 	// Engine provisioning (identity slice C): nil provisioner means no
-	// engine is configured — issuance stays key-only and the feed omits
-	// engine_credential, so the gateway falls back per its contract.
+	// engine is configured — issuance stays key-only, the map stays
+	// empty, and the feed omits engine_credential, so the gateway falls
+	// back per its contract.
 	bundle := wireProvision(cfg, db)
 	if bundle.provisioner != nil {
 		keySvc.SetEngineProvisioner(bundle.provisioner, bundle.mapRepo, bundle.quotaRepo, cfg.engineName)
@@ -312,7 +367,7 @@ func run(log *slog.Logger) error {
 	// The store also projects engine credentials: it unseals
 	// identity_map rows for the data plane behind the service token.
 	feedSvc := gatewayfeedapp.NewService(
-		gatewayfeedadapter.NewStore(db, cfg.engineName, sealer),
+		gatewayfeedadapter.NewStore(db, bundle.feedEngineName, sealer),
 		gatewayfeedapp.NewHub(), cfg.watchTimeout)
 	principalSvc.SetRevisionNotifier(feedSvc.Hub())
 	keySvc.SetRevisionNotifier(feedSvc.Hub())
