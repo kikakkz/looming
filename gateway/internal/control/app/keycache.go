@@ -14,11 +14,16 @@ import (
 // to confirmed entries, while feed entries authorize on presence for
 // as long as the syncer is healthy (the feed delete is their
 // revocation path — a stalled syncer turns them back into misses).
+// EngineCredential is the per-key engine credential the feed projected
+// (empty = unprovisioned): the feed is its authority — an origin
+// confirm never carries it (validate answers principal+status only),
+// so confirms preserve whatever the projection holds.
 type KeyEntry struct {
-	PrincipalID string
-	Status      string
-	Confirmed   bool
-	SyncedAt    time.Time
+	PrincipalID      string
+	Status           string
+	EngineCredential string
+	Confirmed        bool
+	SyncedAt         time.Time
 }
 
 // KeySnapshot is a cache view: clone-on-store isolates the single
@@ -114,12 +119,7 @@ func (c *KeyCache) loop(ctx context.Context) {
 			case u.confirm:
 				// Origin confirmation: new information, never stale;
 				// the projection revision does not move.
-				for _, h := range u.deletes {
-					delete(state, h)
-				}
-				for h, e := range u.upserts {
-					state[h] = e
-				}
+				applyConfirm(state, u.upserts, u.deletes)
 				c.snap.store(KeySnapshot{Rev: rev, V: cloneKeyMap(state)})
 			case u.rev > rev:
 				for _, h := range u.deletes {
@@ -161,13 +161,16 @@ func (c *KeyCache) Reset(rev Revision, entries map[[32]byte]KeyEntry) {
 // revision (the origin knows nothing of the feed's rev counter), so
 // the writer applies it unconditionally and keeps the projection rev
 // untouched. Confirmed entries mark themselves: the authenticator's
-// TTL applies to them alone. Syncer deletes still win over confirms —
-// fail closed.
+// TTL applies to them alone. The confirm carries (principal, active)
+// only — identity's validate answers no credential — so a confirm over
+// a feed-populated entry preserves the projected EngineCredential (the
+// feed fills the value on its next sync when the projection lagged).
+// Syncer deletes still win over confirms — fail closed.
 func (c *KeyCache) Confirm(hash [32]byte, principalID string) {
 	ack := make(chan struct{})
 	c.in <- keyUpdate{
 		confirm: true,
-		upserts: map[[32]byte]KeyEntry{hash: {PrincipalID: principalID, Status: "active", Confirmed: true, SyncedAt: c.clock()}},
+		upserts: map[[32]byte]KeyEntry{hash: {PrincipalID: principalID, Status: "active", EngineCredential: "", Confirmed: true, SyncedAt: c.clock()}},
 		ack:     ack,
 	}
 	<-ack
@@ -188,4 +191,19 @@ func cloneKeyMap(m map[[32]byte]KeyEntry) map[[32]byte]KeyEntry {
 		out[k] = v
 	}
 	return out
+}
+
+// applyConfirm merges an origin confirmation into the writer state. The
+// confirm carries (principal, active) only — the feed is the credential
+// authority — so an existing entry's credential survives the upsert.
+func applyConfirm(state, upserts map[[32]byte]KeyEntry, deletes [][32]byte) {
+	for _, h := range deletes {
+		delete(state, h)
+	}
+	for h, e := range upserts {
+		if prev, ok := state[h]; ok && e.EngineCredential == "" {
+			e.EngineCredential = prev.EngineCredential
+		}
+		state[h] = e
+	}
 }

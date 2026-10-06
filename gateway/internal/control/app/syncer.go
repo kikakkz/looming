@@ -17,6 +17,11 @@ type FeedKey struct {
 	Hash        [32]byte
 	PrincipalID string
 	Status      string // "active" | "revoked" (feed vocabulary)
+	// EngineCredential is the per-key engine credential the identity
+	// feed projected for this row (identity slice C contract): present
+	// only for provisioned keys, empty otherwise — the gateway then
+	// falls back to its configured default upstream credential.
+	EngineCredential string
 }
 
 // FeedResponse is the gateway-side shape of an identity feed snapshot:
@@ -141,7 +146,9 @@ func (s *Syncer) applyDiff(resp FeedResponse) {
 		}
 	}
 	for h, entry := range want {
-		if existing, ok := snap.V[h]; !ok || existing.PrincipalID != entry.PrincipalID {
+		if existing, ok := snap.V[h]; !ok ||
+			existing.PrincipalID != entry.PrincipalID ||
+			existing.EngineCredential != entry.EngineCredential {
 			upserts[h] = entry
 		}
 	}
@@ -152,12 +159,13 @@ func (s *Syncer) applyDiff(resp FeedResponse) {
 }
 
 // activeEntries keeps only the active keys — the projection never
-// retains revoked rows; their absence is the deletion.
+// retains revoked rows; their absence is the deletion. The credential
+// rides the row as projected (empty = unprovisioned).
 func activeEntries(resp FeedResponse, now time.Time) map[[32]byte]KeyEntry {
 	out := make(map[[32]byte]KeyEntry, len(resp.Keys))
 	for _, k := range resp.Keys {
 		if k.Status == feedActive {
-			out[k.Hash] = KeyEntry{PrincipalID: k.PrincipalID, Status: feedActive, SyncedAt: now}
+			out[k.Hash] = KeyEntry{PrincipalID: k.PrincipalID, Status: feedActive, EngineCredential: k.EngineCredential, SyncedAt: now}
 		}
 	}
 	return out

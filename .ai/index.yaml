@@ -37,6 +37,11 @@
 # map identity/ line now names the Quota aggregate + engine
 # provisioning (EngineProvisioner, LiteLLM adapter, IdentityMap);
 # all read_order anchors resolve.
+# 2026-10-06 gateway slice C (#114) re-validated: AGENTS.md directory
+# map gateway/ line now names the per-key engine credential path (feed
+# engine_credential consumption, Identity authenticator shape,
+# EnginePlane.Forward credential, per-request upstream auth with static
+# fallback); all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

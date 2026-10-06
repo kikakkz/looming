@@ -149,3 +149,46 @@ func TestKeyCacheCloseIsIdempotent(t *testing.T) {
 		t.Fatal("double Close must not deadlock")
 	}
 }
+
+// TestKeyCacheConfirmPreservesFeedCredential pins the slice-C merge
+// rule: the feed is the credential authority, the origin confirm only
+// carries (principal, active) — confirming over a feed-populated entry
+// must refresh the confirmation fields without wiping its credential.
+func TestKeyCacheConfirmPreservesFeedCredential(t *testing.T) {
+	now := cacheNow
+	c := NewKeyCache(func() time.Time { return now })
+	defer c.Close()
+	c.Apply(1, map[[32]byte]KeyEntry{hashOf(1): {PrincipalID: "p-1", Status: "active", EngineCredential: "cred-A", SyncedAt: now}}, nil)
+
+	// The syncer stalls, the entry goes stale, the origin confirms the
+	// key — the confirm wins freshness but keeps the feed's credential.
+	c.Confirm(hashOf(1), "p-1")
+	snap := c.Get()
+	entry, ok := snap.V[hashOf(1)]
+	if !ok || !entry.Confirmed {
+		t.Fatalf("confirm must upsert the confirmed entry, got %+v", snap.V)
+	}
+	if entry.EngineCredential != "cred-A" {
+		t.Fatalf("confirm must preserve the feed-authoritative credential, got %q", entry.EngineCredential)
+	}
+	if snap.Rev != 1 {
+		t.Fatalf("confirm must not move the projection revision, got %d", snap.Rev)
+	}
+}
+
+// TestKeyCacheConfirmWithoutFeedEntryHasNoCredential pins the other
+// half: a confirm for a hash the feed never populated (origin knows the
+// key, the projection lags) stores an entry with an empty credential —
+// the engine call falls back, and the next feed sync fills the value.
+func TestKeyCacheConfirmWithoutFeedEntryHasNoCredential(t *testing.T) {
+	c := NewKeyCache(func() time.Time { return cacheNow })
+	defer c.Close()
+	c.Confirm(hashOf(7), "p-7")
+	entry, ok := c.Get().V[hashOf(7)]
+	if !ok || entry.PrincipalID != "p-7" || !entry.Confirmed {
+		t.Fatalf("confirm must upsert the entry, got %+v", c.Get().V)
+	}
+	if entry.EngineCredential != "" {
+		t.Fatalf("a confirm without feed context must carry no credential, got %q", entry.EngineCredential)
+	}
+}

@@ -19,12 +19,13 @@ import (
 
 // identityFake scripts identity's service-token API: the feed (with
 // watch long-poll) and the validate endpoint. Tests move its state
-// forward via setState / issue / revoke.
+// forward via setState / issue / issueProvisioned / revoke.
 type identityFake struct {
 	mu       sync.Mutex
 	rev      uint64
 	keys     map[string][32]byte // raw key -> hash (issued set)
 	status   map[string]string   // base64 hash -> key status
+	creds    map[string]string   // base64 hash -> engine credential (provisioned set)
 	ch       chan struct{}       // closed on every change (watch wake)
 	failFeed bool                // feed answers 500 while set
 	srv      *httptest.Server
@@ -36,6 +37,7 @@ func newIdentityFake(t *testing.T) *identityFake {
 	f := &identityFake{
 		keys:   map[string][32]byte{},
 		status: map[string]string{},
+		creds:  map[string]string{},
 		ch:     make(chan struct{}),
 	}
 	mux := http.NewServeMux()
@@ -50,10 +52,24 @@ func (f *identityFake) url() string { return f.srv.URL }
 
 // issue records an active key; it returns the raw key.
 func (f *identityFake) issue(raw string) string {
+	return f.issueWithCredential(raw, "")
+}
+
+// issueProvisioned records an active key whose feed row carries the
+// given engine credential (identity slice C contract).
+func (f *identityFake) issueProvisioned(raw, credential string) string {
+	return f.issueWithCredential(raw, credential)
+}
+
+func (f *identityFake) issueWithCredential(raw, credential string) string {
 	hash := sha256.Sum256([]byte(raw))
 	f.mu.Lock()
 	f.keys[raw] = hash
-	f.status[base64.StdEncoding.EncodeToString(hash[:])] = "active"
+	b64 := base64.StdEncoding.EncodeToString(hash[:])
+	f.status[b64] = "active"
+	if credential != "" {
+		f.creds[b64] = credential
+	}
 	f.rev++
 	close(f.ch)
 	f.ch = make(chan struct{})
@@ -61,11 +77,15 @@ func (f *identityFake) issue(raw string) string {
 	return raw
 }
 
-// revoke flips a key to revoked without touching the issued set.
+// revoke flips a key to revoked without touching the issued set. The
+// credential dies with the row — identity deletes the map entry on
+// revocation, so the feed stops serving engine_credential immediately.
 func (f *identityFake) revoke(raw string) {
 	hash := sha256.Sum256([]byte(raw))
 	f.mu.Lock()
-	f.status[base64.StdEncoding.EncodeToString(hash[:])] = "revoked"
+	b64 := base64.StdEncoding.EncodeToString(hash[:])
+	f.status[b64] = "revoked"
+	delete(f.creds, b64)
 	f.rev++
 	close(f.ch)
 	f.ch = make(chan struct{})
@@ -103,7 +123,11 @@ func (f *identityFake) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	keys := make([]map[string]any, 0, len(f.status))
 	for h, principal := range f.principalsLocked() {
-		keys = append(keys, map[string]any{"hash": h, "principal_id": principal, "status": f.status[h]})
+		row := map[string]any{"hash": h, "principal_id": principal, "status": f.status[h]}
+		if cred, ok := f.creds[h]; ok {
+			row["engine_credential"] = cred
+		}
+		keys = append(keys, row)
 	}
 	f.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]any{"rev": rev, "keys": keys, "principals": []any{}})
@@ -265,4 +289,35 @@ func TestClientFeedSourceInterface(t *testing.T) {
 	// seam (the var in identityclient.go is the real one; this keeps
 	// the test-side honest if the signature drifts).
 	var _ app.FeedSource = NewIdentityClient("http://unused", "t", time.Second)
+}
+
+// TestClientMapsEngineCredential pins the slice-C wire contract:
+// engine_credential rides the feed row only for provisioned keys and
+// maps through to the control-plane FeedKey; unprovisioned rows carry
+// the empty value (the field is absent on the wire — never null).
+func TestClientMapsEngineCredential(t *testing.T) {
+	fake := newIdentityFake(t)
+	fake.issue("lk-plain")
+	fake.issueProvisioned("lk-provisioned", "engine-cred-42")
+
+	client := NewIdentityClient(fake.url(), "token", 30*time.Second)
+	resp, err := client.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(resp.Keys) != 2 {
+		t.Fatalf("want both keys, got %d", len(resp.Keys))
+	}
+	got := map[string]string{}
+	for _, k := range resp.Keys {
+		got[string(k.Hash[:])] = k.EngineCredential
+	}
+	plain := sha256.Sum256([]byte("lk-plain"))
+	prov := sha256.Sum256([]byte("lk-provisioned"))
+	if cred := got[string(plain[:])]; cred != "" {
+		t.Fatalf("an unprovisioned key must map an empty credential, got %q", cred)
+	}
+	if cred := got[string(prov[:])]; cred != "engine-cred-42" { //nolint:gosec // test-only fixture value, not a credential.
+		t.Fatalf("a provisioned key must map its credential, got %q", cred)
+	}
 }

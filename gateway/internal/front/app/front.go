@@ -58,11 +58,19 @@ func NewFront(a port.Authenticator, al port.SubjectAllowlist, c *frontdomain.Cha
 // northbound 401s do not distinguish not-found from not-provisioned).
 func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := bearerToken(r)
-	subject, err := f.authn.Authenticate(r.Context(), key)
+	id, err := f.authn.Authenticate(r.Context(), key)
 	if err != nil {
 		f.deny(w, r, "authn", key, "")
 		return
 	}
+	// The LoomingKey dies at the authn boundary: nothing downstream
+	// (engine slot, recorder, transcripts) may ever see it — the only
+	// southbound auth material is the explicit engine credential
+	// (gateway-l1 §6: Looming key northbound only, engine credential
+	// southbound only). The engine keeps its own strip-or-replace as
+	// defense in depth for direct engine callers.
+	r.Header.Del("Authorization")
+	subject := id.Subject
 	model, err := f.model.Extract(r)
 	if err != nil {
 		f.log.InfoContext(r.Context(), "request denied",
@@ -112,12 +120,14 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Forwarding mechanics belong to the engine slot (AD-32). The
 	// recorder tees the response for the async interaction emit
-	// (storm Q3): capture bounded, never block the data plane.
+	// (storm Q3): capture bounded, never block the data plane. Only the
+	// engine credential crosses here — the LoomingKey stays in the
+	// authn step (gateway-l1 §6: engine credential southbound only).
 	cw := w
 	if f.queue != nil && f.transcriptCap > 0 {
 		cw = WrapResponse(w, f.transcriptCap)
 	}
-	if err := f.engine.Forward(r.Context(), cw, r); err != nil {
+	if err := f.engine.Forward(r.Context(), cw, r, id.EngineCredential); err != nil {
 		f.log.ErrorContext(r.Context(), "engine forward failed", "subject", subject, "err", err)
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return

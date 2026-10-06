@@ -18,17 +18,25 @@ import (
 	"github.com/kikakkz/looming/gateway/internal/control/domain"
 )
 
+// feedRow is one scripted key row: the owning principal and the
+// provisioned engine credential (empty = unprovisioned — the feed then
+// omits engine_credential from the wire row, as identity does).
+type feedRow struct {
+	principal  string
+	credential string
+}
+
 // fakeIdentity is a scripted identity service: it serves the feed in
 // the real wire shape (base64 hashes, rev counter, watch long-poll)
 // and lets each test move the state forward, fail requests, or roll
 // the revision back (restart).
 type fakeIdentity struct {
-	mu     sync.Mutex
-	rev    uint64
-	keys   map[string]string // base64 hash -> principalID
-	revoke map[string]bool   // base64 hash -> revoked marker
-	ch     chan struct{}     // closed on every state change
-	srv    *httptest.Server
+	mu      sync.Mutex
+	rev     uint64
+	keys    map[string]feedRow // base64 hash -> row
+	revoked map[string]bool    // base64 hash -> revoked marker
+	ch      chan struct{}      // closed on every state change
+	srv     *httptest.Server
 
 	failures int // next N feed requests answer 500
 	requests int // total feed requests served (observability)
@@ -36,7 +44,7 @@ type fakeIdentity struct {
 
 func newFakeIdentity(t *testing.T) *fakeIdentity {
 	t.Helper()
-	f := &fakeIdentity{keys: map[string]string{}, revoke: map[string]bool{}, ch: make(chan struct{})}
+	f := &fakeIdentity{keys: map[string]feedRow{}, revoked: map[string]bool{}, ch: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/gateway/feed", f.handleFeed)
 	f.srv = httptest.NewServer(mux)
@@ -46,14 +54,14 @@ func newFakeIdentity(t *testing.T) *fakeIdentity {
 
 func (f *fakeIdentity) url() string { return f.srv.URL }
 
-func (f *fakeIdentity) setState(rev uint64, keys map[string]string, revoked []string) {
+func (f *fakeIdentity) setState(rev uint64, keys map[string]feedRow, revoked []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rev = rev
 	f.keys = keys
-	f.revoke = map[string]bool{}
+	f.revoked = map[string]bool{}
 	for _, h := range revoked {
-		f.revoke[h] = true
+		f.revoked[h] = true
 	}
 	close(f.ch)
 	f.ch = make(chan struct{})
@@ -92,12 +100,16 @@ func (f *fakeIdentity) handleFeed(w http.ResponseWriter, r *http.Request) {
 		rev = f.rev
 	}
 	keys := make([]map[string]any, 0, len(f.keys))
-	for hash, principalID := range f.keys {
+	for hash, row := range f.keys {
 		status := "active"
-		if f.revoke[hash] {
+		if f.revoked[hash] {
 			status = "revoked"
 		}
-		keys = append(keys, map[string]any{"hash": hash, "principal_id": principalID, "status": status})
+		k := map[string]any{"hash": hash, "principal_id": row.principal, "status": status}
+		if row.credential != "" {
+			k["engine_credential"] = row.credential
+		}
+		keys = append(keys, k)
 	}
 	f.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -141,9 +153,10 @@ func (h httpFeedSource) do(ctx context.Context, query string) (FeedResponse, err
 	var body struct {
 		Rev  uint64 `json:"rev"`
 		Keys []struct {
-			Hash        string `json:"hash"`
-			PrincipalID string `json:"principal_id"`
-			Status      string `json:"status"`
+			Hash             string `json:"hash"`
+			PrincipalID      string `json:"principal_id"`
+			Status           string `json:"status"`
+			EngineCredential string `json:"engine_credential"`
 		} `json:"keys"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -157,7 +170,7 @@ func (h httpFeedSource) do(ctx context.Context, query string) (FeedResponse, err
 		}
 		var hash [32]byte
 		copy(hash[:], raw)
-		out.Keys = append(out.Keys, FeedKey{Hash: hash, PrincipalID: k.PrincipalID, Status: k.Status})
+		out.Keys = append(out.Keys, FeedKey{Hash: hash, PrincipalID: k.PrincipalID, Status: k.Status, EngineCredential: k.EngineCredential})
 	}
 	return out, nil
 }
@@ -231,7 +244,7 @@ func TestSyncerBootsThenAppliesWatchDiffs(t *testing.T) {
 	fake := newFakeIdentity(t)
 	hashA64, hashA := keyA()
 	hashB64, hashB := keyB()
-	fake.setState(1, map[string]string{hashA64: "p-1"}, nil)
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
 
 	syncer, cache, _ := newTestSyncer(t, fake)
 	defer cache.Close()
@@ -251,7 +264,7 @@ func TestSyncerBootsThenAppliesWatchDiffs(t *testing.T) {
 
 	// Move the feed forward: A revoked, B issued. The long-poll watch
 	// unblocks and the diff lands — A deletes, B upserts.
-	fake.setState(2, map[string]string{hashA64: "p-1", hashB64: "p-2"}, []string{hashA64})
+	fake.setState(2, map[string]feedRow{hashA64: {principal: "p-1"}, hashB64: {principal: "p-2"}}, []string{hashA64})
 	waitFor(t, "watch diff applied", func() bool {
 		snap := cache.Get()
 		_, aGone := snap.V[hashA]
@@ -272,7 +285,7 @@ func TestSyncerResetOnRevRollback(t *testing.T) {
 	fake := newFakeIdentity(t)
 	hashA64, hashA := keyA()
 	hashB64, hashB := keyB()
-	fake.setState(5, map[string]string{hashA64: "p-1"}, nil)
+	fake.setState(5, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
 
 	syncer, cache, _ := newTestSyncer(t, fake)
 	defer cache.Close()
@@ -288,7 +301,7 @@ func TestSyncerResetOnRevRollback(t *testing.T) {
 	})
 
 	// Identity restarts: rev resets below the last applied revision.
-	fake.setState(1, map[string]string{hashB64: "p-9"}, nil)
+	fake.setState(1, map[string]feedRow{hashB64: {principal: "p-9"}}, nil)
 	waitFor(t, "projection reset", func() bool {
 		snap := cache.Get()
 		_, aGone := snap.V[hashA]
@@ -301,7 +314,7 @@ func TestSyncerRetriesOnFailuresAndRecovers(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	fake := newFakeIdentity(t)
 	hashA64, hashA := keyA()
-	fake.setState(1, map[string]string{hashA64: "p-1"}, nil)
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
 	fake.failNext(3) // three 500s before the good response
 
 	syncer, cache, _ := newTestSyncer(t, fake)
@@ -334,7 +347,7 @@ func TestSyncerBootsAtRevZeroWithoutBusyLoop(t *testing.T) {
 	// A fresh identity sits at rev 0 until the first mutation — the
 	// boot snapshot must land and the loop must hold on the watch,
 	// not spin full snapshots.
-	fake.setState(0, map[string]string{hashA64: "p-1"}, nil)
+	fake.setState(0, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
 
 	syncer, cache, _ := newTestSyncer(t, fake)
 	defer cache.Close()
@@ -362,7 +375,7 @@ func TestSyncerBootsAtRevZeroWithoutBusyLoop(t *testing.T) {
 
 	// And a mutation from rev 0 still propagates through the watch.
 	hashB64, hashB := keyB()
-	fake.setState(1, map[string]string{hashA64: "p-1", hashB64: "p-2"}, nil)
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}, hashB64: {principal: "p-2"}}, nil)
 	waitFor(t, "post-boot watch diff", func() bool {
 		_, ok := cache.Get().V[hashB]
 		return ok
@@ -373,7 +386,7 @@ func TestSyncerHealthyFlipsStale(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	fake := newFakeIdentity(t)
 	hashA64, _ := keyA()
-	fake.setState(1, map[string]string{hashA64: "p-1"}, nil)
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
 
 	syncer, cache, clock := newTestSyncer(t, fake)
 	defer cache.Close()
@@ -416,4 +429,51 @@ func TestSyncerConnectionRefusedKeepsRetrying(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("syncer must stop on context cancellation even while retrying")
 	}
+}
+
+// TestSyncerCredentialRidesTheDiff pins the slice-C feed contract on
+// the projection: the engine credential appears with the row, UPDATES
+// in place when the authority rotates it (credential-only change, same
+// principal), drops to empty when the key is unprovisioned while
+// staying active, and disappears with the row on revocation.
+func TestSyncerCredentialRidesTheDiff(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	fake := newFakeIdentity(t)
+	hashA64, hashA := keyA()
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1", credential: "cred-A"}}, nil)
+
+	syncer, cache, _ := newTestSyncer(t, fake)
+	defer cache.Close()
+	defer fake.srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = syncer.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	waitFor(t, "boot carries the provisioned credential", func() bool {
+		e, ok := cache.Get().V[hashA]
+		return ok && e.PrincipalID == "p-1" && e.EngineCredential == "cred-A"
+	})
+
+	// Credential rotation: same principal, new credential value.
+	fake.setState(2, map[string]feedRow{hashA64: {principal: "p-1", credential: "cred-A2"}}, nil)
+	waitFor(t, "credential rotation upserts in place", func() bool {
+		e, ok := cache.Get().V[hashA]
+		return ok && e.EngineCredential == "cred-A2"
+	})
+
+	// Unprovisioned while the key stays active: the wire row loses
+	// engine_credential, the projection must follow (fallback resumes).
+	fake.setState(3, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
+	waitFor(t, "credential removal empties the entry", func() bool {
+		e, ok := cache.Get().V[hashA]
+		return ok && e.EngineCredential == ""
+	})
+
+	// Revocation deletes the row — the credential dies with it.
+	fake.setState(4, map[string]feedRow{hashA64: {principal: "p-1"}}, []string{hashA64})
+	waitFor(t, "revocation deletes the entry", func() bool {
+		_, ok := cache.Get().V[hashA]
+		return !ok
+	})
 }

@@ -7,13 +7,24 @@ package port
 
 import "context"
 
+// Identity is what a valid LoomingKey resolves to: the caller's subject
+// plus the engine credential provisioned for this key (empty when the
+// key was never provisioned — the engine call then falls back to its
+// configured default credential). The LoomingKey itself never leaves
+// the authn step (gateway-l1 §6: engine credential southbound only).
+type Identity struct {
+	Subject          string
+	EngineCredential string
+}
+
 // Authenticator validates the northbound Looming key and resolves the
-// subject. The authority is the identity context; implementations here
-// are adapters over its API or its cache projection.
+// caller's identity. The authority is the identity context;
+// implementations here are adapters over its API or its cache
+// projection.
 type Authenticator interface {
-	// Authenticate returns the subject for a valid key. Any error means
+	// Authenticate returns the identity for a valid key. Any error means
 	// the request is unauthenticated — fail closed.
-	Authenticate(ctx context.Context, loomKey string) (subject string, err error)
+	Authenticate(ctx context.Context, loomKey string) (Identity, error)
 }
 
 // SubjectAllowlist resolves a subject's model allowlist (identity /
