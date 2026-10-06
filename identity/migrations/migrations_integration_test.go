@@ -158,3 +158,59 @@ func newTestMigrator(dsn string) (*migrate.Migrate, error) {
 	}
 	return m, nil
 }
+
+func TestMigration0004And0005DownRestoreSliceCSchema(t *testing.T) {
+	db, dsn := pgtest.NewDBWithDSN(t) // boots fully migrated (0005 included)
+	ctx := context.Background()
+
+	assertSliceCTables := func(want bool) {
+		t.Helper()
+		for _, table := range []string{"quota", "identity_map"} {
+			var n int
+			err := db.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM information_schema.tables
+				  WHERE table_schema = 'public' AND table_name = $1`, table).Scan(&n)
+			if err != nil {
+				t.Fatalf("table presence check: %v", err)
+			}
+			if (n == 1) != want {
+				t.Fatalf("table %q present=%v, want %v", table, n == 1, want)
+			}
+		}
+	}
+	assertQuotaChecks := func() {
+		t.Helper()
+		// The vocabulary CHECKs are the domain invariants' last line of
+		// defense; probe one bad row per table.
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO quota (principal_id, amount, unit, window_days)
+			 VALUES (gen_random_uuid(), -1, 'usd', 7)`); err == nil {
+			t.Fatal("the amount CHECK must reject negative quotas")
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO quota (principal_id, amount, unit, window_days)
+			 VALUES (gen_random_uuid(), 5, 'usd', 13)`); err == nil {
+			t.Fatal("the window CHECK must reject non-vocabulary windows")
+		}
+	}
+
+	assertSliceCTables(true)
+	assertQuotaChecks()
+
+	m, err := newTestMigrator(dsn)
+	if err != nil {
+		t.Fatalf("migrator: %v", err)
+	}
+	defer func() { _, _ = m.Close() }()
+	if err := m.Migrate(3); err != nil {
+		t.Fatalf("migrate down to 0003: %v", err)
+	}
+	assertSliceCTables(false)
+
+	// Forward again: 0004/0005 re-apply cleanly and their rules hold.
+	if err := m.Up(); err != nil {
+		t.Fatalf("migrate back up: %v", err)
+	}
+	assertSliceCTables(true)
+	assertQuotaChecks()
+}

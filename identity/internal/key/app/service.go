@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,10 @@ import (
 	keyport "github.com/kikakkz/looming/identity/internal/key/port"
 	principaldomain "github.com/kikakkz/looming/identity/internal/principal/domain"
 	principalport "github.com/kikakkz/looming/identity/internal/principal/port"
+	provisiondomain "github.com/kikakkz/looming/identity/internal/provision/domain"
+	provisionport "github.com/kikakkz/looming/identity/internal/provision/port"
+	quotadomain "github.com/kikakkz/looming/identity/internal/quota/domain"
+	quotaport "github.com/kikakkz/looming/identity/internal/quota/port"
 )
 
 // Use-case errors, mapped to HTTP codes by the handlers.
@@ -33,6 +38,10 @@ var (
 	ErrPrincipalInactive = errors.New("identity: principal is not active")
 	// ErrIssueLimit marks an issuance over the per-principal rate limit.
 	ErrIssueLimit = errors.New("identity: key issuance rate limit reached")
+	// ErrProvisionFailed marks an issuance whose engine-credential step
+	// failed. Nothing is persisted when it surfaces; the handler maps it
+	// to 502 provision_failed (identity-l1 §6).
+	ErrProvisionFailed = errors.New("identity: engine credential provisioning failed")
 )
 
 // RevisionNotifier is the gateway-feed revision hub's consumer-side
@@ -54,6 +63,14 @@ type Service struct {
 	clock       func() time.Time
 	issueLimit  int
 	issueWindow time.Duration
+	// Engine provisioning (identity-l1 §3 journey 2). All nil/empty when
+	// no engine is configured (IDENTITY_ENGINE_URL unset): issuance then
+	// works without provisioning and the map stays empty — the gateway
+	// falls back per the feed contract.
+	provisioner provisionport.EngineProvisioner
+	maps        provisionport.MapRepository
+	quotas      quotaport.Repository
+	engineName  string
 }
 
 // NewService wires the service. clock and rng are injected (AD-25: no
@@ -72,6 +89,17 @@ func NewService(repo keyport.Repository, principals principalport.Repository, se
 
 // SetRevisionNotifier attaches the feed-revision hub; optional.
 func (s *Service) SetRevisionNotifier(n RevisionNotifier) { s.notifier = n }
+
+// SetEngineProvisioner attaches the optional provision step to issuance
+// (identity-l1 §3 journey 2). Called by cmd only when an engine is
+// configured; until then every field stays nil and Issue persists
+// key-only.
+func (s *Service) SetEngineProvisioner(p provisionport.EngineProvisioner, maps provisionport.MapRepository, quotas quotaport.Repository, engineName string) {
+	s.provisioner = p
+	s.maps = maps
+	s.quotas = quotas
+	s.engineName = engineName
+}
 
 func (s *Service) bump() {
 	if s.notifier != nil {
@@ -122,11 +150,75 @@ func (s *Service) Issue(ctx context.Context, principalID, name string) (*keydoma
 	if err != nil {
 		return nil, "", err
 	}
-	if err := s.repo.Create(ctx, k); err != nil {
+	if s.provisioner != nil {
+		if err := s.issueProvisioned(ctx, k); err != nil {
+			return nil, "", err
+		}
+	} else if err := s.repo.Create(ctx, k); err != nil {
 		return nil, "", err
 	}
 	s.bump()
 	return k, secret, nil
+}
+
+// issueProvisioned persists a key together with its engine credential.
+// Order matters (identity-l1 §4): the engine credential is created
+// FIRST, then the identity rows in one transaction; an identity-write
+// failure deletes the engine credential immediately — same-operation
+// rollback, not a compensation layer (AD-30) — and nothing is
+// persisted. A provisioning failure surfaces ErrProvisionFailed and
+// likewise persists nothing.
+func (s *Service) issueProvisioned(ctx context.Context, k *keydomain.LoomingKey) error {
+	quota, err := s.quotaFor(ctx, k.PrincipalID)
+	if err != nil {
+		return err
+	}
+	// The alias anchors idempotency (identity-l1 §7): a rollback and
+	// re-issue of the same key id lands the same engine-side name.
+	alias := "looming-" + k.ID
+	ref, value, err := s.provisioner.Create(ctx, alias, quota)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrProvisionFailed, err)
+	}
+	sealed, err := s.sealer.Seal([]byte(value))
+	if err != nil {
+		s.rollbackProvisioned(ctx, ref)
+		return err
+	}
+	entry, err := provisiondomain.NewIdentityMap(k.ID, s.engineName, ref, sealed, s.clock())
+	if err != nil {
+		s.rollbackProvisioned(ctx, ref)
+		return err
+	}
+	if err := s.repo.CreateWithProvision(ctx, k, entry); err != nil {
+		s.rollbackProvisioned(ctx, ref)
+		return err
+	}
+	return nil
+}
+
+// rollbackProvisioned deletes a credential whose identity write failed.
+// If the delete fails too (engine now unreachable), the credential is
+// orphaned: it is inert — nothing references it and the budget it
+// carries can never be spent — and the error is logged for an operator.
+func (s *Service) rollbackProvisioned(ctx context.Context, ref string) {
+	if err := s.provisioner.Delete(ctx, ref); err != nil {
+		slog.ErrorContext(ctx, "identity: engine credential rollback delete failed; orphan credential is inert",
+			"credential_ref", ref, "err", err)
+	}
+}
+
+// quotaFor resolves the principal's quota for the new credential. The
+// no-quota-row default is an unlimited credential: nil, nil.
+func (s *Service) quotaFor(ctx context.Context, principalID string) (*quotadomain.Quota, error) {
+	q, err := s.quotas.ByPrincipal(ctx, principalID)
+	if errors.Is(err, quotadomain.ErrNoQuota) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("identity: provision quota lookup: %w", err)
+	}
+	return q, nil
 }
 
 // List returns the principal's keys; the aggregate shape is masked by
@@ -186,6 +278,7 @@ func (s *Service) Revoke(ctx context.Context, principalID, keyID string) error {
 		return err
 	}
 	s.bump()
+	s.revokeProvision(ctx, keyID)
 	return nil
 }
 
@@ -195,7 +288,36 @@ func (s *Service) AdminRevoke(ctx context.Context, keyID string) error {
 		return err
 	}
 	s.bump()
+	s.revokeProvision(ctx, keyID)
 	return nil
+}
+
+// revokeProvision propagates a revocation to the key's engine
+// credentials (identity-l1 §3 journey 2: the key is the unit of
+// revocation). The map entry dies FIRST so the feed stops serving the
+// credential immediately; the engine delete is best-effort and failure
+// never blocks revocation — the map row is gone either way, so nothing
+// references the credential, and an orphaned engine credential is inert.
+// Failures are logged for an operator.
+func (s *Service) revokeProvision(ctx context.Context, keyID string) {
+	if s.provisioner == nil || s.maps == nil {
+		return
+	}
+	entries, err := s.maps.ListByKey(ctx, keyID)
+	if err != nil {
+		slog.ErrorContext(ctx, "identity: provision map list failed at revoke", "key_id", keyID, "err", err)
+		return
+	}
+	for _, entry := range entries {
+		if err := s.maps.Delete(ctx, entry.KeyID, entry.Engine); err != nil {
+			slog.ErrorContext(ctx, "identity: provision map delete failed at revoke",
+				"key_id", entry.KeyID, "engine", entry.Engine, "err", err)
+		}
+		if err := s.provisioner.Delete(ctx, entry.CredentialRef); err != nil {
+			slog.ErrorContext(ctx, "identity: engine credential delete failed at revoke; orphan credential is inert",
+				"key_id", entry.KeyID, "engine", entry.Engine, "credential_ref", entry.CredentialRef, "err", err)
+		}
+	}
 }
 
 // AdminList lists a principal's keys for the admin console; identical

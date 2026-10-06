@@ -18,7 +18,8 @@ type Store interface {
 	// ListKeys returns the keys of ACTIVE principals only — a disabled
 	// principal's keys are omitted outright (fail closed). Revoked keys
 	// are included with their status so syncers can distinguish delete
-	// from never-present.
+	// from never-present. Active keys carry their EngineCredential when
+	// provisioned (empty otherwise).
 	ListKeys(ctx context.Context) ([]domain.Key, error)
 	// ListPrincipals returns every principal and its status.
 	ListPrincipals(ctx context.Context) ([]domain.Principal, error)
@@ -28,4 +29,11 @@ type Store interface {
 	// owns the fail-closed policy and maps both to ErrNotFound (one
 	// 404 shape — no existence signal).
 	ByHash(ctx context.Context, hash []byte) (domain.Key, string, error)
+}
+
+// CredentialOpener unseals the engine credentials the feed projects.
+// It is the key capability's Sealer satisfied structurally in cmd —
+// defined here so the feed's seam stays feed-local.
+type CredentialOpener interface {
+	Open(sealed []byte) ([]byte, error)
 }

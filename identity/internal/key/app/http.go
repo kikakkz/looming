@@ -196,6 +196,8 @@ func classifyUseCaseError(err error) (status int, code string, safe bool) {
 		return http.StatusForbidden, "principal_inactive", false
 	case errors.Is(err, ErrIssueLimit):
 		return http.StatusTooManyRequests, "issue_limit", false
+	case errors.Is(err, ErrProvisionFailed):
+		return http.StatusBadGateway, "provision_failed", false
 	case errors.Is(err, keydomain.ErrNotFound):
 		return http.StatusNotFound, "not_found", false
 	case errors.Is(err, keydomain.ErrAlreadyRevoked):

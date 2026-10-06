@@ -33,6 +33,13 @@ type Key struct {
 	Hash        []byte // SHA-256 of the raw LoomingKey
 	PrincipalID string
 	Status      string // KeyActive | KeyRevoked
+	// EngineCredential is the provisioned engine credential value for
+	// this key (identity slice C contract). Empty when the key was never
+	// provisioned or the credential was revoked — consumers fall back
+	// per their own design. Plaintext in memory only: at rest the value
+	// is sealed in identity_map, and this field is only ever filled
+	// behind the service-token guard.
+	EngineCredential string
 }
 
 // Principal is one row of the feed's principal projection.

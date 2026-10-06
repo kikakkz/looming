@@ -11,6 +11,7 @@ import (
 
 	"github.com/kikakkz/looming/identity/internal/key/domain"
 	"github.com/kikakkz/looming/identity/internal/key/port"
+	provisiondomain "github.com/kikakkz/looming/identity/internal/provision/domain"
 )
 
 // Repository persists LoomingKeys in postgres.
@@ -29,6 +30,12 @@ const keyCols = `id, principal_id, name, prefix, last4, key_hash, key_enc, statu
 
 type scanner interface {
 	Scan(dest ...any) error
+}
+
+// execer abstracts *sql.DB and *sql.Tx so the insert shapes share one
+// implementation inside and outside transactions.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // scanKey reads a row into the aggregate. The dual-track secret columns
@@ -58,7 +65,11 @@ func scanKey(row scanner) (*domain.LoomingKey, error) {
 // conflict without parsing driver errors — the principal repository's
 // precedent).
 func (r *Repository) Create(ctx context.Context, k *domain.LoomingKey) error {
-	res, err := r.db.ExecContext(ctx,
+	return insertKey(ctx, r.db, k)
+}
+
+func insertKey(ctx context.Context, ex execer, k *domain.LoomingKey) error {
+	res, err := ex.ExecContext(ctx,
 		`INSERT INTO loom_keys
 		    (id, principal_id, name, prefix, last4, key_hash, key_enc, status, created_at, revoked_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -74,6 +85,52 @@ func (r *Repository) Create(ctx context.Context, k *domain.LoomingKey) error {
 	}
 	if affected == 0 {
 		return domain.ErrConflict
+	}
+	return nil
+}
+
+// insertMapEntry writes the provision aggregate's row. The map table
+// lives in this adapter for one reason: the issuance transaction spans
+// both tables, and a transaction may hold only one adapter's SQL
+// (CreateWithInviteConsume precedent).
+func insertMapEntry(ctx context.Context, ex execer, m *provisiondomain.IdentityMap) error {
+	res, err := ex.ExecContext(ctx,
+		`INSERT INTO identity_map
+		    (key_id, engine, credential_ref, credential_enc, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (key_id, engine) DO NOTHING`,
+		m.KeyID, m.Engine, m.CredentialRef, m.CredentialEnc, m.Status, m.CreatedAt, m.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("identity: map entry create: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("identity: map entry create affected: %w", err)
+	}
+	if affected == 0 {
+		return provisiondomain.ErrConflict
+	}
+	return nil
+}
+
+// CreateWithProvision inserts the key and its engine-credential map
+// entry atomically: both rows persist or neither. The engine credential
+// itself lives at the engine — a rollback here leaves nothing behind to
+// clean up in identity.
+func (r *Repository) CreateWithProvision(ctx context.Context, k *domain.LoomingKey, m *provisiondomain.IdentityMap) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("identity: key create with provision: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := insertKey(ctx, tx, k); err != nil {
+		return err
+	}
+	if err := insertMapEntry(ctx, tx, m); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("identity: key create with provision: commit: %w", err)
 	}
 	return nil
 }

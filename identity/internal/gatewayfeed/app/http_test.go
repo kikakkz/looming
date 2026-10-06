@@ -217,3 +217,32 @@ func TestFeedStoreFailureIs503(t *testing.T) {
 		t.Fatalf("validate store failure: want 503, got %d", rec.Code)
 	}
 }
+
+func TestFeedSnapshotCarriesEngineCredentialOnlyWhenProvisioned(t *testing.T) {
+	store := &fakeStore{
+		keys: []feeddomain.Key{
+			{Hash: []byte("0123456789abcdef"), PrincipalID: "p-1", Status: feeddomain.KeyActive, EngineCredential: "sk-engine-value"},
+			{Hash: []byte("fedcba9876543210"), PrincipalID: "p-1", Status: feeddomain.KeyActive},
+		},
+	}
+	svc := newTestService(store, time.Second)
+	mux := newFeedMux(svc)
+
+	rec := doFeedReq(t, mux, http.MethodGet, "/v1/gateway/feed", "", testToken)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("feed: %d (%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("feed must be JSON: %v", err)
+	}
+	keys := out["keys"].([]any)
+	provisioned, _ := keys[0].(map[string]any)
+	if provisioned["engine_credential"] != "sk-engine-value" {
+		t.Fatalf("provisioned key must carry the credential: %v", provisioned)
+	}
+	plain, _ := keys[1].(map[string]any)
+	if _, ok := plain["engine_credential"]; ok {
+		t.Fatalf("unprovisioned key must omit the field entirely: %v", plain)
+	}
+}

@@ -4,6 +4,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -300,5 +301,27 @@ func TestHTTPKeyMaskedViewShape(t *testing.T) {
 	sort.Strings(gotKeys)
 	if diff := cmp.Diff(wantKeys, gotKeys); diff != "" {
 		t.Fatalf("masked view keys mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestHTTPKeyIssueProvisionFailedShape(t *testing.T) {
+	repo := newFakeKeyRepo()
+	prov := newFakeProvisioner()
+	prov.createErr = errors.New("engine 500")
+	svc := newTestService(repo, &fakePrincipalRepo{byID: map[string]*principaldomain.Principal{"p-1": activePrincipal("p-1")}}, &fakeSealer{})
+	svc.SetEngineProvisioner(prov, newFakeMapRepo(), &fakeQuotaRepo{}, "litellm")
+	mux := newKeyTestMux(svc, authnport.TokenInfo{PrincipalID: "p-1", Roles: []string{"member"}})
+
+	rec := doKeyReq(t, mux, http.MethodPost, "/v1/self/keys", `{"name":"x"}`)
+	if rec.Code != http.StatusBadGateway || keyErrCode(t, rec) != "provision_failed" {
+		t.Fatalf("want 502 provision_failed, got %d %q", rec.Code, keyErrCode(t, rec))
+	}
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if msg, _ := out["error"].(map[string]any)["message"].(string); msg != "provision_failed" {
+		t.Fatalf("unsafe errors must return the code only, got %v", out)
+	}
+	if len(repo.byID) != 0 {
+		t.Fatal("a failed provision must persist nothing")
 	}
 }
