@@ -562,6 +562,55 @@ func getJSON(t *testing.T, client *http.Client, url string, headers map[string]s
 	return status, decoded
 }
 
+// tryGet is the poll-tolerant form of get: a transport error (the
+// container is mid-restart or not yet accepting) reports ok=false so
+// the waitFor condition retries instead of killing the test.
+func tryGet(client *http.Client, url string, headers map[string]string) (status int, body []byte, ok bool) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, nil, false
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, nil, false
+	}
+	return resp.StatusCode, body, true
+}
+
+// tryPostRaw is the poll-tolerant form of postRaw (see tryGet).
+func tryPostRaw(client *http.Client, url string, headers map[string]string, payload any) (status int, body []byte, ok bool) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return 0, nil, false
+	}
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return 0, nil, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, nil, false
+	}
+	return resp.StatusCode, body, true
+}
+
 // get fetches a URL and returns the status and body.
 func get(t *testing.T, client *http.Client, url string, headers map[string]string) (int, []byte) {
 	t.Helper()

@@ -252,8 +252,9 @@ func step4GatewayForward(t *testing.T, f *fixture) {
 	var status int
 	var body []byte
 	waitFor(t, 120*time.Second, 3*time.Second, "the member's forwarded chat completion", func() bool {
-		status, body = postRaw(t, client, f.gatewayBase()+"/v1/chat/completions", memberHeaders, chat)
-		return status == http.StatusOK
+		var ok bool
+		status, body, ok = tryPostRaw(client, f.gatewayBase()+"/v1/chat/completions", memberHeaders, chat)
+		return ok && status == http.StatusOK
 	})
 	assert.Contains(t, string(body), "chatcmpl-e2e-canned", "the upstream's canned completion rides back: %s", body)
 
@@ -280,8 +281,8 @@ func step5GuidePageToggle(t *testing.T, f *fixture) {
 	// cold cache surfaces as a transient 503) — poll like every other
 	// container-facing assertion in the suite.
 	waitFor(t, 60*time.Second, 2*time.Second, "the public guide page rendering", func() bool {
-		status, body := get(t, client, f.gatewayBase()+"/", nil)
-		return status == http.StatusOK &&
+		status, body, ok := tryGet(client, f.gatewayBase()+"/", nil)
+		return ok && status == http.StatusOK &&
 			strings.Contains(string(body), "e2e cluster") &&
 			strings.Contains(string(body), "Download the CLI") &&
 			strings.Contains(string(body), "/v1/self/register") &&
@@ -299,8 +300,8 @@ func step5GuidePageToggle(t *testing.T, f *fixture) {
 	assert.Contains(t, stdout, "host local: skipped", "access alone changes no compose service:\n%s", stdout)
 
 	waitFor(t, 60*time.Second, 2*time.Second, "the guide page going dark", func() bool {
-		status, _ := get(t, client, f.gatewayBase()+"/", nil)
-		return status == http.StatusNotFound
+		status, _, ok := tryGet(client, f.gatewayBase()+"/", nil)
+		return ok && status == http.StatusNotFound
 	})
 
 	f.writeTopology(t, "public")
@@ -309,8 +310,8 @@ func step5GuidePageToggle(t *testing.T, f *fixture) {
 	require.NoError(t, err, "apply back to access.public:\n%s", stdout)
 
 	waitFor(t, 60*time.Second, 2*time.Second, "the guide page coming back", func() bool {
-		status, body := get(t, client, f.gatewayBase()+"/", nil)
-		return status == http.StatusOK && strings.Contains(string(body), "Download the CLI")
+		status, body, ok := tryGet(client, f.gatewayBase()+"/", nil)
+		return ok && status == http.StatusOK && strings.Contains(string(body), "Download the CLI")
 	})
 }
 
