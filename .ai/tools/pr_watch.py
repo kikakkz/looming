@@ -27,6 +27,10 @@ Commands:
 Options: --repo OWNER/NAME (default: origin remote), --gh PATH,
 --dry-run (print the comment instead of posting).
 
+gh compatibility: GraphQL Int variables must ride the typed flag `-F`
+— gh 2.101 stopped coercing `-f` string values into Int (#133).
+`graphql_args` owns the per-type flag choice; call sites declare types.
+
 Exit codes: 0 ok / 1 usage, auth, or guard-blocked / 2 unexpected.
 """
 
@@ -70,6 +74,21 @@ def gh_json_list(args: list[str], gh: str = "gh") -> list:
         while idx < len(out) and out[idx] in " \t\r\n,":
             idx += 1
     return items
+
+
+def graphql_args(query: str,
+                 variables: list[tuple[str, object, str]]) -> list[str]:
+    """Assemble a `gh api graphql` argv from typed variables.
+
+    gh 2.101 stopped coercing `-f name=value` strings into GraphQL Int,
+    so Int-typed variables must ride the typed flag `-F` (the API parses
+    `123` as Int); every other type stays a `-f` string (#133).
+    """
+    args = ["api", "graphql", "-f", f"query={query}"]
+    for name, value, gtype in variables:
+        flag = "-F" if gtype == "Int" else "-f"
+        args += [flag, f"{name}={value}"]
+    return args
 
 
 def detect_repo(gh: str = "gh") -> str:
@@ -143,13 +162,12 @@ def open_threads(repo: str, pr: int, gh: str) -> list[dict]:
     nodes: list[dict] = []
     cursor: str | None = None
     while True:
-        args = ["api", "graphql", "-f", f"query={query}",
-                "-f", f"owner={owner}", "-f", f"name={name}",
-                "-f", f"number={pr}"]
-        if cursor:
-            args += ["-f", f"after={cursor}"]
-        else:
-            args += ["-f", "after="]
+        args = graphql_args(query, [
+            ("owner", owner, "String"),
+            ("name", name, "String"),
+            ("number", pr, "Int"),
+            ("after", cursor or "", "String"),
+        ])
         out = json.loads(run_gh(args, gh))
         threads = (out["data"]["repository"]["pullRequest"]
                    ["reviewThreads"])
@@ -245,8 +263,7 @@ def cmd_nudge(repo: str, pr: int, dry_run: bool, gh: str) -> int:
 def cmd_resolve(repo: str, thread_id: str, gh: str) -> int:
     query = ("mutation($id:ID!){resolveReviewThread(input:{threadId:$id})"
              "{thread{isResolved}}}")
-    run_gh(["api", "graphql", "-f", f"query={query}",
-            "-f", f"id={thread_id}"], gh)
+    run_gh(graphql_args(query, [("id", thread_id, "ID")]), gh)
     print(f"resolved thread {thread_id}")
     return 0
 
@@ -255,8 +272,7 @@ def cmd_dismiss(repo: str, review_id: str, gh: str) -> int:
     query = ("mutation($id:ID!){dismissPullRequestReview("
              "input:{pullRequestReviewId:$id,message:\"outdated: fixed "
              "or superseded on a later head\"}){pullRequestReview{id}}}")
-    run_gh(["api", "graphql", "-f", f"query={query}",
-            "-f", f"id={review_id}"], gh)
+    run_gh(graphql_args(query, [("id", review_id, "ID")]), gh)
     print(f"dismissed review {review_id}")
     return 0
 
