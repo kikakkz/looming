@@ -115,13 +115,39 @@ func Apply(a Adapter, profileName, gatewayURL, model string, contextSize int, lo
 		}
 	}
 	_ = hadBlock
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return "", false, err
-	}
-	if err := writeFile(path, []byte(updated), 0o600); err != nil {
+	if err := writeFileAtomic(path, []byte(updated)); err != nil {
 		return "", false, fmt.Errorf("cli: write %s config: %w", a.Name(), err)
 	}
 	return backup, true, nil
+}
+
+// writeFileAtomic replaces the config via a same-directory temp file
+// and rename: a mid-write error must never leave a truncated config
+// behind (CodeRabbit review on PR #142). The temp file inherits the
+// 0600 mode; rename over the target preserves it.
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".looming-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op after a successful rename
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // Undo removes the managed block. Out-of-region edits made after
@@ -150,7 +176,7 @@ func Undo(a Adapter) (bool, error) {
 	if !hadBlock {
 		return false, nil
 	}
-	if err := writeFile(path, []byte(updated), 0o600); err != nil {
+	if err := writeFileAtomic(path, []byte(updated)); err != nil {
 		return false, fmt.Errorf("cli: write %s config: %w", a.Name(), err)
 	}
 	return true, nil

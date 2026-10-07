@@ -20,7 +20,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	block := kimi.RenderBlock("prod", "http://gw:8080", "k3", 131072, "lk-x")
-	for _, want := range []string{"prod", `[providers.looming]`, "k3", `type = "openai"`, "http://gw:8080/v1", "lk-x", `[models."looming/k3"]`, "max_context_size = 131072", "kimi -m looming/k3"} {
+	for _, want := range []string{"prod", `[providers.looming]`, "k3", `type = "openai"`, `"http://gw:8080/v1"`, `"lk-x"`, `[models."looming/k3"]`, `model = "k3"`, "max_context_size = 131072", "kimi -m looming/k3"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("block missing %q:\n%s", want, block)
 		}

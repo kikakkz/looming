@@ -169,7 +169,7 @@ func TestApplyWriteFailure(t *testing.T) {
 	_ = bad
 	// A simpler failure: config path inside a file-as-directory.
 	a2 := testAdapter{path: filepath.Join(t.TempDir(), "asfile", "config.toml")}
-	if err := os.WriteFile(strings.TrimSuffix(a2.path, "/config.toml"), []byte("x"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Dir(a2.path), []byte("x"), 0o600); err != nil {
 		// mkdir asfile will fail because a file named "asfile" exists.
 		t.Fatal(err)
 	}
@@ -201,5 +201,71 @@ func TestMergeManagedUnterminatedFenceRejected(t *testing.T) {
 	}
 	if _, _, err := mergeManaged("head\n"+fenceStart+"\norphan\n", ""); err == nil {
 		t.Fatalf("unterminated fence removal must be rejected too")
+	}
+}
+
+func TestWriteFileAtomicReplacesContentAndMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	// #nosec G306 -- the world-readable starting state is the test subject.
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(path, []byte("new content")); err != nil {
+		t.Fatalf("atomic write: %v", err)
+	}
+	// #nosec G304 -- path comes from t.TempDir().
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "new content" {
+		t.Fatalf("content: %q %v", data, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("atomic write must land 0600, got %o", perm)
+	}
+	// No temp files linger.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".looming-") {
+			t.Fatalf("temp file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestWriteFileAtomicMkdirFailure(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A file standing where the parent directory must be created.
+	if err := writeFileAtomic(filepath.Join(blocker, "config.toml"), []byte("y")); err == nil {
+		t.Fatalf("write through a file-as-directory must fail")
+	}
+}
+
+func TestUndoWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := fenceStart + "\nmanaged\n" + fenceEnd + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Remove write permission on the directory so the atomic replace fails.
+	// #nosec G302 -- the read-only directory is the test subject.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	// #nosec G302 -- restoring the temp directory for the harness.
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	a := testAdapter{path: path}
+	if _, err := Undo(a); err == nil {
+		t.Fatalf("undo with an unwritable directory must fail")
 	}
 }

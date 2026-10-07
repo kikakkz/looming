@@ -44,18 +44,19 @@ func (kimiCode) ConfigPath() (string, error) {
 // because the gateway catalog does not advertise per-model windows.
 func (kimiCode) RenderBlock(profileName, gatewayURL, model string, contextSize int, loomKey string) string {
 	alias := "looming/" + model
+	baseURL := strings.TrimRight(gatewayURL, "/") + "/v1"
 	return fmt.Sprintf(`# managed by looming (profile %q, model %q) — edit via: looming configure
 # select the model in kimi code: kimi -m %s
 [providers.looming]
 type = "openai"
-base_url = "%s/v1"
-api_key = "%s"
+base_url = %q
+api_key = %q
 
 [models.%q]
 provider = "looming"
-model = "%s"
+model = %q
 max_context_size = %d`,
-		profileName, model, alias, gatewayURL, loomKey, alias, model, contextSize)
+		profileName, model, alias, baseURL, loomKey, alias, model, contextSize)
 }
 
 // providerKey/modelPrefix are the tables the managed block owns.
@@ -66,8 +67,10 @@ const (
 
 // CheckConflict refuses to write the managed block over an unfenced
 // copy of either table it owns — the result would define the same
-// TOML table twice and be invalid. The managed region itself is
-// excluded from the scan (CodeRabbit review on PR #142).
+// TOML table twice and be invalid. Table headers are PARSED (a line
+// whose first non-space character opens the header) so a mention
+// inside a comment or string value cannot false-positive (CodeRabbit
+// review on PR #142). The managed region itself is excluded.
 func (kimiCode) CheckConflict(existing string) error {
 	outside := existing
 	if start := strings.Index(existing, fenceStart); start >= 0 {
@@ -75,11 +78,17 @@ func (kimiCode) CheckConflict(existing string) error {
 			outside = existing[:start] + existing[start+end+len(fenceEnd):]
 		}
 	}
-	if strings.Contains(outside, providerKey) {
-		return fmt.Errorf("cli: %s config has %s outside the managed block — remove or rename it, then re-run configure", "kimi-code", providerKey)
-	}
-	if strings.Contains(outside, modelPrefix) {
-		return fmt.Errorf("cli: %s config has a %s table outside the managed block — remove or rename it, then re-run configure", "kimi-code", modelPrefix)
+	for _, line := range strings.Split(outside, "\n") {
+		header := strings.TrimSpace(line)
+		if !strings.HasPrefix(header, "[") {
+			continue // comments, strings, scalars cannot define tables
+		}
+		switch {
+		case strings.HasPrefix(header, providerKey):
+			return fmt.Errorf("cli: kimi-code config has %s outside the managed block — remove or rename it, then re-run configure", providerKey)
+		case strings.HasPrefix(header, modelPrefix):
+			return fmt.Errorf("cli: kimi-code config has a %s table outside the managed block — remove or rename it, then re-run configure", modelPrefix)
+		}
 	}
 	return nil
 }
