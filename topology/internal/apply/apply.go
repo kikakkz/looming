@@ -95,6 +95,10 @@ type Input struct {
 	DryRun      bool
 	PrintInvite bool
 	DatabaseURL string
+	// BundleRoot anchors build-context digesting in the renderer:
+	// source-only changes reconverge even when the compose text is
+	// unchanged. Empty disables digesting (unit tests).
+	BundleRoot string
 }
 
 // HostResult is one host's converge outcome. A failed host does not
@@ -189,7 +193,7 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 		return nil, err
 	}
 
-	artifacts, err := p.render(cfg, topo, plan)
+	artifacts, err := p.render(cfg, topo, plan, in.BundleRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +272,7 @@ func (p *Pipeline) registerHosts(ctx context.Context, stores Stores, cfg *config
 
 // render maps the persisted topology back onto operator-facing host
 // ids and renders one compose artifact per host.
-func (p *Pipeline) render(cfg *config.Config, topo domain.Topology, plan plan) ([]render.Artifact, error) {
+func (p *Pipeline) render(cfg *config.Config, topo domain.Topology, plan plan, bundleRoot string) ([]render.Artifact, error) {
 	placements := make([]domain.ComponentPlacement, 0, len(topo.Placements))
 	for _, pl := range topo.Placements {
 		yamlID, ok := plan.yamlHostID[pl.HostID]
@@ -284,6 +288,7 @@ func (p *Pipeline) render(cfg *config.Config, topo domain.Topology, plan plan) (
 		Hosts:       cfg.RenderHosts(),
 		Placements:  placements,
 		EnvFiles:    cfg.RenderEnvFiles(),
+		BundleRoot:  bundleRoot,
 	})
 }
 

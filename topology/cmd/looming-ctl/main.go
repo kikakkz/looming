@@ -135,9 +135,14 @@ func newApply(stdout io.Writer, log *slog.Logger) *cobra.Command {
 				// Compose build contexts are rendered relative to the
 				// bundle root; make the process CWD match (documented
 				// contract: the ctl runs with CWD = bundle root).
-				if err := os.Chdir(bundleRoot); err != nil {
+				absRoot, err := filepath.Abs(bundleRoot)
+				if err != nil {
+					return fmt.Errorf("apply: resolve bundle root: %w", err)
+				}
+				if err := os.Chdir(absRoot); err != nil {
 					return fmt.Errorf("apply: chdir to bundle root: %w", err)
 				}
+				bundleRoot = absRoot
 			}
 
 			pipeline := apply.NewPipeline(apply.StdDeps(exec.LocalRunner{}))
@@ -146,6 +151,7 @@ func newApply(stdout io.Writer, log *slog.Logger) *cobra.Command {
 				DryRun:      dryRun,
 				PrintInvite: printInvite,
 				DatabaseURL: os.Getenv(databaseURLEnv),
+				BundleRoot:  bundleRoot,
 			})
 			if err != nil {
 				return err

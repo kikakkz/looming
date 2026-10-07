@@ -336,6 +336,8 @@ func classifyUseCaseError(err error) (status int, code string, safe bool) {
 		return http.StatusBadRequest, "invalid_request", true
 	case errors.Is(err, domain.ErrInvalidStatus):
 		return http.StatusBadRequest, "invalid_status", true
+	case errors.Is(err, domain.ErrUnknownRole):
+		return http.StatusBadRequest, "invalid_role", true
 	case errors.Is(err, domain.ErrInvalidInvite):
 		return http.StatusBadRequest, "invalid_invite", false
 	case errors.Is(err, domain.ErrBootstrapClosed):

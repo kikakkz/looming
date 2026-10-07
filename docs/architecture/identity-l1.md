@@ -63,7 +63,7 @@ revocation propagates symmetrically to that key's credential only.
 | Quota | per-principal; one row per principal, absence = unlimited default, amount 0 = blocked; amount ≥ 0, unit ∈ {tokens, usd}, window_days ∈ {1, 7, 30, 90}; window semantics owned here, execution in engine (AD-32); engine budgets are its lagging projection — set-quota propagates best-effort and failures ride the response |
 | IdentityMap | maps **LoomingKey** (not principal) → engine credential reference; no plaintext credentials (the sealed value rides the LoomingKey dual-track; AD-27 §6, AD-35); UNIQUE(key_id, engine) — idempotent per (key, engine); revocation deletes the row and best-effort deletes the engine credential (an orphan is inert: nothing references it) |
 | RegistrationPolicy | exactly one active policy; policy change is audited |
-| Role/Permission | builtin roles immutable; custom roles are additive; permission namespace per component |
+| Role/Permission | builtin roles immutable; custom roles are additive; permission namespace per component; role assignment bumps the feed revision like every identity-mutating write (the gateway re-projects effective permissions on the next sync round) |
 
 ## 5. Ports
 

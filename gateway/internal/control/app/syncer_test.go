@@ -575,3 +575,42 @@ func TestSyncerProjectsModelPermissions(t *testing.T) {
 		return ok && len(got) == 0
 	})
 }
+
+func TestSyncerAllowlistResetsOnRevRollback(t *testing.T) {
+	fake := newFakeIdentity(t)
+	hashA64, _ := keyA()
+	fake.setState(5, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
+	fake.setPrincipals(map[string]feedPrincipal{
+		"p-1": {status: "active", permissions: []string{"model:use:*"}},
+	})
+	clock := &fakeClock{t: testSyncNow}
+	cache := NewKeyCache(clock.Now)
+	t.Cleanup(cache.Close)
+	allowlist := NewModelAllowlistCache(context.Background())
+	t.Cleanup(allowlist.Close)
+	syncer := NewSyncer(httpFeedSource{base: fake.url()}, cache, allowlist, []string{"gpt-5"},
+		domain.Backoffer{Base: time.Millisecond, Cap: 5 * time.Millisecond},
+		30*time.Second, clock.Now, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = syncer.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	waitFor(t, "pre-restart projection", func() bool {
+		return len(allowlist.Get().V["p-1"]) == 1
+	})
+
+	// Identity restarts: rev rolls back to 1 and a NEW principal
+	// appears. The allowlist must reset wholesale (the monotonic
+	// guard would drop an Apply at a lower revision, leaving the new
+	// principal unprojected and 403ing).
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
+	fake.setPrincipals(map[string]feedPrincipal{
+		"p-1":  {status: "active", permissions: []string{"model:use:*"}},
+		"p-10": {status: "active", permissions: []string{"model:use:*"}},
+	})
+	waitFor(t, "allowlist reset at lower revision", func() bool {
+		snap := allowlist.Get()
+		return snap.Rev == 1 && len(snap.V["p-10"]) == 1
+	})
+}
