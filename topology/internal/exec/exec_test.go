@@ -61,7 +61,7 @@ func TestEnsureLocalRunsComposeUpWithStdin(t *testing.T) {
 	require.Len(t, runner.calls, 1)
 	call := runner.calls[0]
 	assert.Equal(t, "docker", call.name)
-	assert.Equal(t, []string{"compose", "-p", "looming", "-f", "-", "up", "-d", "--remove-orphans"}, call.args)
+	assert.Equal(t, []string{"compose", "-p", "looming", "-f", "-", "up", "-d", "--build", "--remove-orphans"}, call.args)
 	assert.Equal(t, "name: looming\n", call.stdin, "compose YAML ships on stdin; nothing touches the remote fs")
 	assert.Empty(t, call.env, "local backend injects no DOCKER_HOST")
 }

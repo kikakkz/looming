@@ -100,16 +100,19 @@ func NewExecutor(r Runner) *Executor {
 }
 
 // Ensure ships composeYAML to the host and converges the project:
-// `docker compose -p <projectName> -f - up -d --remove-orphans` with
-// the YAML on stdin, so nothing is written to the remote filesystem.
-// --remove-orphans prunes services the render dropped (a placement
-// moved away): the shipped compose is the complete desired state of
-// the host's project. SSH hosts run with
+// `docker compose -p <projectName> -f - up -d --build --remove-orphans`
+// with the YAML on stdin, so nothing is written to the remote
+// filesystem. --build is load-bearing: compose up alone reuses an
+// existing project image and code updates would never ship (the e2e
+// suite caught the stale-binary 403 this produced). BuildKit's layer
+// cache keeps no-change applies cheap. --remove-orphans prunes
+// services the render dropped (a placement moved away): the shipped
+// compose is the complete desired state of the host's project.
 // DOCKER_HOST=ssh://<user>@<address>. Render-diff convergence decides
 // whether to call Ensure at all — the executor itself is
 // unconditional, and reports changed=true when the converge ran.
 func (e *Executor) Ensure(ctx context.Context, h Host, projectName, composeYAML string) (bool, error) {
-	args := []string{"compose", "-p", projectName, "-f", "-", "up", "-d", "--remove-orphans"}
+	args := []string{"compose", "-p", projectName, "-f", "-", "up", "-d", "--build", "--remove-orphans"}
 	var env []string
 	if h.SSHUser != "" {
 		env = append(env, "DOCKER_HOST=ssh://"+h.SSHUser+"@"+h.Address)
