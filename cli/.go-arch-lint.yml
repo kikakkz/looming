@@ -1,0 +1,24 @@
+# AD-23 dependency matrix for the cli component (cli-l1, AD-37).
+# Version 3 schema; the CLI is a client tool: every capability points
+# at cmd, capabilities never import each other.
+version: 3
+
+allow:
+  depOnAnyVendor: true
+  deepScan: false
+
+excludeFiles:
+  - "^.*_test\\.go$"
+
+components:
+  profile:        { in: internal/profile }
+  identityclient: { in: internal/identityclient }
+  agentcfg:       { in: internal/agentcfg }
+  onboard:        { in: internal/onboard }
+  cmd:            { in: cmd/looming }
+
+deps:
+  onboard:
+    mayDependOn: [profile, identityclient]
+  cmd:
+    mayDependOn: [profile, identityclient, agentcfg, onboard]

@@ -1,0 +1,11 @@
+# Coverage thresholds (AD-25), checked by go-test-coverage.
+profile: coverage.out
+threshold:
+  file: 80
+  package: 80
+  total: 80
+exclude:
+  paths:
+    # cmd packages are manual-DI wiring only (AD-23); their behaviour
+    # is covered through the capability tests.
+    - cmd/looming/main.go

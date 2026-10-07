@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package agentcfg
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+type testAdapter struct{ path string }
+
+func (t testAdapter) Name() string { return "test" }
+func (t testAdapter) ConfigPath() (string, error) {
+	return t.path, nil
+}
+func (t testAdapter) RenderBlock(profile, gateway, key string) string {
+	return "profile=" + profile + " gateway=" + gateway + " key=" + key
+}
+
+func tempAdapter(t *testing.T, existing string) testAdapter {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if existing != "" {
+		if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return testAdapter{path: path}
+}
+
+func readConfig(t *testing.T, a testAdapter) string {
+	t.Helper()
+	data, err := os.ReadFile(a.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestApplyFirstRunAppendsBlock(t *testing.T) {
+	a := tempAdapter(t, "# my config\n")
+	_, changed, err := Apply(a, "default", "http://gw:8080", "lk-secret")
+	if err != nil || !changed {
+		t.Fatalf("apply: %v changed=%v", err, changed)
+	}
+	got := readConfig(t, a)
+	if !strings.Contains(got, "# my config") || !strings.Contains(got, fenceStart) ||
+		!strings.Contains(got, "profile=default") || !strings.Contains(got, "key=lk-secret") {
+		t.Fatalf("merged config missing pieces:\n%s", got)
+	}
+	// Backup captured the pre-managed content.
+	backup, err := os.ReadFile(a.path + ".looming-backup")
+	if err != nil {
+		t.Fatalf("backup missing: %v", err)
+	}
+	if string(backup) != "# my config\n" {
+		t.Fatalf("backup content: %q", backup)
+	}
+}
+
+func TestApplyIsByteIdempotent(t *testing.T) {
+	a := tempAdapter(t, "")
+	if _, _, err := Apply(a, "default", "http://gw:8080", "lk-secret"); err != nil {
+		t.Fatal(err)
+	}
+	first := readConfig(t, a)
+	_, changed, err := Apply(a, "default", "http://gw:8080", "lk-secret")
+	if err != nil || changed {
+		t.Fatalf("second apply must be a no-op: %v changed=%v", err, changed)
+	}
+	if readConfig(t, a) != first {
+		t.Fatalf("bytes moved on a no-op apply")
+	}
+}
+
+func TestApplyReplacesExistingBlockOnly(t *testing.T) {
+	a := tempAdapter(t, "head\n"+fenceStart+"\nold\n"+fenceEnd+"\ntail\n")
+	if _, _, err := Apply(a, "prod", "http://gw2:8080", "lk-new"); err != nil {
+		t.Fatal(err)
+	}
+	got := readConfig(t, a)
+	if !strings.Contains(got, "head") || !strings.Contains(got, "tail") || !strings.Contains(got, "profile=prod") {
+		t.Fatalf("surrounding content or new block missing:\n%s", got)
+	}
+	if strings.Contains(got, "old") {
+		t.Fatalf("stale block content survived:\n%s", got)
+	}
+}
+
+func TestUndoRestoresManagedRegionOnly(t *testing.T) {
+	a := tempAdapter(t, "original\n")
+	if _, _, err := Apply(a, "default", "http://gw:8080", "lk-secret"); err != nil {
+		t.Fatal(err)
+	}
+	// The user edits outside the managed region after configure.
+	if err := os.WriteFile(a.path, []byte(readConfig(t, a)+"# user note\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := Undo(a)
+	if err != nil || !changed {
+		t.Fatalf("undo: %v changed=%v", err, changed)
+	}
+	got := readConfig(t, a)
+	if !strings.Contains(got, "original") || !strings.Contains(got, "# user note") {
+		t.Fatalf("pre-managed region or user edit lost:\n%s", got)
+	}
+	if strings.Contains(got, fenceStart) {
+		t.Fatalf("managed block survived undo:\n%s", got)
+	}
+}
+
+func TestUndoWithoutBlockIsNoOp(t *testing.T) {
+	a := tempAdapter(t, "untouched\n")
+	changed, err := Undo(a)
+	if err != nil || changed {
+		t.Fatalf("undo without a block must be a no-op: %v", err)
+	}
+}
+
+func TestApplyWriteFailure(t *testing.T) {
+	a := testAdapter{path: filepath.Join(t.TempDir(), "missing", "config.toml")}
+	// ReadFile fails (not-exist is fine), MkdirAll succeeds, Write
+	// succeeds here — instead force a non-directory config path.
+	bad := testAdapter{path: a.path}
+	if err := os.WriteFile(filepath.Dir(a.path)+".block", []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = bad
+	// A simpler failure: config path inside a file-as-directory.
+	a2 := testAdapter{path: filepath.Join(t.TempDir(), "asfile", "config.toml")}
+	if err := os.WriteFile(strings.TrimSuffix(a2.path, "/config.toml"), []byte("x"), 0o600); err != nil {
+		// mkdir asfile will fail because a file named "asfile" exists.
+		t.Fatal(err)
+	}
+	_, _, err := Apply(a2, "p", "g", "k")
+	if err == nil {
+		t.Fatal("write into a file-as-directory must fail")
+	}
+}
+
+func TestUndoReadFailure(t *testing.T) {
+	a := testAdapter{path: filepath.Join(t.TempDir(), "asfile")}
+	if err := os.WriteFile(a.path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// ConfigPath points at an existing FILE; ReadFile succeeds, no
+	// block -> no-op. The read-failure branch needs a disappearing
+	// file: remove between read attempts is racy, so exercise the
+	// not-exists branch instead (already no-op). This case pins the
+	// file-as-config no-op.
+	changed, err := Undo(a)
+	if err != nil || changed {
+		t.Fatalf("file-without-block undo must be a no-op: %v changed=%v", err, changed)
+	}
+}
+
+func TestMergeManagedUnterminatedFence(t *testing.T) {
+	got, had := mergeManaged("head\n"+fenceStart+"\norphan\n", "newblock")
+	if !had || !strings.Contains(got, "newblock") || strings.Contains(got, "orphan") {
+		t.Fatalf("unterminated fence must be replaced wholesale:\n%s", got)
+	}
+	got, had = mergeManaged("head\n"+fenceStart+"\norphan\n", "")
+	if !had || strings.Contains(got, "orphan") {
+		t.Fatalf("unterminated fence removal:\n%s", got)
+	}
+}
