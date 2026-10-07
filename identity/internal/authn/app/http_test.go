@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kikakkz/looming/identity/internal/authn/domain"
+	authndomain "github.com/kikakkz/looming/identity/internal/authn/domain"
 	"github.com/kikakkz/looming/identity/internal/authn/port"
 )
 
@@ -26,6 +26,10 @@ func (s *stubProvider) VerifyPassword(context.Context, string, string) (string, 
 		return "", s.verifyErr
 	}
 	return "p-1", nil
+}
+
+func (s *stubProvider) VerifyExternalToken(context.Context, string) (string, error) {
+	return "", authndomain.ErrExternalAuthnNotSupported
 }
 
 func (s *stubProvider) Issue(context.Context, string) (string, error) { return s.raw, nil }
@@ -67,7 +71,7 @@ func TestHTTPLoginSuccess(t *testing.T) {
 }
 
 func TestHTTPLoginInvalidCredentials(t *testing.T) {
-	mux := newLoginMux(&stubProvider{verifyErr: domain.ErrInvalidCredential})
+	mux := newLoginMux(&stubProvider{verifyErr: authndomain.ErrInvalidCredential})
 	rec := postLogin(t, mux, `{"username":"ker","password":"wrong"}`)
 	if rec.Code != http.StatusUnauthorized ||
 		!bytes.Contains(rec.Body.Bytes(), []byte(`"code":"invalid_credentials"`)) {

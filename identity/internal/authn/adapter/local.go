@@ -95,6 +95,14 @@ func (l *LocalProvider) VerifyPassword(ctx context.Context, username, password s
 	return id, nil
 }
 
+// VerifyExternalToken is not implemented by the builtin-local
+// provider: builtin deployments authenticate local credentials only
+// (identity-l1 §5). The port stays total; OIDC-mode deployments wire
+// the OIDC adapter instead.
+func (l *LocalProvider) VerifyExternalToken(_ context.Context, _ string) (string, error) {
+	return "", domain.ErrExternalAuthnNotSupported
+}
+
 // Issue mints and stores a session token.
 func (l *LocalProvider) Issue(ctx context.Context, principalID string) (string, error) {
 	raw, tok, err := domain.GenerateToken(principalID, l.ttl, l.rng, l.clock())

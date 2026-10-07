@@ -18,16 +18,25 @@ type TokenInfo struct {
 }
 
 // Provider is the AuthNProvider port (identity-l1 §5). The builtin
-// local adapter implements it over postgres; OIDC lands as a
-// same-contract adapter in a later slice. Error contract:
-// domain.ErrInvalidCredential for VerifyPassword and Validate failures
-// (unknown/expired/revoked tokens map there too), domain.ErrTokenExpired
-// and domain.ErrTokenRevoked surface from Validate for observability.
+// local adapter implements it over postgres; the OIDC adapter
+// (slice E) is the same-contract second implementation. Error
+// contract: domain.ErrInvalidCredential for VerifyPassword and
+// Validate failures (unknown/expired/revoked tokens map there too),
+// domain.ErrTokenExpired and domain.ErrTokenRevoked surface from
+// Validate for observability.
 type Provider interface {
 	// VerifyPassword checks local credentials and returns the
 	// principal ID. Unknown username, wrong password, and non-active
-	// principal all fail with domain.ErrInvalidCredential.
+	// principal all fail with domain.ErrInvalidCredential. Modes
+	// without local credentials (OIDC) fail with
+	// domain.ErrExternalAuthnNotSupported.
 	VerifyPassword(ctx context.Context, username, password string) (principalID string, err error)
+	// VerifyExternalToken validates an OIDC ID token (or an
+	// equivalent enterprise IdP artifact) and returns the principal
+	// ID, provisioning the principal on first sight when the mode
+	// mandates auto-registration. Modes without external authn fail
+	// with domain.ErrExternalAuthnNotSupported.
+	VerifyExternalToken(ctx context.Context, rawToken string) (principalID string, err error)
 	// Issue mints a session token for an authenticated principal and
 	// returns the raw value once.
 	Issue(ctx context.Context, principalID string) (rawToken string, err error)
@@ -47,6 +56,19 @@ type ctxKey struct{}
 // WithTokenInfo stores the validated session in ctx.
 func WithTokenInfo(ctx context.Context, info TokenInfo) context.Context {
 	return context.WithValue(ctx, ctxKey{}, info)
+}
+
+// BindingRepository persists the immutable issuer+subject → principal
+// mapping (OIDC mode, slice E). The binding — not the derived
+// username — is the ownership authority: username derivation is a
+// display/registration attribute only.
+type BindingRepository interface {
+	// ByIssuerSubject resolves the bound principal ID or
+	// principaldomain.ErrNotFound.
+	ByIssuerSubject(ctx context.Context, issuer, subject string) (string, error)
+	// Create binds a verified identity to a principal. A raced
+	// duplicate surfaces as the driver's unique-violation error.
+	Create(ctx context.Context, issuer, subject, principalID string) error
 }
 
 // TokenInfoFrom returns the validated session, or false when the

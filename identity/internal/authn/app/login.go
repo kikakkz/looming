@@ -38,6 +38,25 @@ func (s *LoginService) Login(ctx context.Context, username, password string) (ra
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	return s.issue(ctx, principalID)
+}
+
+// LoginExternal is the OIDC-mode login: an IdP-issued ID token stands
+// in for local credentials (the provider verifies it and resolves —
+// possibly auto-registers — the principal), and the session machinery
+// is identical from there on. Deployments on the builtin provider
+// fail with domain.ErrExternalAuthnNotSupported.
+func (s *LoginService) LoginExternal(ctx context.Context, idToken string) (rawToken string, expiresAt time.Time, err error) {
+	principalID, err := s.provider.VerifyExternalToken(ctx, idToken)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return s.issue(ctx, principalID)
+}
+
+// issue mints the session token for an authenticated principal and
+// reports its expiry.
+func (s *LoginService) issue(ctx context.Context, principalID string) (rawToken string, expiresAt time.Time, err error) {
 	issuedAt := s.clock()
 	raw, err := s.provider.Issue(ctx, principalID)
 	if err != nil {

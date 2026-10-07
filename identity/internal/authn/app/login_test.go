@@ -7,16 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kikakkz/looming/identity/internal/authn/domain"
+	authndomain "github.com/kikakkz/looming/identity/internal/authn/domain"
 	"github.com/kikakkz/looming/identity/internal/authn/port"
 )
 
 type fakeProvider struct {
-	principalID string
-	verifyErr   error
-	raw         string
-	issueErr    error
-	issueFor    string
+	principalID         string
+	verifyErr           error
+	raw                 string
+	issueErr            error
+	issueFor            string
+	externalPrincipalID string
+	externalErr         error
+	externalSeen        string
 }
 
 func (f *fakeProvider) VerifyPassword(_ context.Context, _, _ string) (string, error) {
@@ -24,6 +27,14 @@ func (f *fakeProvider) VerifyPassword(_ context.Context, _, _ string) (string, e
 		return "", f.verifyErr
 	}
 	return f.principalID, nil
+}
+
+func (f *fakeProvider) VerifyExternalToken(_ context.Context, raw string) (string, error) {
+	f.externalSeen = raw
+	if f.externalErr != nil {
+		return "", f.externalErr
+	}
+	return f.externalPrincipalID, nil
 }
 
 func (f *fakeProvider) Issue(_ context.Context, principalID string) (string, error) {
@@ -60,10 +71,10 @@ func TestLoginSuccess(t *testing.T) {
 }
 
 func TestLoginVerifyFailure(t *testing.T) {
-	prov := &fakeProvider{verifyErr: domain.ErrInvalidCredential}
+	prov := &fakeProvider{verifyErr: authndomain.ErrInvalidCredential}
 	svc := NewLoginService(prov, time.Hour, time.Now)
 	_, _, err := svc.Login(context.Background(), "ker", "wrong")
-	if !errors.Is(err, domain.ErrInvalidCredential) {
+	if !errors.Is(err, authndomain.ErrInvalidCredential) {
 		t.Fatalf("want ErrInvalidCredential, got %v", err)
 	}
 	if prov.issueFor != "" {
@@ -77,6 +88,36 @@ func TestLoginIssueFailure(t *testing.T) {
 	_, _, err := svc.Login(context.Background(), "ker", "fine-password")
 	if err == nil {
 		t.Fatal("issue failure must propagate")
+	}
+}
+
+func TestLoginExternalFlow(t *testing.T) {
+	prov := &fakeProvider{externalPrincipalID: "p-oidc-1", raw: "session-token"}
+	svc := NewLoginService(prov, time.Hour, time.Now)
+	raw, expiresAt, err := svc.LoginExternal(context.Background(), "id-token")
+	if err != nil {
+		t.Fatalf("LoginExternal: %v", err)
+	}
+	if raw == "" || expiresAt.IsZero() {
+		t.Fatalf("token and expiry must be populated: %q %v", raw, expiresAt)
+	}
+	if prov.externalSeen != "id-token" {
+		t.Fatalf("provider must receive the raw id token, got %q", prov.externalSeen)
+	}
+	if prov.issueFor != "p-oidc-1" {
+		t.Fatalf("token must be issued for the external principal, got %q", prov.issueFor)
+	}
+}
+
+func TestLoginExternalVerifyFailure(t *testing.T) {
+	prov := &fakeProvider{externalErr: authndomain.ErrInvalidCredential}
+	svc := NewLoginService(prov, time.Hour, time.Now)
+	_, _, err := svc.LoginExternal(context.Background(), "bad-token")
+	if !errors.Is(err, authndomain.ErrInvalidCredential) {
+		t.Fatalf("want ErrInvalidCredential, got %v", err)
+	}
+	if prov.issueFor != "" {
+		t.Fatal("a failed external verify must not issue a token")
 	}
 }
 

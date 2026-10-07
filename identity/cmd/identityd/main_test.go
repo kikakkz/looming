@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kikakkz/looming/identity/internal/authn/domain"
+	authndomain "github.com/kikakkz/looming/identity/internal/authn/domain"
 	authnport "github.com/kikakkz/looming/identity/internal/authn/port"
 )
 
@@ -21,6 +21,10 @@ type middlewareStub struct {
 
 func (m *middlewareStub) VerifyPassword(context.Context, string, string) (string, error) {
 	return "", nil
+}
+
+func (m *middlewareStub) VerifyExternalToken(context.Context, string) (string, error) {
+	return "", authndomain.ErrExternalAuthnNotSupported
 }
 
 func (m *middlewareStub) Issue(context.Context, string) (string, error) { return "", nil }
@@ -99,9 +103,9 @@ func TestRequireAuthMapsValidateErrors(t *testing.T) {
 		err  error
 		code string
 	}{
-		{"unknown token", domain.ErrInvalidCredential, "unauthenticated"},
-		{"expired", domain.ErrTokenExpired, "token_expired"},
-		{"revoked", domain.ErrTokenRevoked, "token_revoked"},
+		{"unknown token", authndomain.ErrInvalidCredential, "unauthenticated"},
+		{"expired", authndomain.ErrTokenExpired, "token_expired"},
+		{"revoked", authndomain.ErrTokenRevoked, "token_revoked"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
