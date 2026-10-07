@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,6 +29,41 @@ func seedPrincipal(t *testing.T, ctx context.Context, db *sql.DB, id, status str
 		`INSERT INTO principals (id, username, kind, status, roles)
 		 VALUES ($1, $2, 'human', $3, '{member}')`, id, "user-"+id[:8], status); err != nil {
 		t.Fatalf("seed principal: %v", err)
+	}
+}
+
+func TestStoreListPrincipalsProjectsEffectivePermissions(t *testing.T) {
+	db := pgtest.NewDB(t)
+	store := adapter.NewStore(db, "", nil)
+	ctx := context.Background()
+
+	adminID := uuid.NewString()
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO principals (id, username, kind, status, roles)
+		 VALUES ($1, 'admin-user', 'human', 'active', '{admin,member}')`, adminID); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	memberID := uuid.NewString()
+	seedPrincipal(t, ctx, db, memberID, "active")
+
+	principals, err := store.ListPrincipals(ctx)
+	if err != nil {
+		t.Fatalf("ListPrincipals: %v", err)
+	}
+	perms := map[string][]string{}
+	for _, p := range principals {
+		perms[p.ID] = p.Permissions
+	}
+	wantAdmin := []string{
+		"gateway:use", "identity:approve", "identity:manage",
+		"key:manage:own", "model:use:*", "quota:view",
+	}
+	if got := perms[adminID]; !reflect.DeepEqual(got, wantAdmin) {
+		t.Fatalf("admin permissions mismatch: got %v want %v", got, wantAdmin)
+	}
+	wantMember := []string{"gateway:use", "key:manage:own", "model:use:*", "quota:view"}
+	if got := perms[memberID]; !reflect.DeepEqual(got, wantMember) {
+		t.Fatalf("member permissions mismatch: got %v want %v", got, wantMember)
 	}
 }
 

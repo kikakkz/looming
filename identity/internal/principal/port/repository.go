@@ -39,6 +39,11 @@ type Repository interface {
 	// a stale read fails with domain.ErrConflict. On success the
 	// returned principal carries the bumped version.
 	UpdateStatus(ctx context.Context, p *domain.Principal) (*domain.Principal, error)
+	// SetRoles persists a role-set replacement made by the domain
+	// method of the same name. Same version guard as UpdateStatus, plus
+	// a folded last-active-admin guard: stripping admin from the sole
+	// active admin fails with domain.ErrLastAdmin.
+	SetRoles(ctx context.Context, p *domain.Principal) (*domain.Principal, error)
 	// Count returns the total number of principals.
 	Count(ctx context.Context) (int64, error)
 	// ExistsAdmin reports whether any principal carries the admin role,

@@ -203,22 +203,13 @@ func step3MemberKeyQuota(t *testing.T, f *fixture) {
 }
 
 // step4GatewayForward proves the data plane end to end: the member's
-// LoomingKey authorizes a model the allowlist grants, the gateway
-// forwards with the STATIC upstream auth (the key was issued
+// LoomingKey authorizes a catalog model (the member role's model:use:*
+// expanded against GATEWAY_CATALOG at the syncer — slice D), the
+// gateway forwards with the STATIC upstream auth (the key was issued
 // unprovisioned — slice C fallback), the canned completion comes back,
-// and a garbage key is a northbound 401 that never reaches the engine.
+// a catalog-outside model is a 403 that never reaches the engine, and
+// a garbage key is a northbound 401.
 func step4GatewayForward(t *testing.T, f *fixture) {
-	// The static allowlist keys subjects by principal id, which only
-	// exists after provisioning — converge it in with a second apply
-	// (this is the render-diff path: the gateway-front service changed,
-	// so the container is recreated).
-	f.memberAllowlist = f.memberID + "=" + e2eModel
-	f.writeTopology(t, "public")
-	stdout, err := f.runCtl(t, 10*time.Minute,
-		"apply", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
-	require.NoError(t, err, "re-apply with the member allowlist:\n%s", stdout)
-	assert.Contains(t, stdout, "host local: changed", "the allowlist change converges the gateway front:\n%s", stdout)
-
 	client := &http.Client{Timeout: 15 * time.Second}
 	chat := map[string]any{
 		"model":    e2eModel,
@@ -236,8 +227,18 @@ func step4GatewayForward(t *testing.T, f *fixture) {
 	assert.Contains(t, string(body), "chatcmpl-e2e-canned", "the upstream's canned completion rides back: %s", body)
 
 	assert.True(t, f.upstream.contractOK(),
-		"every forwarded request carried the static upstream auth for the unprovisioned key and the allowlisted model")
+		"every forwarded request carried the static upstream auth for the unprovisioned key and the catalog model")
 	require.Equal(t, 1, f.upstream.count(), "exactly one upstream request so far")
+
+	// A model outside the catalog is denied at the front layer even
+	// for a valid key (permissions ∩ catalog, fail closed).
+	blockedChat := map[string]any{
+		"model":    e2eModel + "-not-in-catalog",
+		"messages": []map[string]string{{"role": "user", "content": "ping"}},
+	}
+	status, _ = postRaw(t, client, f.gatewayBase()+"/v1/chat/completions", memberHeaders, blockedChat)
+	assert.Equal(t, http.StatusForbidden, status, "a catalog-outside model is a 403")
+	assert.Equal(t, 1, f.upstream.count(), "the model-denied request never reached the engine")
 
 	status, _ = postRaw(t, client, f.gatewayBase()+"/v1/chat/completions",
 		map[string]string{"Authorization": "Bearer lk-garbage-garbage-garbage"}, chat)

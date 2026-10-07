@@ -59,14 +59,6 @@ func TestLogMeterRecordsALine(t *testing.T) {
 	LogMeter{}.Record(context.Background(), domain.MeterRecord{Subject: "ker", Model: "gpt-5", Outcome: "completed"})
 }
 
-func TestStaticAllowlistUnknownSubjectEmpty(t *testing.T) {
-	a := StaticAllowlist{ModelsBySubject: map[string][]string{"ker": {"gpt-5"}}}
-	models, err := a.Models(context.Background(), "ghost")
-	if err != nil || len(models) != 0 {
-		t.Fatalf("unknown subject: %v %v", models, err)
-	}
-}
-
 func TestBodyModelExtractorCapsOversize(t *testing.T) {
 	big := strings.Repeat("x", 64)
 	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(big))

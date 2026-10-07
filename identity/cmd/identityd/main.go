@@ -445,6 +445,7 @@ func routeMux(provider authnport.Provider, limit *argonLimit, principalH *princi
 	mux.Handle("GET /v1/admin/principals/{id}", requireAuth(provider, true, http.HandlerFunc(principalH.GetAdmin)))
 	mux.Handle("POST /v1/admin/principals/{id}/approve", requireAuth(provider, true, http.HandlerFunc(principalH.ApproveAdmin)))
 	mux.Handle("POST /v1/admin/principals/{id}/status", requireAuth(provider, true, http.HandlerFunc(principalH.SetStatusAdmin)))
+	mux.Handle("POST /v1/admin/principals/{id}/roles", requireAuth(provider, true, http.HandlerFunc(principalH.SetRolesAdmin)))
 	mux.Handle("POST /v1/admin/invites", requireAuth(provider, true, http.HandlerFunc(principalH.CreateInviteAdmin)))
 	mux.Handle("GET /v1/admin/principals/{id}/keys", requireAuth(provider, true, http.HandlerFunc(keyH.ListForPrincipalAdmin)))
 	mux.Handle("DELETE /v1/admin/keys/{id}", requireAuth(provider, true, http.HandlerFunc(keyH.RevokeAdmin)))

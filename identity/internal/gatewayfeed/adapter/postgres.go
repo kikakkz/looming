@@ -15,6 +15,8 @@ import (
 
 	"github.com/kikakkz/looming/identity/internal/gatewayfeed/domain"
 	"github.com/kikakkz/looming/identity/internal/gatewayfeed/port"
+	principaldomain "github.com/kikakkz/looming/identity/internal/principal/domain"
+	"github.com/lib/pq"
 )
 
 // Store is the feed's postgres read model.
@@ -87,19 +89,27 @@ func (s *Store) ListKeys(ctx context.Context) ([]domain.Key, error) {
 
 // ListPrincipals returns every principal and its status, pending and
 // disabled included: consumers need to tell "disabled" from "never
-// existed" without a second round-trip.
+// existed" without a second round-trip. Each row carries the
+// principal's effective permissions (union over builtin role bundles)
+// so the gateway's model-permission projection needs no second source.
 func (s *Store) ListPrincipals(ctx context.Context) ([]domain.Principal, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, status FROM principals ORDER BY created_at, id`)
+		`SELECT id, status, roles FROM principals ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("identity: gateway feed principals: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	out := []domain.Principal{}
 	for rows.Next() {
-		var p domain.Principal
-		if err := rows.Scan(&p.ID, &p.Status); err != nil {
+		var (
+			p     domain.Principal
+			roles []string
+		)
+		if err := rows.Scan(&p.ID, &p.Status, pq.Array(&roles)); err != nil {
 			return nil, fmt.Errorf("identity: gateway feed principal scan: %w", err)
+		}
+		for _, perm := range principaldomain.EffectivePermissions(roles) {
+			p.Permissions = append(p.Permissions, string(perm))
 		}
 		out = append(out, p)
 	}

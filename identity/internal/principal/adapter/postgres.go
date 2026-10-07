@@ -183,8 +183,40 @@ func (r *Repository) List(ctx context.Context, limit, offset int) ([]*domain.Pri
 // A third guard is folded into the same UPDATE so it stays atomic:
 // disabling the sole active admin is rejected with domain.ErrLastAdmin
 // (a single conditional UPDATE — no check-then-act race).
+// adminGuardLockKey serializes every last-active-admin mutation
+// (status change or role strip). READ COMMITTED alone is not enough:
+// two concurrent guarded UPDATEs on different admin rows each read a
+// snapshot where the other admin is still active, and both pass. The
+// transaction-scoped advisory lock (CodeRabbit review on slice D,
+// PR #139) forces those statements through one at a time; the loser
+// re-evaluates the guard against the winner's committed state.
+const adminGuardLockKey = "identity:last-active-admin"
+
+// withAdminGuard runs fn inside a transaction that first takes the
+// shared admin-guard advisory lock; the lock and the guarded write are
+// one transaction scope.
+func (r *Repository) withAdminGuard(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("identity: admin guard begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, adminGuardLockKey); err != nil {
+		return fmt.Errorf("identity: admin guard lock: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("identity: admin guard commit: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) UpdateStatus(ctx context.Context, p *domain.Principal) (*domain.Principal, error) {
-	res, err := r.db.ExecContext(ctx, `
+	var updated *domain.Principal
+	err := r.withAdminGuard(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
 		UPDATE principals
 		   SET status = $1, updated_at = $2, version = version + 1
 		 WHERE id = $3
@@ -194,31 +226,87 @@ func (r *Repository) UpdateStatus(ctx context.Context, p *domain.Principal) (*do
 		        OR EXISTS (
 		            SELECT 1 FROM principals
 		             WHERE status = 'active' AND roles @> '{admin}' AND id <> $3))`,
-		p.Status, p.UpdatedAt, p.ID, p.Version)
+			p.Status, p.UpdatedAt, p.ID, p.Version)
+		if err != nil {
+			return fmt.Errorf("identity: principal update status: %w", err)
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("identity: principal update status affected: %w", err)
+		}
+		if affected == 0 {
+			return r.classifyBlockedUpdateTx(ctx, tx, p)
+		}
+		updated, err = r.byIDTx(ctx, tx, p.ID)
+		return err
+	})
 	if err != nil {
-		return nil, fmt.Errorf("identity: principal update status: %w", err)
+		return nil, err
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("identity: principal update status affected: %w", err)
-	}
-	if affected == 0 {
-		return nil, r.classifyBlockedUpdate(ctx, p)
-	}
-	return r.ByID(ctx, p.ID)
+	return updated, nil
 }
 
-// classifyBlockedUpdate distinguishes the two zero-row outcomes of the
-// guarded UPDATE: a stale version (domain.ErrConflict) versus the
-// last-active-admin guard (domain.ErrLastAdmin). The read races only
-// with another status change; both errors map to 409 either way.
-func (r *Repository) classifyBlockedUpdate(ctx context.Context, p *domain.Principal) error {
+// SetRoles persists a domain-validated role replacement with the same
+// optimistic guard as UpdateStatus plus a second folded guard:
+// stripping 'admin' from the sole active admin is rejected atomarily
+// with domain.ErrLastAdmin (the check-then-act race is closed by doing
+// both tests inside the conditional UPDATE, exactly like UpdateStatus).
+func (r *Repository) SetRoles(ctx context.Context, p *domain.Principal) (*domain.Principal, error) {
+	var updated *domain.Principal
+	err := r.withAdminGuard(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+		UPDATE principals
+		   SET roles = $1, updated_at = $2, version = version + 1
+		 WHERE id = $3
+		   AND version = $4
+		   AND ($1::text[] @> '{admin}'
+		        OR NOT (status = 'active')
+		        OR EXISTS (
+		            SELECT 1 FROM principals
+		             WHERE status = 'active' AND roles @> '{admin}' AND id <> $3))`,
+			pq.Array(p.Roles), p.UpdatedAt, p.ID, p.Version)
+		if err != nil {
+			return fmt.Errorf("identity: principal set roles: %w", err)
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("identity: principal set roles affected: %w", err)
+		}
+		if affected == 0 {
+			return r.classifyBlockedUpdateTx(ctx, tx, p)
+		}
+		updated, err = r.byIDTx(ctx, tx, p.ID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// byIDTx reads inside the caller's transaction — required after an
+// uncommitted write, when a pool-level read would still see the old
+// row.
+func (r *Repository) byIDTx(ctx context.Context, tx *sql.Tx, id string) (*domain.Principal, error) {
+	row := tx.QueryRowContext(ctx,
+		`SELECT `+principalCols+` FROM principals WHERE id = $1`, id)
+	p, err := scanPrincipal(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("identity: principal by id: %w", err)
+	}
+	return p, nil
+}
+
+func (r *Repository) classifyBlockedUpdateTx(ctx context.Context, tx *sql.Tx, p *domain.Principal) error {
 	var (
 		version int64
 		status  string
 		roles   []string
 	)
-	err := r.db.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`SELECT version, status, roles FROM principals WHERE id = $1`, p.ID,
 	).Scan(&version, &status, pq.Array(&roles))
 	if err != nil {

@@ -122,7 +122,10 @@ revocation propagates symmetrically to that key's credential only.
 
 ## 6. API surface (v1)
 
-- Admin: principals CRUD + approve, roles assign, policy get/set,
+- Admin: principals CRUD + approve, roles assign
+  (`POST /v1/admin/principals/{id}/roles`, builtin set only, the
+  last-active-admin guard folded into the same conditional UPDATE as
+  status changes), policy get/set,
   quota set, keys list/revoke (any; reveal via the self reveal route
   with an admin session), IdentityMap inspect.
   - Quota: `PUT /v1/admin/principals/{id}/quota`
@@ -167,9 +170,12 @@ revocation propagates symmetrically to that key's credential only.
   keeps key self-service working per §2).
 - Gateway-facing: key validate (hash + status) — plus the feed
   snapshot and blocking watch described in §5 (whose key entries carry
-  `engine_credential` when provisioned). Effective permissions
-  for (principal) remain the further seam the data plane consumes
-  (slice D).
+  `engine_credential` when provisioned). Feed principal entries carry
+  `permissions`: the effective permission union over builtin role
+  bundles in deterministic order (slice D). The gateway intersects
+  `model:use:*` with its own model catalog; identity never evaluates
+  the wildcard (AD-32 envelope). IdentityMap resolve is consumed
+  through the key entries' `engine_credential` (slice C).
 
 ## 7. Aspects
 

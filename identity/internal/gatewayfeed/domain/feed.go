@@ -46,6 +46,11 @@ type Key struct {
 type Principal struct {
 	ID     string
 	Status string // Principal*
+	// Permissions is the principal's effective permission set (union
+	// of builtin role bundles, deterministic order — identity slice D).
+	// The gateway intersects model:use:* with its own model catalog;
+	// identity never evaluates the wildcard (AD-32 envelope).
+	Permissions []string
 }
 
 // Snapshot is a full feed response: the complete current projection,
