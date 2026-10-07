@@ -13,7 +13,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -145,6 +148,13 @@ type Input struct {
 	Hosts       []Host
 	Placements  []domain.ComponentPlacement
 	EnvFiles    map[string]string
+	// BundleRoot anchors build-context digesting: the convergence
+	// hash mixes every phase-1 component's build directory in, so a
+	// source change with an unchanged compose text (build: context
+	// pins only the directory) still trips render-diff and reconverges.
+	// Empty disables digesting (unit tests stay pure functions of
+	// the input).
+	BundleRoot string
 }
 
 // Artifact is one host's rendered compose file plus the content hash
@@ -359,6 +369,77 @@ func Hash(content string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// buildContextDigest fingerprints every phase-1 component's build
+// directory (relative to root): sorted (path, file-sha256) pairs
+// combined into one digest. Dockerfiles reference the directories,
+// not their contents, so a source-only change leaves the rendered
+// compose text untouched — without this digest the apply pipeline
+// would mark the host unchanged and the stale image would keep
+// running (CodeRabbit review on PR #140). Deterministic: directory
+// walk order is sorted; symlinks and dotfiles are skipped.
+func buildContextDigest(root string) (string, error) {
+	h := sha256.New()
+	for _, component := range Allowlist() {
+		c, ok := Lookup(component)
+		if !ok || c.BuildDir == "" {
+			continue
+		}
+		entries, err := digestDir(root, filepath.Join(root, c.BuildDir))
+		if err != nil {
+			return "", fmt.Errorf("render: digest build context %q: %w", c.BuildDir, err)
+		}
+		for _, e := range entries {
+			if _, err := fmt.Fprintf(h, "%s:%x\n", e.path, e.sum); err != nil {
+				return "", fmt.Errorf("render: digest write: %w", err)
+			}
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+type digestEntry struct {
+	path string
+	sum  [32]byte
+}
+
+// digestDir walks one build directory into sorted (path, sha256)
+// entries. Paths come from walking the operator's own bundle root,
+// not request input.
+func digestDir(root, dir string) ([]digestEntry, error) {
+	var entries []digestEntry
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if strings.HasPrefix(name, ".") && path != dir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "coverage") {
+			return nil
+		}
+		// #nosec G304 -- path is inside the operator-supplied bundle root.
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, digestEntry{path: rel, sum: sha256.Sum256(data)})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	return entries, nil
+}
+
 // Render produces one artifact per host that carries a placement or is
 // the state host. Hosts are visited in id order and each host's
 // placements in component order, so the output (and its hash) is a
@@ -367,6 +448,21 @@ func Render(in Input) ([]Artifact, error) {
 	byHost := map[string][]domain.ComponentPlacement{}
 	for _, p := range in.Placements {
 		byHost[p.HostID] = append(byHost[p.HostID], p)
+	}
+
+	// Source-only changes must reconverge even when the rendered
+	// compose text is byte-identical: mix the build contexts into
+	// every artifact's convergence hash. An empty root disables
+	// digesting (unit tests render as pure functions).
+	convergenceHash := Hash
+	if in.BundleRoot != "" {
+		digest, err := buildContextDigest(in.BundleRoot)
+		if err != nil {
+			return nil, err
+		}
+		convergenceHash = func(content string) string {
+			return Hash(content + "\x00build-context:" + digest)
+		}
 	}
 
 	guideURL := topologydURL(in)
@@ -417,7 +513,7 @@ func Render(in Input) ([]Artifact, error) {
 		if err != nil {
 			return nil, err
 		}
-		artifacts = append(artifacts, Artifact{HostID: hostID, Compose: compose, Hash: Hash(compose), Empty: empty})
+		artifacts = append(artifacts, Artifact{HostID: hostID, Compose: compose, Hash: convergenceHash(compose), Empty: empty})
 	}
 	return artifacts, nil
 }

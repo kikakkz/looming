@@ -146,6 +146,7 @@ func newApply(stdout io.Writer, log *slog.Logger) *cobra.Command {
 				DryRun:      dryRun,
 				PrintInvite: printInvite,
 				DatabaseURL: os.Getenv(databaseURLEnv),
+				BundleRoot:  bundleRoot,
 			})
 			if err != nil {
 				return err

@@ -135,7 +135,7 @@ func (s *Syncer) Run(ctx context.Context) error {
 					"prev_rev", since, "new_rev", resp.Rev)
 			}
 			s.cache.Reset(Revision(resp.Rev), activeEntries(resp, s.clock()))
-			s.projectAllowlist(resp)
+			s.resetAllowlist(resp)
 			booted = true
 			since = resp.Rev
 			s.markSynced()
@@ -214,6 +214,24 @@ func (s *Syncer) projectAllowlist(resp FeedResponse) {
 		return
 	}
 	s.allowlist.Apply(Revision(resp.Rev), upserts)
+}
+
+// resetAllowlist wholesale-replaces the model-permission projection on
+// the boot / authority-restart path. The feed revision rolled back
+// below the cache's, so the monotonic guard would drop an Apply batch
+// and leave the projection stale until the revision caught up (new
+// principals 403ing despite a valid key).
+func (s *Syncer) resetAllowlist(resp FeedResponse) {
+	if s.allowlist == nil {
+		return
+	}
+	entries := map[string][]string{}
+	for _, p := range resp.Principals {
+		if p.Status == feedActive {
+			entries[p.ID] = domain.ExpandModels(p.Permissions, s.catalog)
+		}
+	}
+	s.allowlist.Reset(Revision(resp.Rev), entries)
 }
 
 func equalStrings(a, b []string) bool {

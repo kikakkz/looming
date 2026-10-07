@@ -404,3 +404,51 @@ func TestIsLoopbackAddress(t *testing.T) {
 	assert.False(t, render.IsLoopbackAddress("host.docker.internal"))
 	assert.False(t, render.IsLoopbackAddress(""))
 }
+
+func TestBundleRootMixesBuildContextIntoHash(t *testing.T) {
+	in := render.Input{
+		StateHostID: "h1",
+		State:       &render.StatePostgres{Image: "postgres:16-alpine", EnvFile: "/e.env", DataDir: "/d", Port: 5432},
+		Hosts:       []render.Host{{ID: "h1", Address: "10.0.0.1"}},
+		Placements: []domain.ComponentPlacement{
+			{Component: domain.ComponentGatewayFront, HostID: "h1", Ports: map[string]int{"http": 8080}, Config: map[string]string{"upstream": "http://10.0.0.2:4000"}},
+		},
+	}
+	plain, err := render.Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	root := t.TempDir()
+	mk := func(dir, name, content string) {
+		t.Helper()
+		if mkErr := os.MkdirAll(filepath.Join(root, dir), 0o750); mkErr != nil {
+			t.Fatal(mkErr)
+		}
+		if mkErr := os.WriteFile(filepath.Join(root, dir, name), []byte(content), 0o600); mkErr != nil {
+			t.Fatal(mkErr)
+		}
+	}
+	// Minimal stand-in build contexts for every phase-1 component.
+	for _, d := range []string{"gateway", "identity", "topology"} {
+		mk(d, "go.mod", "module x\n")
+	}
+
+	rooted, err := render.Render(render.Input{StateHostID: in.StateHostID, State: in.State, Hosts: in.Hosts, Placements: in.Placements, BundleRoot: root})
+	if err != nil {
+		t.Fatalf("Render with root: %v", err)
+	}
+	if rooted[0].Hash == plain[0].Hash {
+		t.Fatalf("BundleRoot must change the convergence hash")
+	}
+
+	// A source-only change (compose text untouched) still moves the hash.
+	mk("gateway", "main.go", "package main // changed\n")
+	changed, err := render.Render(render.Input{StateHostID: in.StateHostID, State: in.State, Hosts: in.Hosts, Placements: in.Placements, BundleRoot: root})
+	if err != nil {
+		t.Fatalf("Render after source change: %v", err)
+	}
+	if changed[0].Hash == rooted[0].Hash {
+		t.Fatalf("a build-context source change must change the convergence hash")
+	}
+}

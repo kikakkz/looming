@@ -27,6 +27,7 @@ type update struct {
 	subject string
 	models  []string
 	whole   map[string][]string // batch apply: replace these entries in one revision step
+	force   bool                // Reset: skip the monotonic guard (authority restart)
 	ack     chan struct{}
 }
 
@@ -87,7 +88,11 @@ func (c *ModelAllowlistCache) loop(ctx context.Context) {
 				return
 			}
 			if u.whole != nil {
-				if u.rev > rev {
+				if u.force {
+					state = cloneMap(u.whole)
+					rev = u.rev
+					c.snap.store(Snapshot{Rev: rev, V: cloneMap(state)})
+				} else if u.rev > rev {
 					for subject, models := range u.whole {
 						state[subject] = append([]string(nil), models...)
 					}
@@ -115,6 +120,16 @@ func (c *ModelAllowlistCache) loop(ctx context.Context) {
 func (c *ModelAllowlistCache) Apply(rev Revision, upserts map[string][]string) {
 	ack := make(chan struct{})
 	c.in <- update{rev: rev, whole: upserts, ack: ack}
+	<-ack
+}
+
+// Reset replaces the whole projection without the monotonic guard —
+// the boot/authority-restart path, where the feed's revision rolled
+// back and an Apply at the lower revision would drop the batch (the
+// key cache's Reset counterpart; CodeRabbit review on PR #140).
+func (c *ModelAllowlistCache) Reset(rev Revision, entries map[string][]string) {
+	ack := make(chan struct{})
+	c.in <- update{rev: rev, whole: entries, force: true, ack: ack}
 	<-ack
 }
 

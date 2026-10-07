@@ -344,7 +344,7 @@ func writeConfig(t *testing.T, content string) string {
 // composeUpCalls returns every `compose ... up -d --remove-orphans`
 // call (state plane and per-host ensures alike).
 func (w *world) composeUpCalls() []fakeCall {
-	return w.runner.findCalls("compose", "-p", "looming", "-f", "-", "up", "-d", "--remove-orphans")
+	return w.runner.findCalls("compose", "-p", "looming", "-f", "-", "up", "-d", "--build", "--remove-orphans")
 }
 
 // downCalls returns every project-scoped `compose down` call.
