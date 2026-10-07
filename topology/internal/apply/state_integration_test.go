@@ -279,6 +279,19 @@ func TestStdWiringAgainstRealPostgres(t *testing.T) {
 	require.NoError(t, ensureComponentDatabase(ctx, adminURL, "identity"),
 		"re-ensure on an existing component database is a guarded no-op")
 
+	// The created name must match the probed name EXACTLY — the
+	// catalog probe is case-sensitive, so a mixed-case name proves the
+	// CREATE DATABASE identifier is quoted (an unquoted CREATE would
+	// fold to lowercase and the next ensure would find no catalog row).
+	err = ensureComponentDatabase(ctx, adminURL, "itQuotedName")
+	require.NoError(t, err)
+	var quotedExists int
+	require.NoError(t, adminDB.QueryRowContext(ctx,
+		`SELECT 1 FROM pg_database WHERE datname = 'itQuotedName'`).Scan(&quotedExists))
+	assert.Equal(t, 1, quotedExists, "the created database name keeps its exact case")
+	require.NoError(t, ensureComponentDatabase(ctx, adminURL, "itQuotedName"),
+		"re-ensure probes the exact mixed-case name back: quoting keeps create and probe in agreement")
+
 	err = ensureComponentDatabase(ctx, "postgres://postgres:it-secret@127.0.0.1:1/postgres?sslmode=disable", "identity")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "probe")

@@ -14,6 +14,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver for the store connections
 
 	"github.com/kikakkz/looming/topology/internal/exec"
@@ -119,13 +120,15 @@ func ensureComponentDatabase(ctx context.Context, adminURL, database string) err
 // maintenance connection when the catalog does not list it yet — the
 // idempotent CREATE DATABASE both the topology database and every
 // declared component database go through (#130). An existing database
-// is a guarded no-op, so every apply may run it.
+// is a guarded no-op, so every apply may run it. The name is a fixed
+// internal vocabulary today, and quoting through pgx.Identifier keeps
+// it that way: the created name can never drift from the probed one.
 func createDatabaseIfMissing(ctx context.Context, db *sql.DB, database string) error {
 	var exists int
 	err := db.QueryRowContext(ctx, `SELECT 1 FROM pg_database WHERE datname = $1`, database).Scan(&exists)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if _, createErr := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", database)); createErr != nil {
+		if _, createErr := db.ExecContext(ctx, "CREATE DATABASE "+pgx.Identifier{database}.Sanitize()); createErr != nil {
 			return fmt.Errorf("apply: create %s database: %w", database, createErr)
 		}
 	case err != nil:
