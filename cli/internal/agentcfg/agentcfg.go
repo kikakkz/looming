@@ -23,8 +23,14 @@ type Adapter interface {
 	// ConfigPath is the agent's config file (~ expansion included).
 	ConfigPath() (string, error)
 	// RenderBlock returns the managed-block lines (without the fence
-	// markers) for one profile.
-	RenderBlock(profileName, gatewayURL, loomKey string) string
+	// markers) for one profile and model id (the gateway catalog's
+	// model this configuration selects).
+	RenderBlock(profileName, gatewayURL, model, loomKey string) string
+	// CheckConflict reports a recoverable conflict between the managed
+	// block and the existing config OUTSIDE the managed fence (for
+	// example an unfenced provider table the block would redefine).
+	// A conflict aborts Apply before any write.
+	CheckConflict(existing string) error
 }
 
 // adapters is the registry. CLI-2 adds codex and claude.
@@ -64,8 +70,10 @@ const (
 // Apply merges the managed block into the agent's config: replaces an
 // existing block in place, appends one when absent. Byte-idempotent:
 // same input -> same output. Backs the config up before the FIRST
-// mutation (backup kept until Undo).
-func Apply(a Adapter, profileName, gatewayURL, loomKey string) (backupPath string, changed bool, err error) {
+// mutation (backup kept until Undo). An existing config file is
+// chmodded 0600 BEFORE the key lands in it (WriteFile never tightens
+// an existing file's mode — CWE-732, CodeRabbit review on PR #142).
+func Apply(a Adapter, profileName, gatewayURL, model, loomKey string) (backupPath string, changed bool, err error) {
 	path, err := a.ConfigPath()
 	if err != nil {
 		return "", false, err
@@ -75,9 +83,20 @@ func Apply(a Adapter, profileName, gatewayURL, loomKey string) (backupPath strin
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", false, fmt.Errorf("cli: read %s config: %w", a.Name(), err)
 	}
+	if len(original) > 0 {
+		if err := os.Chmod(path, 0o600); err != nil {
+			return "", false, fmt.Errorf("cli: tighten %s config permissions: %w", a.Name(), err)
+		}
+	}
 
-	block := fenceStart + "\n" + a.RenderBlock(profileName, gatewayURL, loomKey) + "\n" + fenceEnd
-	updated, hadBlock := mergeManaged(string(original), block)
+	block := fenceStart + "\n" + a.RenderBlock(profileName, gatewayURL, model, loomKey) + "\n" + fenceEnd
+	if conflictErr := a.CheckConflict(string(original)); conflictErr != nil {
+		return "", false, conflictErr
+	}
+	updated, hadBlock, mergeErr := mergeManaged(string(original), block)
+	if mergeErr != nil {
+		return "", false, mergeErr
+	}
 	if hadBlock && updated == string(original) {
 		return "", false, nil // byte-idempotent: nothing to do
 	}
@@ -123,7 +142,10 @@ func Undo(a Adapter) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("cli: read %s config: %w", a.Name(), err)
 	}
-	updated, hadBlock := mergeManaged(string(original), "")
+	updated, hadBlock, err := mergeManaged(string(original), "")
+	if err != nil {
+		return false, err
+	}
 	if !hadBlock {
 		return false, nil
 	}
@@ -134,35 +156,32 @@ func Undo(a Adapter) (bool, error) {
 }
 
 // mergeManaged replaces the fenced block with replacement (empty
-// removes). Returns the merged content and whether a block existed.
-func mergeManaged(content, replacement string) (string, bool) {
+// removes). An UNTERMINATED fence is rejected without touching the
+// file: settings below the opening fence are out-of-region content
+// the removal contract must preserve, and guessing where the block
+// ends would gamble them away (CodeRabbit review on PR #142).
+func mergeManaged(content, replacement string) (string, bool, error) {
 	start := strings.Index(content, fenceStart)
 	if start < 0 {
 		if replacement == "" {
-			return content, false
+			return content, false, nil
 		}
 		sep := "\n"
 		if content != "" && !strings.HasSuffix(content, "\n") {
 			sep = "\n\n"
 		}
-		return content + sep + replacement + "\n", false
+		return content + sep + replacement + "\n", false, nil
 	}
 	end := strings.Index(content[start:], fenceEnd)
 	if end < 0 {
-		// Unterminated fence: treat everything from start as the
-		// block and close it — never leave a half-managed file.
-		head := content[:start]
-		if replacement == "" {
-			return head, true
-		}
-		return head + replacement + "\n", true
+		return "", true, fmt.Errorf("cli: %s config has an unterminated %q fence — fix the file manually; refusing to change it", "agent", fenceStart)
 	}
 	endAbs := start + end + len(fenceEnd)
 	head, tail := content[:start], content[endAbs:]
 	if replacement == "" {
-		return head + strings.TrimLeft(tail, "\n"), true
+		return head + strings.TrimLeft(tail, "\n"), true, nil
 	}
-	return head + replacement + tail, true
+	return head + replacement + tail, true, nil
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {

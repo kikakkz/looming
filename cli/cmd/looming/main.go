@@ -61,7 +61,7 @@ func onboardCmd() *cobra.Command {
 }
 
 func configureCmd() *cobra.Command {
-	var agentName, profileName string
+	var agentName, profileName, model string
 	var undo bool
 	cmd := &cobra.Command{
 		Use:   "configure",
@@ -95,7 +95,7 @@ func configureCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, changed, err := agentcfg.Apply(adapter, p.Name, p.GatewayURL, loomKey)
+			_, changed, err := agentcfg.Apply(adapter, p.Name, p.GatewayURL, model, loomKey)
 			if err != nil {
 				return err
 			}
@@ -109,7 +109,8 @@ func configureCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&agentName, "agent", "", "agent CLI to configure ("+joinNames()+")")
 	cmd.Flags().StringVar(&profileName, "profile", "", "profile to reconcile (default \"default\")")
-	cmd.Flags().BoolVar(&undo, "undo", false, "remove the looming managed block (restores the pre-managed region from backup)")
+	cmd.Flags().StringVar(&model, "model", "default", "gateway catalog model this configuration selects")
+	cmd.Flags().BoolVar(&undo, "undo", false, "remove the looming managed block (content outside the block is preserved; the first-mutation backup stays on disk for manual recovery)")
 	_ = cmd.MarkFlagRequired("agent")
 	return cmd
 }

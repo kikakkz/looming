@@ -3,6 +3,7 @@
 package agentcfg
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,8 +19,8 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := kimi.RenderBlock("prod", "http://gw:8080", "lk-x")
-	for _, want := range []string{"prod", "http://gw:8080/v1", "lk-x"} {
+	block := kimi.RenderBlock("prod", "http://gw:8080", "k3", "lk-x")
+	for _, want := range []string{"prod", `[providers.looming]`, "k3", `type = "openai"`, "http://gw:8080/v1", "lk-x", `[models."looming/k3"]`} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("block missing %q:\n%s", want, block)
 		}
@@ -28,7 +29,16 @@ func TestRegistry(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	path, err := kimi.ConfigPath()
-	if err != nil || !strings.HasSuffix(path, ".kimi/config.toml") {
+	if err != nil || !strings.HasSuffix(path, filepath.Join(".kimi-code", "config.toml")) {
 		t.Fatalf("config path: %v %q", err, path)
+	}
+	// An unfenced providers.looming table aborts Apply with a
+	// recoverable conflict instead of writing a duplicate TOML table.
+	conflict := kimiCode{}
+	if err := conflict.CheckConflict("[providers.looming]\ntype = \"openai\"\n"); err == nil {
+		t.Fatalf("unfenced provider table must be a conflict")
+	}
+	if err := conflict.CheckConflict("# clean\n"); err != nil {
+		t.Fatalf("clean config must not conflict: %v", err)
 	}
 }

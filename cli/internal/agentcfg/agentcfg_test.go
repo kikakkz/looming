@@ -3,21 +3,27 @@
 package agentcfg
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-type testAdapter struct{ path string }
+type testAdapter struct {
+	path     string
+	conflict error
+}
 
 func (t testAdapter) Name() string { return "test" }
 func (t testAdapter) ConfigPath() (string, error) {
 	return t.path, nil
 }
-func (t testAdapter) RenderBlock(profile, gateway, key string) string {
-	return "profile=" + profile + " gateway=" + gateway + " key=" + key
+func (t testAdapter) RenderBlock(profile, gateway, model, key string) string {
+	return "profile=" + profile + " gateway=" + gateway + " model=" + model + " key=" + key
 }
+
+func (t testAdapter) CheckConflict(string) error { return t.conflict }
 
 func tempAdapter(t *testing.T, existing string) testAdapter {
 	t.Helper()
@@ -39,9 +45,41 @@ func readConfig(t *testing.T, a testAdapter) string {
 	return string(data)
 }
 
+func TestApplyTightensExistingConfigPermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	// #nosec G306 -- the world-readable file is the test subject.
+	if err := os.WriteFile(path, []byte("# world-readable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := testAdapter{path: path}
+	if _, _, err := Apply(a, "d", "g", "k3", "lk"); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("existing config must be tightened to 0600 before the key lands, got %o", perm)
+	}
+}
+
+func TestApplyRefusesUnfencedProviderConflict(t *testing.T) {
+	a := tempAdapter(t, "[other]\nx = 1\n")
+	a.conflict = errors.New("unfenced [providers.looming]")
+	if _, _, err := Apply(a, "d", "g", "k3", "lk"); err == nil {
+		t.Fatalf("conflict must abort Apply")
+	}
+	got := readConfig(t, a)
+	if !strings.Contains(got, "[other]") {
+		t.Fatalf("conflict must not modify the file:\n%s", got)
+	}
+}
+
 func TestApplyFirstRunAppendsBlock(t *testing.T) {
 	a := tempAdapter(t, "# my config\n")
-	_, changed, err := Apply(a, "default", "http://gw:8080", "lk-secret")
+	_, changed, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret")
 	if err != nil || !changed {
 		t.Fatalf("apply: %v changed=%v", err, changed)
 	}
@@ -62,11 +100,11 @@ func TestApplyFirstRunAppendsBlock(t *testing.T) {
 
 func TestApplyIsByteIdempotent(t *testing.T) {
 	a := tempAdapter(t, "")
-	if _, _, err := Apply(a, "default", "http://gw:8080", "lk-secret"); err != nil {
+	if _, _, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret"); err != nil {
 		t.Fatal(err)
 	}
 	first := readConfig(t, a)
-	_, changed, err := Apply(a, "default", "http://gw:8080", "lk-secret")
+	_, changed, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret")
 	if err != nil || changed {
 		t.Fatalf("second apply must be a no-op: %v changed=%v", err, changed)
 	}
@@ -77,7 +115,7 @@ func TestApplyIsByteIdempotent(t *testing.T) {
 
 func TestApplyReplacesExistingBlockOnly(t *testing.T) {
 	a := tempAdapter(t, "head\n"+fenceStart+"\nold\n"+fenceEnd+"\ntail\n")
-	if _, _, err := Apply(a, "prod", "http://gw2:8080", "lk-new"); err != nil {
+	if _, _, err := Apply(a, "prod", "http://gw2:8080", "k3", "lk-new"); err != nil {
 		t.Fatal(err)
 	}
 	got := readConfig(t, a)
@@ -91,7 +129,7 @@ func TestApplyReplacesExistingBlockOnly(t *testing.T) {
 
 func TestUndoRestoresManagedRegionOnly(t *testing.T) {
 	a := tempAdapter(t, "original\n")
-	if _, _, err := Apply(a, "default", "http://gw:8080", "lk-secret"); err != nil {
+	if _, _, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret"); err != nil {
 		t.Fatal(err)
 	}
 	// The user edits outside the managed region after configure.
@@ -134,7 +172,7 @@ func TestApplyWriteFailure(t *testing.T) {
 		// mkdir asfile will fail because a file named "asfile" exists.
 		t.Fatal(err)
 	}
-	_, _, err := Apply(a2, "p", "g", "k")
+	_, _, err := Apply(a2, "p", "g", "k3", "k")
 	if err == nil {
 		t.Fatal("write into a file-as-directory must fail")
 	}
@@ -156,13 +194,11 @@ func TestUndoReadFailure(t *testing.T) {
 	}
 }
 
-func TestMergeManagedUnterminatedFence(t *testing.T) {
-	got, had := mergeManaged("head\n"+fenceStart+"\norphan\n", "newblock")
-	if !had || !strings.Contains(got, "newblock") || strings.Contains(got, "orphan") {
-		t.Fatalf("unterminated fence must be replaced wholesale:\n%s", got)
+func TestMergeManagedUnterminatedFenceRejected(t *testing.T) {
+	if _, _, err := mergeManaged("head\n"+fenceStart+"\norphan\n", "newblock"); err == nil {
+		t.Fatalf("unterminated fence must be rejected, not rewritten")
 	}
-	got, had = mergeManaged("head\n"+fenceStart+"\norphan\n", "")
-	if !had || strings.Contains(got, "orphan") {
-		t.Fatalf("unterminated fence removal:\n%s", got)
+	if _, _, err := mergeManaged("head\n"+fenceStart+"\norphan\n", ""); err == nil {
+		t.Fatalf("unterminated fence removal must be rejected too")
 	}
 }
