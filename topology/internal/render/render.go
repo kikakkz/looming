@@ -404,7 +404,12 @@ type digestEntry struct {
 
 // digestDir walks one build directory into sorted (path, sha256)
 // entries. Paths come from walking the operator's own bundle root,
-// not request input.
+// not request input. Dotfiles are skipped EXCEPT .dockerignore: its
+// contents decide which files Docker actually sends to the build, so
+// a .dockerignore edit must move the convergence digest (CodeRabbit
+// review on PR #140). Non-regular entries (symlinks, sockets) are
+// skipped — ReadFile would follow a symlink out of the context and
+// Docker ships symlinks as links, not content.
 func digestDir(root, dir string) ([]digestEntry, error) {
 	var entries []digestEntry
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -418,7 +423,10 @@ func digestDir(root, dir string) ([]digestEntry, error) {
 			}
 			return nil
 		}
-		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "coverage") {
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		if name != ".dockerignore" && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "coverage")) {
 			return nil
 		}
 		// #nosec G304 -- path is inside the operator-supplied bundle root.
