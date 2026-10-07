@@ -4,6 +4,7 @@ package agentcfg
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,8 +20,8 @@ func (t testAdapter) Name() string { return "test" }
 func (t testAdapter) ConfigPath() (string, error) {
 	return t.path, nil
 }
-func (t testAdapter) RenderBlock(profile, gateway, model, key string) string {
-	return "profile=" + profile + " gateway=" + gateway + " model=" + model + " key=" + key
+func (t testAdapter) RenderBlock(profile, gateway, model string, contextSize int, key string) string {
+	return fmt.Sprintf("profile=%s gateway=%s model=%s ctx=%d key=%s", profile, gateway, model, contextSize, key)
 }
 
 func (t testAdapter) CheckConflict(string) error { return t.conflict }
@@ -53,7 +54,7 @@ func TestApplyTightensExistingConfigPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := testAdapter{path: path}
-	if _, _, err := Apply(a, "d", "g", "k3", "lk"); err != nil {
+	if _, _, err := Apply(a, "d", "g", "k3", 131072, "lk"); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	info, err := os.Stat(path)
@@ -68,7 +69,7 @@ func TestApplyTightensExistingConfigPermissions(t *testing.T) {
 func TestApplyRefusesUnfencedProviderConflict(t *testing.T) {
 	a := tempAdapter(t, "[other]\nx = 1\n")
 	a.conflict = errors.New("unfenced [providers.looming]")
-	if _, _, err := Apply(a, "d", "g", "k3", "lk"); err == nil {
+	if _, _, err := Apply(a, "d", "g", "k3", 131072, "lk"); err == nil {
 		t.Fatalf("conflict must abort Apply")
 	}
 	got := readConfig(t, a)
@@ -79,7 +80,7 @@ func TestApplyRefusesUnfencedProviderConflict(t *testing.T) {
 
 func TestApplyFirstRunAppendsBlock(t *testing.T) {
 	a := tempAdapter(t, "# my config\n")
-	_, changed, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret")
+	_, changed, err := Apply(a, "default", "http://gw:8080", "k3", 131072, "lk-secret")
 	if err != nil || !changed {
 		t.Fatalf("apply: %v changed=%v", err, changed)
 	}
@@ -100,11 +101,11 @@ func TestApplyFirstRunAppendsBlock(t *testing.T) {
 
 func TestApplyIsByteIdempotent(t *testing.T) {
 	a := tempAdapter(t, "")
-	if _, _, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret"); err != nil {
+	if _, _, err := Apply(a, "default", "http://gw:8080", "k3", 131072, "lk-secret"); err != nil {
 		t.Fatal(err)
 	}
 	first := readConfig(t, a)
-	_, changed, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret")
+	_, changed, err := Apply(a, "default", "http://gw:8080", "k3", 131072, "lk-secret")
 	if err != nil || changed {
 		t.Fatalf("second apply must be a no-op: %v changed=%v", err, changed)
 	}
@@ -115,7 +116,7 @@ func TestApplyIsByteIdempotent(t *testing.T) {
 
 func TestApplyReplacesExistingBlockOnly(t *testing.T) {
 	a := tempAdapter(t, "head\n"+fenceStart+"\nold\n"+fenceEnd+"\ntail\n")
-	if _, _, err := Apply(a, "prod", "http://gw2:8080", "k3", "lk-new"); err != nil {
+	if _, _, err := Apply(a, "prod", "http://gw2:8080", "k3", 131072, "lk-new"); err != nil {
 		t.Fatal(err)
 	}
 	got := readConfig(t, a)
@@ -129,7 +130,7 @@ func TestApplyReplacesExistingBlockOnly(t *testing.T) {
 
 func TestUndoRestoresManagedRegionOnly(t *testing.T) {
 	a := tempAdapter(t, "original\n")
-	if _, _, err := Apply(a, "default", "http://gw:8080", "k3", "lk-secret"); err != nil {
+	if _, _, err := Apply(a, "default", "http://gw:8080", "k3", 131072, "lk-secret"); err != nil {
 		t.Fatal(err)
 	}
 	// The user edits outside the managed region after configure.
@@ -172,7 +173,7 @@ func TestApplyWriteFailure(t *testing.T) {
 		// mkdir asfile will fail because a file named "asfile" exists.
 		t.Fatal(err)
 	}
-	_, _, err := Apply(a2, "p", "g", "k3", "k")
+	_, _, err := Apply(a2, "p", "g", "k3", 131072, "k")
 	if err == nil {
 		t.Fatal("write into a file-as-directory must fail")
 	}

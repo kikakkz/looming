@@ -62,6 +62,7 @@ func onboardCmd() *cobra.Command {
 
 func configureCmd() *cobra.Command {
 	var agentName, profileName, model string
+	var contextSize int
 	var undo bool
 	cmd := &cobra.Command{
 		Use:   "configure",
@@ -95,12 +96,13 @@ func configureCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, changed, err := agentcfg.Apply(adapter, p.Name, p.GatewayURL, model, loomKey)
+			_, changed, err := agentcfg.Apply(adapter, p.Name, p.GatewayURL, model, contextSize, loomKey)
 			if err != nil {
 				return err
 			}
 			if changed {
-				fmt.Printf("%s's config now points at profile %q (%s).\n", agentName, p.Name, p.GatewayURL)
+				fmt.Printf("%s's config now points at profile %q (%s, model %q).\n", agentName, p.Name, p.GatewayURL, model)
+				fmt.Printf("Select it in kimi code: kimi -m looming/%s (or set default_model = \"looming/%s\").\n", model, model)
 			} else {
 				fmt.Printf("%s's config already matches profile %q — nothing to change.\n", agentName, p.Name)
 			}
@@ -110,6 +112,7 @@ func configureCmd() *cobra.Command {
 	cmd.Flags().StringVar(&agentName, "agent", "", "agent CLI to configure ("+joinNames()+")")
 	cmd.Flags().StringVar(&profileName, "profile", "", "profile to reconcile (default \"default\")")
 	cmd.Flags().StringVar(&model, "model", "default", "gateway catalog model this configuration selects")
+	cmd.Flags().IntVar(&contextSize, "context-size", 131072, "model context window in tokens (kimi code requires it on every model entry)")
 	cmd.Flags().BoolVar(&undo, "undo", false, "remove the looming managed block (content outside the block is preserved; the first-mutation backup stays on disk for manual recovery)")
 	_ = cmd.MarkFlagRequired("agent")
 	return cmd

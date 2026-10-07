@@ -223,7 +223,7 @@ func loginPrompt(ctx context.Context, client *identityclient.Client, opts Option
 func LinePrompter(in *bufio.Reader) func(string, bool) (string, error) {
 	return func(question string, secret bool) (string, error) {
 		fmt.Printf("%s: ", question)
-		if secret {
+		if secret && term.IsTerminal(int(os.Stdin.Fd())) {
 			raw, err := term.ReadPassword(int(os.Stdin.Fd()))
 			fmt.Println()
 			if err != nil {
@@ -231,6 +231,10 @@ func LinePrompter(in *bufio.Reader) func(string, bool) (string, error) {
 			}
 			return strings.TrimRight(string(raw), "\r\n"), nil
 		}
+		// Non-terminal stdin (piped CI input): the buffered reader is
+		// the single input source — reading the fd directly would
+		// desync from input the buffer already holds (CodeRabbit
+		// review on PR #142). Echo is moot for pipes.
 		line, err := in.ReadString('\n')
 		if err != nil {
 			return "", err

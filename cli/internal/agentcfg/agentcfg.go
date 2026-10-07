@@ -24,8 +24,9 @@ type Adapter interface {
 	ConfigPath() (string, error)
 	// RenderBlock returns the managed-block lines (without the fence
 	// markers) for one profile and model id (the gateway catalog's
-	// model this configuration selects).
-	RenderBlock(profileName, gatewayURL, model, loomKey string) string
+	// model this configuration selects) plus the context window the
+	// agent requires on every model entry.
+	RenderBlock(profileName, gatewayURL, model string, contextSize int, loomKey string) string
 	// CheckConflict reports a recoverable conflict between the managed
 	// block and the existing config OUTSIDE the managed fence (for
 	// example an unfenced provider table the block would redefine).
@@ -73,7 +74,7 @@ const (
 // mutation (backup kept until Undo). An existing config file is
 // chmodded 0600 BEFORE the key lands in it (WriteFile never tightens
 // an existing file's mode — CWE-732, CodeRabbit review on PR #142).
-func Apply(a Adapter, profileName, gatewayURL, model, loomKey string) (backupPath string, changed bool, err error) {
+func Apply(a Adapter, profileName, gatewayURL, model string, contextSize int, loomKey string) (backupPath string, changed bool, err error) {
 	path, err := a.ConfigPath()
 	if err != nil {
 		return "", false, err
@@ -83,13 +84,13 @@ func Apply(a Adapter, profileName, gatewayURL, model, loomKey string) (backupPat
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", false, fmt.Errorf("cli: read %s config: %w", a.Name(), err)
 	}
-	if len(original) > 0 {
-		if err := os.Chmod(path, 0o600); err != nil {
-			return "", false, fmt.Errorf("cli: tighten %s config permissions: %w", a.Name(), err)
+	if err == nil { // the file exists (possibly empty) — tighten before the key lands
+		if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
+			return "", false, fmt.Errorf("cli: tighten %s config permissions: %w", a.Name(), chmodErr)
 		}
 	}
 
-	block := fenceStart + "\n" + a.RenderBlock(profileName, gatewayURL, model, loomKey) + "\n" + fenceEnd
+	block := fenceStart + "\n" + a.RenderBlock(profileName, gatewayURL, model, contextSize, loomKey) + "\n" + fenceEnd
 	if conflictErr := a.CheckConflict(string(original)); conflictErr != nil {
 		return "", false, conflictErr
 	}
