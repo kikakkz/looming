@@ -77,7 +77,6 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make test-e2e` — bundle e2e layer (AD-25 `e2e` tag): the onboarding
   scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI
   job; loud skip without docker; first run builds all images.
-
 ## Go engineering standards
 
 Applies to all Go components. Rationale and evidence live in the decision
@@ -125,7 +124,8 @@ cites its `kind/flake` issue number; test-only helpers live under
 - `gateway/` — the model-gateway component (Go): `go.mod`, `cmd/`,
   `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33), Go
   tool configs. First component (AD-34); slice C (#114) added per-key engine credentials: feed `engine_credential` consumption (`Identity{Subject, EngineCredential}` authenticator shape), explicit `EnginePlane.Forward` credential, per-request upstream auth with static fallback.
-- `identity/` — the identity component (Go, AD-34): principals, registration policy, local authn (design: `docs/architecture/identity-l1.md`, AD-35); slice C (#114) added the Quota aggregate and engine provisioning (EngineProvisioner port, LiteLLM adapter, per-LoomingKey IdentityMap, feed `engine_credential` contract).
+- `identity/` — the identity component (Go, AD-34): principals, policy, authn builtin+OIDC, keys, quota, engine provisioning (design: `docs/architecture/identity-l1.md`, AD-35).
+- `cli/` — the `looming` user CLI (Go, AD-34/AD-37): onboard/configure/usage (design: `docs/architecture/cli-l1.md`); admin face still in `topology/cmd/looming-ctl` until CLI-1.
 - `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1 (#107) added the `apply` converge pipeline (config loader, renderer, executor, `cmd/looming-ctl` — placement temporary pending #108); T2 (#107) added the join capability (`internal/join`) + the `cmd/topologyd` join/rejoin service; T3 (#107) added the guide capability (`internal/guide`, topologyd's `GET /v1/internal/guide`) and the gateway's public onboarding page at `GET /` (TTL-cached fetch of the guide).
 - `tests/e2e/` — the bundle e2e suite (AD-25 `e2e` layer): cross-component,
   AD-34-neutral, own `go.mod`; drives the real ctl and real containers through the onboarding scenario.
