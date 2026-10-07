@@ -11,7 +11,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
 
 	"github.com/kikakkz/looming/cli/internal/identityclient"
 	"github.com/kikakkz/looming/cli/internal/profile"
@@ -33,7 +36,7 @@ type Options struct {
 }
 
 // Run executes the journey and returns the written profile name.
-func Run(ctx context.Context, opts Options, prompt func(string) (string, error)) (string, error) {
+func Run(ctx context.Context, opts Options, prompt func(string, bool) (string, error)) (string, error) {
 	identityURL, gatewayURL, err := collectEndpoints(opts, prompt)
 	if err != nil {
 		return "", err
@@ -50,10 +53,10 @@ func Run(ctx context.Context, opts Options, prompt func(string) (string, error))
 }
 
 // collectEndpoints asks for whatever the options did not carry.
-func collectEndpoints(opts Options, prompt func(string) (string, error)) (identityURL, gatewayURL string, err error) {
+func collectEndpoints(opts Options, prompt func(string, bool) (string, error)) (identityURL, gatewayURL string, err error) {
 	identityURL = opts.IdentityURL
 	if identityURL == "" {
-		answer, askErr := prompt("Identity endpoint (from your cluster's guide page)")
+		answer, askErr := prompt("Identity endpoint (from your cluster's guide page)", false)
 		if askErr != nil {
 			return "", "", askErr
 		}
@@ -64,7 +67,7 @@ func collectEndpoints(opts Options, prompt func(string) (string, error)) (identi
 	}
 	gatewayURL = opts.GatewayURL
 	if gatewayURL == "" {
-		answer, askErr := prompt("Gateway endpoint (from the guide page)")
+		answer, askErr := prompt("Gateway endpoint (from the guide page)", false)
 		if askErr != nil {
 			return "", "", askErr
 		}
@@ -75,25 +78,31 @@ func collectEndpoints(opts Options, prompt func(string) (string, error)) (identi
 
 // authenticate resolves a session by credential shape: an OIDC token,
 // a register-then-login flow, or a plain login.
-func authenticate(ctx context.Context, client *identityclient.Client, opts Options, prompt func(string) (string, error)) (*identityclient.Session, error) {
+func authenticate(ctx context.Context, client *identityclient.Client, opts Options, prompt func(string, bool) (string, error)) (*identityclient.Session, error) {
 	switch {
 	case opts.IDToken != "":
 		return client.LoginExternal(ctx, opts.IDToken)
 	case opts.Register:
-		if err := registerFlow(ctx, client, opts, prompt); err != nil {
+		username, password, err := registerFlow(ctx, client, opts, prompt)
+		if err != nil {
 			return nil, err
 		}
-		return loginPrompt(ctx, client, opts, prompt)
+		// The registration credentials authenticate the follow-up
+		// login — interactive users must not type them twice
+		// (CodeRabbit review on PR #142).
+		loginOpts := opts
+		loginOpts.Username, loginOpts.Password = username, password
+		return loginPrompt(ctx, client, loginOpts, prompt)
 	default:
 		return loginPrompt(ctx, client, opts, prompt)
 	}
 }
 
-func keyName(opts Options, prompt func(string) (string, error)) (string, error) {
+func keyName(opts Options, prompt func(string, bool) (string, error)) (string, error) {
 	if opts.KeyName != "" {
 		return opts.KeyName, nil
 	}
-	answer, err := prompt("Key name (label for this machine's LoomingKey)")
+	answer, err := prompt("Key name (label for this machine's LoomingKey)", false)
 	if err != nil {
 		return "", err
 	}
@@ -134,44 +143,44 @@ func storeProfile(ctx context.Context, client *identityclient.Client, session *i
 	return name, nil
 }
 
-func registerFlow(ctx context.Context, client *identityclient.Client, opts Options, prompt func(string) (string, error)) error {
-	username := opts.Username
+func registerFlow(ctx context.Context, client *identityclient.Client, opts Options, prompt func(string, bool) (string, error)) (username, password string, err error) {
+	username = opts.Username
 	if username == "" {
-		answer, err := prompt("Choose a username")
-		if err != nil {
-			return err
+		answer, askErr := prompt("Choose a username", false)
+		if askErr != nil {
+			return "", "", askErr
 		}
 		username = strings.TrimSpace(answer)
 	}
-	password := opts.Password
+	password = opts.Password
 	if password == "" {
-		answer, err := prompt("Choose a password (min 12 chars)")
-		if err != nil {
-			return err
+		answer, askErr := prompt("Choose a password (min 12 chars)", true)
+		if askErr != nil {
+			return "", "", askErr
 		}
 		password = strings.TrimSpace(answer)
 	}
 	invite := opts.InviteToken
 	if invite == "" {
-		answer, err := prompt("Invite token (leave empty if the deployment allows open registration)")
-		if err != nil {
-			return err
+		answer, askErr := prompt("Invite token (leave empty if the deployment allows open registration)", false)
+		if askErr != nil {
+			return "", "", askErr
 		}
 		invite = strings.TrimSpace(answer)
 	}
-	if err := client.Register(ctx, username, password, invite); err != nil {
-		if identityclient.IsCode(err, "registration_forbidden") {
-			return errors.New("this deployment does not allow self-registration — ask an admin for an account, then re-run without --register")
+	if regErr := client.Register(ctx, username, password, invite); regErr != nil {
+		if identityclient.IsCode(regErr, "registration_forbidden") {
+			return "", "", errors.New("this deployment does not allow self-registration — ask an admin for an account, then re-run without --register")
 		}
-		return fmt.Errorf("onboard: register: %w", err)
+		return "", "", fmt.Errorf("onboard: register: %w", regErr)
 	}
-	return nil
+	return username, password, nil
 }
 
-func loginPrompt(ctx context.Context, client *identityclient.Client, opts Options, prompt func(string) (string, error)) (*identityclient.Session, error) {
+func loginPrompt(ctx context.Context, client *identityclient.Client, opts Options, prompt func(string, bool) (string, error)) (*identityclient.Session, error) {
 	username := opts.Username
 	if username == "" {
-		answer, err := prompt("Username")
+		answer, err := prompt("Username", false)
 		if err != nil {
 			return nil, err
 		}
@@ -179,7 +188,7 @@ func loginPrompt(ctx context.Context, client *identityclient.Client, opts Option
 	}
 	password := opts.Password
 	if password == "" {
-		answer, err := prompt("Password")
+		answer, err := prompt("Password", true)
 		if err != nil {
 			return nil, err
 		}
@@ -195,10 +204,20 @@ func loginPrompt(ctx context.Context, client *identityclient.Client, opts Option
 	return session, nil
 }
 
-// LinePrompter reads one line from stdin (bufio), for interactive use.
-func LinePrompter(in *bufio.Reader) func(string) (string, error) {
-	return func(question string) (string, error) {
+// LinePrompter reads one line from stdin; secret questions (passwords)
+// are read with terminal echo off (golang.org/x/term ReadPassword,
+// CodeRabbit security review on PR #142 — CWE-549).
+func LinePrompter(in *bufio.Reader) func(string, bool) (string, error) {
+	return func(question string, secret bool) (string, error) {
 		fmt.Printf("%s: ", question)
+		if secret {
+			raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Println()
+			if err != nil {
+				return "", err
+			}
+			return strings.TrimRight(string(raw), "\r\n"), nil
+		}
 		line, err := in.ReadString('\n')
 		if err != nil {
 			return "", err

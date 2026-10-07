@@ -71,8 +71,8 @@ func newFakeIdentity(t *testing.T) *fakeIdentity {
 	return f
 }
 
-func scripted(answers map[string]string) func(string) (string, error) {
-	return func(question string) (string, error) {
+func scripted(answers map[string]string) func(string, bool) (string, error) {
+	return func(question string, _ bool) (string, error) {
 		for key, answer := range answers {
 			if containsStr(question, key) {
 				return answer, nil
@@ -206,7 +206,7 @@ func TestOnboardExternalTokenFlow(t *testing.T) {
 
 func TestOnboardMissingEndpointsPrompt(t *testing.T) {
 	opts := Options{}
-	_, err := Run(t.Context(), opts, func(question string) (string, error) {
+	_, err := Run(t.Context(), opts, func(question string, _ bool) (string, error) {
 		return "", nil // empty answers everywhere
 	})
 	if err == nil {
@@ -239,7 +239,7 @@ func TestOnboardRegisterForbiddenHintsAdmin(t *testing.T) {
 func TestOnboardPromptErrorPropagates(t *testing.T) {
 	opts := Options{IdentityURL: "http://x", GatewayURL: "http://y"}
 	promptErr := errors.New("input closed")
-	_, err := Run(t.Context(), opts, func(string) (string, error) {
+	_, err := Run(t.Context(), opts, func(string, bool) (string, error) {
 		return "", promptErr
 	})
 	if err == nil {
@@ -271,7 +271,7 @@ func TestOnboardIssueKeyFailure(t *testing.T) {
 
 func TestLinePrompterReadsAnswers(t *testing.T) {
 	prompt := LinePrompter(bufio.NewReader(strings.NewReader("hello world\n")))
-	answer, err := prompt("anything")
+	answer, err := prompt("anything", false)
 	if err != nil || answer != "hello world" {
 		t.Fatalf("line prompter: %q %v", answer, err)
 	}
@@ -279,14 +279,14 @@ func TestLinePrompterReadsAnswers(t *testing.T) {
 
 func TestOnboardEndpointPromptErrors(t *testing.T) {
 	// Identity prompt fails.
-	_, err := Run(t.Context(), Options{}, func(string) (string, error) {
+	_, err := Run(t.Context(), Options{}, func(string, bool) (string, error) {
 		return "", errors.New("no input")
 	})
 	if err == nil {
 		t.Fatal("identity prompt error must propagate")
 	}
 	// Gateway prompt fails.
-	_, err = Run(t.Context(), Options{IdentityURL: "http://id"}, func(question string) (string, error) {
+	_, err = Run(t.Context(), Options{IdentityURL: "http://id"}, func(question string, _ bool) (string, error) {
 		if strings.Contains(question, "Gateway") {
 			return "", errors.New("no input")
 		}
