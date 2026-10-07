@@ -171,7 +171,7 @@ func newApply(stdout io.Writer, log *slog.Logger) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
 		"stop after the render and print the compose files; no docker, no database")
 	cmd.Flags().BoolVar(&printInvite, "print-invite", false,
-		"request the bootstrap invite even when the converge changed nothing")
+		"request the bootstrap invite even when the converge changed nothing (the manual recovery when the invite step warned)")
 	return cmd
 }
 

@@ -5,12 +5,10 @@
 package e2e_test
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,29 +24,15 @@ import (
 // asserting its own contract. Steps share the fixture; a failure
 // stops the scenario (fail fast) and the cleanup still tears the
 // project down.
+//
+// First boot is fully operator-free since #130/#131: apply brings the
+// state plane up, creates every declared component database (the
+// identityd placement's database), converges the containers, waits for
+// identityd's HTTP surface, and prints the bootstrap invite — the
+// suite no longer pre-creates the identity database or forces
+// --print-invite.
 func TestBootstrapScenario(t *testing.T) {
 	f := newFixture(t)
-
-	// The operator initializes the bundle Postgres before first
-	// apply: the state plane comes up, the identity database is
-	// created, and only then does apply converge the placements (the
-	// ctl provisions the topology database itself; the component
-	// databases are the operator's preparation — see the PR's open
-	// items).
-	t.Run("step0_state_plane_and_identity_database", func(t *testing.T) {
-		f.dockerStdin(t, "compose", "-p", composeProject, "-f", "-", "up", "-d", "bundle-postgres")
-		waitFor(t, 90*time.Second, 2*time.Second, "bundle postgres readiness", func() bool {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, "docker", "compose", "-p", composeProject, "-f", "-",
-				"exec", "-T", "bundle-postgres", "pg_isready", "-h", "127.0.0.1", "-U", f.pgUser)
-			cmd.Stdin = strings.NewReader(f.teardownCompose)
-			cmd.Env = f.dockerEnv
-			return cmd.Run() == nil
-		})
-		f.dockerStdin(t, "compose", "-p", composeProject, "-f", "-",
-			"exec", "-T", "bundle-postgres", "createdb", "-U", f.pgUser, "identity")
-	})
 
 	t.Run("step1_apply_first_boot", func(t *testing.T) { step1ApplyFirstBoot(t, f) })
 	t.Run("step2_bootstrap_invite_admin", func(t *testing.T) { step2BootstrapInviteAdmin(t, f) })
@@ -66,12 +50,11 @@ func TestBootstrapScenario(t *testing.T) {
 // /v1/self/login answering 400-not-401 proves the API is up, not just
 // the port).
 //
-// The invite has a built-in race: apply POSTs it as soon as compose
-// up returns, and identityd may not be listening yet (first boot runs
-// its migrations). The printed WARNING with the --print-invite recovery
-// is the operator contract for exactly that case, so the step waits
-// for identityd and re-applies with --print-invite when the first boot
-// could not deliver the token.
+// The bootstrap invite lands in the FIRST apply's output (#130/#131):
+// apply creates the identity database in the state-plane ensure and
+// gates the invite POST on identityd's readiness, so the token below
+// comes straight from stdout — no operator-side createdb, no
+// --print-invite recovery.
 func step1ApplyFirstBoot(t *testing.T, f *fixture) {
 	stdout, err := f.runCtl(t, 10*time.Minute,
 		"apply", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
@@ -79,6 +62,13 @@ func step1ApplyFirstBoot(t *testing.T, f *fixture) {
 	assert.Contains(t, stdout, "host local: changed", "first boot converges the declared host:\n%s", stdout)
 
 	client := &http.Client{Timeout: 5 * time.Second}
+
+	f.inviteToken = inviteTokenFrom(stdout)
+	require.NotEmpty(t, f.inviteToken,
+		"first apply must deliver the bootstrap invite (apply creates the component databases and waits for identityd):\n%s", stdout)
+	assert.Contains(t, stdout, "bootstrap invite for admin@example.com",
+		"the invite step names the declared admin:\n%s", stdout)
+	t.Logf("bootstrap invite printed: %s…", f.inviteToken[:8])
 
 	waitFor(t, 90*time.Second, 2*time.Second, "identityd serving", func() bool {
 		// 400-not-401: the route is live and rejects the malformed
@@ -94,19 +84,6 @@ func step1ApplyFirstBoot(t *testing.T, f *fixture) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return resp.StatusCode == http.StatusBadRequest
 	})
-
-	f.inviteToken = inviteTokenFrom(stdout) // empty when apply warned instead of printing
-	if f.inviteToken == "" {
-		t.Log("first apply could not deliver the invite (identityd still booting) — using the documented --print-invite recovery")
-		stdout, err = f.runCtl(t, 10*time.Minute,
-			"apply", "--print-invite", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
-		require.NoError(t, err, "apply --print-invite:\n%s", stdout)
-		f.inviteToken = inviteTokenFrom(stdout)
-	}
-	require.NotEmpty(t, f.inviteToken, "the bootstrap invite must be printable:\n%s", stdout)
-	assert.Contains(t, stdout, "bootstrap invite for admin@example.com",
-		"the invite step names the declared admin:\n%s", stdout)
-	t.Logf("bootstrap invite printed: %s…", f.inviteToken[:8])
 
 	waitFor(t, 90*time.Second, 2*time.Second, "topologyd serving", func() bool {
 		// The guide endpoint answers (401 without the service token)
@@ -130,9 +107,9 @@ func step1ApplyFirstBoot(t *testing.T, f *fixture) {
 	})
 }
 
-// inviteTokenFrom extracts the one-time invite token from apply's
-// printed summary ("" when apply warned instead of printing — the
-// caller decides whether the --print-invite recovery applies).
+// inviteTokenFrom extracts a token from a ctl command's printed summary
+// (the apply invite line and the token-create line share the
+// "  token: <value>" shape).
 func inviteTokenFrom(stdout string) string {
 	for _, line := range strings.Split(stdout, "\n") {
 		if token, ok := strings.CutPrefix(strings.TrimSpace(line), "token:"); ok {

@@ -147,8 +147,8 @@ func newFixture(t *testing.T) *fixture {
 	f.writeTopology(t, "public")
 
 	// The ctl-rendered compose of the declared host — the channel for
-	// every docker compose call the suite makes (state-plane pre-start,
-	// createdb, logs, teardown). Nothing is written to disk.
+	// every docker compose call the suite makes (logs, teardown).
+	// Nothing is written to disk.
 	f.teardownCompose = f.dryRunCompose(t)
 
 	t.Cleanup(func() {
@@ -443,21 +443,6 @@ func (f *fixture) runCtlEnv(t *testing.T, timeout time.Duration, extraEnv []stri
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
 	return out.String(), err
-}
-
-// dockerStdin pipes a compose document to the docker CLI and fails the
-// test on a non-zero exit, returning combined output.
-func (f *fixture) dockerStdin(t *testing.T, args ...string) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Stdin = strings.NewReader(f.teardownCompose)
-	cmd.Env = f.dockerEnv
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	require.NoError(t, cmd.Run(), "docker %v failed:\n%s", args, out.String())
-	return out.String()
 }
 
 // composeLogs captures the tail of every named service's logs for
