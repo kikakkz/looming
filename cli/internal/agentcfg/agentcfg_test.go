@@ -269,3 +269,28 @@ func TestUndoWriteFailure(t *testing.T) {
 		t.Fatalf("undo with an unwritable directory must fail")
 	}
 }
+
+func TestWriteFileAtomicFollowsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "real-config.toml")
+	linkPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(realPath, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if err := writeFileAtomic(linkPath, []byte("via-link")); err != nil {
+		t.Fatalf("atomic write through a symlink: %v", err)
+	}
+	// The LINK survives and the REAL file received the content.
+	info, err := os.Lstat(linkPath)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the symlink must survive the write: %v %v", err, info)
+	}
+	// #nosec G304 -- realPath comes from t.TempDir().
+	data, err := os.ReadFile(realPath)
+	if err != nil || string(data) != "via-link" {
+		t.Fatalf("real config content: %q %v", data, err)
+	}
+}

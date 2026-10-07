@@ -124,9 +124,15 @@ func Apply(a Adapter, profileName, gatewayURL, model string, contextSize int, lo
 // writeFileAtomic replaces the config via a same-directory temp file
 // and rename: a mid-write error must never leave a truncated config
 // behind (CodeRabbit review on PR #142). The temp file inherits the
-// 0600 mode; rename over the target preserves it.
+// 0600 mode; rename over the target preserves it. A symlinked config
+// path (dotfiles-managed setups) is followed first — renaming over
+// the link itself would sever the link and strand the real config.
 func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
+	target := path
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		target = resolved
+	}
+	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
@@ -147,7 +153,7 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return os.Rename(tmpName, target)
 }
 
 // Undo removes the managed block. Out-of-region edits made after
