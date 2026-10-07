@@ -183,6 +183,54 @@ class PureFunctionTests(unittest.TestCase):
                 self.assertEqual(pw.detect_repo(), "own/rep")
 
 
+class GraphqlArgvTests(unittest.TestCase):
+    """#133: gh 2.101 stopped coercing `-f` strings into GraphQL Int, so
+    Int-typed variables must ride the typed `-F` flag; assert on the
+    constructed argv (subprocess stays mocked)."""
+
+    @staticmethod
+    def flag_pairs(args: list[str]) -> list[tuple[str, str]]:
+        return list(zip(args, args[1:]))
+
+    def test_int_var_rides_typed_flag(self) -> None:
+        args = pw.graphql_args("query($number:Int!){x}",
+                               [("number", 7, "Int")])
+        self.assertIn(("-F", "number=7"), self.flag_pairs(args))
+
+    def test_string_vars_ride_plain_flag(self) -> None:
+        args = pw.graphql_args("query($owner:String!,$after:String){x}",
+                               [("owner", "octo", "String"),
+                                ("after", "", "String")])
+        pairs = self.flag_pairs(args)
+        self.assertIn(("-f", "owner=octo"), pairs)
+        self.assertIn(("-f", "after="), pairs)  # null cursor = empty
+        self.assertNotIn("-F", args)
+
+    def test_id_var_rides_plain_flag(self) -> None:
+        # resolve/dismiss: ID! accepts a string; stays on -f
+        args = pw.graphql_args("mutation($id:ID!){x}",
+                               [("id", "PRRT_thread", "ID")])
+        self.assertIn(("-f", "id=PRRT_thread"), self.flag_pairs(args))
+        self.assertNotIn("-F", args)
+
+    def test_open_threads_sends_number_as_typed(self) -> None:
+        # argv-level regression for the status/findings/nudge path: the
+        # Int! PR number broke under gh 2.101 when sent as -f string
+        sent: list[list[str]] = []
+        fake = GhFake(base_routes())
+
+        def spy(args: list[str], gh: str = "gh") -> str:
+            sent.append(args)
+            return fake(args, gh)
+
+        with mock.patch.object(pw, "run_gh", spy):
+            pw.open_threads("x/y", 7, "gh")
+        pairs = self.flag_pairs(sent[0])
+        self.assertIn(("-F", "number=7"), pairs)
+        self.assertIn(("-f", "owner=x"), pairs)
+        self.assertIn(("-f", "name=y"), pairs)
+
+
 class NudgeGuardTests(unittest.TestCase):
     def nudge(self, fake: GhFake) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
