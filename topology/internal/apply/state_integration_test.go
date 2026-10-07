@@ -118,16 +118,17 @@ func TestEnsureStatePlaneRealDocker(t *testing.T) {
 	})
 
 	pipeline := NewPipeline(Deps{
-		Runner:      runner,
-		Project:     project,
-		Clock:       time.Now,
-		Sleep:       time.Sleep,
-		ReadFile:    os.ReadFile,
-		OpenStores:  openPostgresStores,
-		ProvisionDB: provisionTopologyDB,
+		Runner:            runner,
+		Project:           project,
+		Clock:             time.Now,
+		Sleep:             time.Sleep,
+		ReadFile:          os.ReadFile,
+		OpenStores:        openPostgresStores,
+		ProvisionDB:       provisionTopologyDB,
+		EnsureComponentDB: ensureComponentDatabase,
 	})
 
-	databaseURL, err := pipeline.ensureStatePlane(ctx, sp)
+	databaseURL, err := pipeline.ensureStatePlane(ctx, sp, []string{"identity"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, runner.ups, "first boot brings the container up exactly once")
 	assert.Contains(t, databaseURL, "/topology")
@@ -147,6 +148,17 @@ func TestEnsureStatePlaneRealDocker(t *testing.T) {
 		require.True(t, found.Valid, "table %q must exist after ensure", table)
 	}
 
+	// #130: the state plane created the declared component database
+	// alongside the topology one — over the maintenance connection,
+	// before any container would start.
+	adminDB, err := sql.Open("pgx", strings.Replace(databaseURL, "/topology", "/postgres", 1))
+	require.NoError(t, err)
+	defer func() { _ = adminDB.Close() }()
+	var identityExists int
+	require.NoError(t, adminDB.QueryRowContext(pingCtx,
+		`SELECT 1 FROM pg_database WHERE datname = 'identity'`).Scan(&identityExists))
+	assert.Equal(t, 1, identityExists, "the identityd placement's database must exist after ensure")
+
 	// The database is real: writes survive the (guarded, no-op)
 	// re-provision the second ensure runs.
 	_, err = db.ExecContext(pingCtx,
@@ -154,7 +166,7 @@ func TestEnsureStatePlaneRealDocker(t *testing.T) {
 		 VALUES ('singleton', 'public', 'direct', 'ip')`)
 	require.NoError(t, err)
 
-	_, err = pipeline.ensureStatePlane(ctx, sp)
+	_, err = pipeline.ensureStatePlane(ctx, sp, []string{"identity"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, runner.ups, "second ensure finds the container healthy and skips compose up")
 
@@ -162,6 +174,9 @@ func TestEnsureStatePlaneRealDocker(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(pingCtx,
 		`SELECT revision FROM topology WHERE id = 'singleton'`).Scan(&revision))
 	assert.Equal(t, int64(1), revision, "the existing database is untouched by re-ensure")
+	require.NoError(t, adminDB.QueryRowContext(pingCtx,
+		`SELECT 1 FROM pg_database WHERE datname = 'identity'`).Scan(&identityExists))
+	assert.Equal(t, 1, identityExists, "re-ensure is a guarded no-op for the component database too")
 }
 
 // TestStdWiringAgainstRealPostgres exercises apply's composition-root
@@ -210,15 +225,16 @@ func TestStdWiringAgainstRealPostgres(t *testing.T) {
 	})
 
 	pipeline := NewPipeline(Deps{
-		Runner:      runner,
-		Project:     project,
-		Clock:       time.Now,
-		Sleep:       time.Sleep,
-		ReadFile:    os.ReadFile,
-		OpenStores:  openPostgresStores,
-		ProvisionDB: provisionTopologyDB,
+		Runner:            runner,
+		Project:           project,
+		Clock:             time.Now,
+		Sleep:             time.Sleep,
+		ReadFile:          os.ReadFile,
+		OpenStores:        openPostgresStores,
+		ProvisionDB:       provisionTopologyDB,
+		EnsureComponentDB: ensureComponentDatabase,
 	})
-	databaseURL, err := pipeline.ensureStatePlane(ctx, sp)
+	databaseURL, err := pipeline.ensureStatePlane(ctx, sp, nil)
 	require.NoError(t, err)
 
 	// Store construction, happy path: the real adapters answer their
@@ -246,4 +262,24 @@ func TestStdWiringAgainstRealPostgres(t *testing.T) {
 	err = provisionTopologyDB(ctx, adminURL, "postgres://postgres:it-secret@127.0.0.1:1/topology?sslmode=disable")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "migrate")
+
+	// Component-database creation (#130): create-only, idempotent, and
+	// the probe failure surfaces against a dead port — the same catalog
+	// guard the topology database goes through.
+	err = ensureComponentDatabase(ctx, adminURL, "identity")
+	require.NoError(t, err)
+	adminDB, err := sql.Open("pgx", adminURL)
+	require.NoError(t, err)
+	defer func() { _ = adminDB.Close() }()
+	var identityExists int
+	require.NoError(t, adminDB.QueryRowContext(ctx,
+		`SELECT 1 FROM pg_database WHERE datname = 'identity'`).Scan(&identityExists))
+	assert.Equal(t, 1, identityExists, "the component database exists after ensure")
+
+	require.NoError(t, ensureComponentDatabase(ctx, adminURL, "identity"),
+		"re-ensure on an existing component database is a guarded no-op")
+
+	err = ensureComponentDatabase(ctx, "postgres://postgres:it-secret@127.0.0.1:1/postgres?sslmode=disable", "identity")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe")
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/kikakkz/looming/topology/internal/config"
 	"github.com/kikakkz/looming/topology/internal/exec"
 	"github.com/kikakkz/looming/topology/internal/render"
+	"github.com/kikakkz/looming/topology/internal/topology/domain"
 )
 
 // State-plane ensure (topology-l1 §3 admin bootstrap journey): bring up
@@ -93,8 +95,10 @@ func (p *Pipeline) composeArgs(rest ...string) []string {
 // topology database URL derived from the operator's env_file. Steps:
 // container up when absent or stopped, bounded pg_isready wait, then
 // CREATE DATABASE IF NOT EXISTS plus embedded migrations through the
-// ProvisionDB seam.
-func (p *Pipeline) ensureStatePlane(ctx context.Context, sp config.StatePostgres) (string, error) {
+// ProvisionDB seam, and finally every declared component database
+// (create-only) through EnsureComponentDB — all BEFORE the converge
+// step starts the containers that point at those databases (#130).
+func (p *Pipeline) ensureStatePlane(ctx context.Context, sp config.StatePostgres, databases []string) (string, error) {
 	creds, err := parsePostgresEnvFile(p.deps.ReadFile, sp.EnvFile)
 	if err != nil {
 		return "", err
@@ -128,6 +132,18 @@ func (p *Pipeline) ensureStatePlane(ctx context.Context, sp config.StatePostgres
 	databaseURL := postgresURL(creds, sp.Port, DatabaseName)
 	if err := p.deps.ProvisionDB(ctx, adminURL, databaseURL); err != nil {
 		return "", fmt.Errorf("state plane: provision %s database: %w", DatabaseName, err)
+	}
+
+	if p.deps.EnsureComponentDB != nil {
+		// Component databases ride the same maintenance connection and
+		// catalog-guarded CREATE pattern as the topology database;
+		// identityd's placement already points IDENTITY_DATABASE_URL at
+		// the identity database — first boot finds it waiting.
+		for _, database := range databases {
+			if err := p.deps.EnsureComponentDB(ctx, adminURL, database); err != nil {
+				return "", fmt.Errorf("state plane: ensure %s database: %w", database, err)
+			}
+		}
 	}
 	return databaseURL, nil
 }
@@ -188,4 +204,34 @@ func postgresURL(creds stateCreds, port int, database string) string {
 	q.Set("sslmode", "disable")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// componentDatabaseNames maps a placed phase-1 component to the
+// database the state plane must create for it (AD-36
+// database-per-component): identityd points IDENTITY_DATABASE_URL at
+// the identity database via its placement's database_url config, and
+// topologyd serves the topology one. Components without an entry own
+// no database of their own.
+var componentDatabaseNames = map[string]string{
+	domain.ComponentIdentityd: "identity",
+	domain.ComponentTopologyd: DatabaseName,
+}
+
+// componentDatabases derives the distinct, sorted database names the
+// declared placements require (#130). A component may sit on several
+// hosts; the create list deduplicates so each database is ensured
+// exactly once per apply.
+func componentDatabases(placements []config.Placement) []string {
+	seen := map[string]bool{}
+	var databases []string
+	for _, pl := range placements {
+		database, ok := componentDatabaseNames[pl.Component]
+		if !ok || seen[database] {
+			continue
+		}
+		seen[database] = true
+		databases = append(databases, database)
+	}
+	sort.Strings(databases)
+	return databases
 }

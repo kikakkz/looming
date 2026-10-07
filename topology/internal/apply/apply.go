@@ -65,10 +65,23 @@ type Deps struct {
 	// ProvisionDB creates the topology database when missing (over the
 	// maintenance connection) and applies the embedded migrations.
 	ProvisionDB func(ctx context.Context, adminURL, databaseURL string) error
+	// EnsureComponentDB creates one declared component's database when
+	// missing over the maintenance connection — create-only, before the
+	// converge step starts any container (#130; components migrate their
+	// own schema at boot). Nil skips component-database creation
+	// (tests that don't model the database lifecycle).
+	EnsureComponentDB func(ctx context.Context, adminURL, database string) error
 	// InvitePoster requests identityd's one-shot bootstrap invite
 	// (POST /v1/bootstrap/invite); it returns the HTTP status and body.
 	// Nil means the step warns instead of panicking.
 	InvitePoster func(ctx context.Context, endpoint, key, email string) (int, []byte, error)
+	// IdentitydReady probes identityd's HTTP surface for the invite
+	// step's readiness gate (#131): true once ANY HTTP answer arrives
+	// (a 4xx on a routed path proves serving — the invite POST itself
+	// may legitimately answer 409, so readiness must not demand 2xx).
+	// Nil skips the wait and POSTs immediately (tests that don't model
+	// boot time).
+	IdentitydReady func(ctx context.Context, endpoint string) bool
 }
 
 // Input is one apply run: the config file, whether to stop after the
@@ -199,11 +212,13 @@ func (p *Pipeline) dryRun(plan plan) (*Result, error) {
 
 // ensureDatabase brings the state plane up when the config declares
 // one and derives the topology database URL, applying the operator's
-// explicit override last.
+// explicit override last. The state plane also creates every component
+// database the placements declare (#130) — before the converge step
+// starts the containers that need them.
 func (p *Pipeline) ensureDatabase(ctx context.Context, cfg *config.Config, override string) (string, error) {
 	derived := ""
 	if cfg.State != nil {
-		url, err := p.ensureStatePlane(ctx, cfg.State.Postgres)
+		url, err := p.ensureStatePlane(ctx, cfg.State.Postgres, componentDatabases(cfg.Placements))
 		if err != nil {
 			return "", err
 		}

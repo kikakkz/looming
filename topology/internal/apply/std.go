@@ -45,14 +45,16 @@ var inviteRequestTimeout = 15 * time.Second
 // implementation, parametrized only by the command runner.
 func StdDeps(runner exec.Runner) Deps {
 	return Deps{
-		Runner:       runner,
-		Project:      render.Project,
-		Clock:        time.Now,
-		Sleep:        time.Sleep,
-		ReadFile:     os.ReadFile,
-		OpenStores:   openPostgresStores,
-		ProvisionDB:  provisionTopologyDB,
-		InvitePoster: postBootstrapInvite,
+		Runner:            runner,
+		Project:           render.Project,
+		Clock:             time.Now,
+		Sleep:             time.Sleep,
+		ReadFile:          os.ReadFile,
+		OpenStores:        openPostgresStores,
+		ProvisionDB:       provisionTopologyDB,
+		EnsureComponentDB: ensureComponentDatabase,
+		InvitePoster:      postBootstrapInvite,
+		IdentitydReady:    probeIdentitydReady,
 	}
 }
 
@@ -87,19 +89,47 @@ func provisionTopologyDB(ctx context.Context, adminURL, databaseURL string) erro
 	}
 	defer func() { _ = db.Close() }()
 
-	var exists int
-	err = db.QueryRowContext(ctx, `SELECT 1 FROM pg_database WHERE datname = $1`, DatabaseName).Scan(&exists)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		if _, createErr := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", DatabaseName)); createErr != nil {
-			return fmt.Errorf("apply: create %s database: %w", DatabaseName, createErr)
-		}
-	case err != nil:
-		return fmt.Errorf("apply: probe %s database: %w", DatabaseName, err)
+	if err := createDatabaseIfMissing(ctx, db, DatabaseName); err != nil {
+		return err
 	}
 
 	if err := migrations.Up(databaseURL); err != nil {
 		return fmt.Errorf("apply: migrate %s database: %w", DatabaseName, err)
+	}
+	return nil
+}
+
+// ensureComponentDatabase creates one declared component's database
+// when missing — create-only: unlike the topology database, each
+// component owns its schema and runs its own migrations at boot
+// (identityd does), so there is nothing here to migrate. The state
+// plane calls it BEFORE the converge step starts the containers
+// (#130), over the same maintenance connection and catalog-guarded
+// CREATE pattern as the topology database.
+func ensureComponentDatabase(ctx context.Context, adminURL, database string) error {
+	db, err := sql.Open("pgx", adminURL)
+	if err != nil {
+		return fmt.Errorf("apply: open maintenance connection: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	return createDatabaseIfMissing(ctx, db, database)
+}
+
+// createDatabaseIfMissing creates the named database over an open
+// maintenance connection when the catalog does not list it yet — the
+// idempotent CREATE DATABASE both the topology database and every
+// declared component database go through (#130). An existing database
+// is a guarded no-op, so every apply may run it.
+func createDatabaseIfMissing(ctx context.Context, db *sql.DB, database string) error {
+	var exists int
+	err := db.QueryRowContext(ctx, `SELECT 1 FROM pg_database WHERE datname = $1`, database).Scan(&exists)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, createErr := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", database)); createErr != nil {
+			return fmt.Errorf("apply: create %s database: %w", database, createErr)
+		}
+	case err != nil:
+		return fmt.Errorf("apply: probe %s database: %w", database, err)
 	}
 	return nil
 }
@@ -132,4 +162,29 @@ func postBootstrapInvite(ctx context.Context, endpoint, key, email string) (int,
 		return 0, nil, fmt.Errorf("apply: read bootstrap invite response: %w", err)
 	}
 	return resp.StatusCode, body, nil
+}
+
+// identitydReadyTimeout bounds ONE readiness probe: a hung connection
+// must consume a poll slot, not the whole ~60s budget.
+var identitydReadyTimeout = 2 * time.Second
+
+// probeIdentitydReady is the production IdentitydReady probe: GET the
+// identityd base URL and report whether ANY HTTP answer arrives. A 4xx
+// on a path identityd does not route still proves the server is
+// serving — that is the whole point of the readiness gate (#131) —
+// while a refused dial or a timeout reports not-yet. The probe never
+// demands 2xx: the invite POST itself may legitimately answer 409.
+func probeIdentitydReady(ctx context.Context, endpoint string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/", nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: identitydReadyTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, inviteMaxBodyBytes))
+	return true
 }

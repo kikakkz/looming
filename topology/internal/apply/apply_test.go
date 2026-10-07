@@ -204,16 +204,24 @@ type world struct {
 	guides      *fakeGuides
 	topology    *fakeStore
 	provisions  []provisionCall
+	ensures     []ensureCall
 	opens       []string
 	sleeps      []time.Duration
 	readFiles   map[string]string
 	pipeline    *apply.Pipeline
 	inviteCalls []inviteCall
 	inviteFn    func(endpoint, key, email string) (int, []byte, error)
+	readyCalls  []string
+	readyFn     func(endpoint string) bool
+	ensureErr   error
 }
 
 type provisionCall struct {
 	adminURL, databaseURL string
+}
+
+type ensureCall struct {
+	adminURL, database string
 }
 
 type inviteCall struct {
@@ -249,12 +257,23 @@ func newWorld(t *testing.T, script []scriptedCall, readFiles map[string]string) 
 			w.provisions = append(w.provisions, provisionCall{adminURL: adminURL, databaseURL: databaseURL})
 			return nil
 		},
+		EnsureComponentDB: func(_ context.Context, adminURL, database string) error {
+			w.ensures = append(w.ensures, ensureCall{adminURL: adminURL, database: database})
+			return w.ensureErr
+		},
 		InvitePoster: func(_ context.Context, endpoint, key, email string) (int, []byte, error) {
 			w.inviteCalls = append(w.inviteCalls, inviteCall{endpoint: endpoint, key: key, email: email})
 			if w.inviteFn != nil {
 				return w.inviteFn(endpoint, key, email)
 			}
 			return http.StatusCreated, []byte(inviteResponse), nil
+		},
+		IdentitydReady: func(_ context.Context, endpoint string) bool {
+			w.readyCalls = append(w.readyCalls, endpoint)
+			if w.readyFn != nil {
+				return w.readyFn(endpoint)
+			}
+			return true
 		},
 	})
 	return w
@@ -276,6 +295,18 @@ func pgUpScript() []scriptedCall {
 		{},           // compose up -d
 		{err: &exec.ExitError{Name: "docker", Code: 2, Stderr: "not ready"}},
 		{}, // pg_isready ok
+	}
+}
+
+// immediatePgUpScript scripts the state-plane happy path with postgres
+// answering the FIRST probe — invite tests that assert on the Sleep
+// seam use it, so the recorded sleeps belong to the invite step's
+// backoff alone, not the state plane's.
+func immediatePgUpScript() []scriptedCall {
+	return []scriptedCall{
+		{stdout: ""}, // ps: not running
+		{},           // compose up -d
+		{},           // pg_isready ok
 	}
 }
 
@@ -351,6 +382,13 @@ func TestApplyFirstBootConvergesEveryHost(t *testing.T) {
 	assert.Equal(t, "postgres://postgres:s3cret@127.0.0.1:5432/postgres?sslmode=disable", w.provisions[0].adminURL)
 	assert.Equal(t, "postgres://postgres:s3cret@127.0.0.1:5432/topology?sslmode=disable", w.provisions[0].databaseURL)
 	assert.Equal(t, []string{"postgres://postgres:s3cret@127.0.0.1:5432/topology?sslmode=disable"}, w.opens)
+
+	// #130: the identityd placement claims the identity database — the
+	// state plane creates it over the maintenance connection before the
+	// converge step starts any container.
+	require.Len(t, w.ensures, 1)
+	assert.Equal(t, "identity", w.ensures[0].database)
+	assert.Equal(t, w.provisions[0].adminURL, w.ensures[0].adminURL)
 
 	// Both hosts changed; results follow the renderer's sorted host
 	// order (app-1 before gw-1). The ssh host's ensure carried
@@ -576,6 +614,22 @@ func TestApplyConfigErrorAbortsBeforeAnySideEffect(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, w.runner.calls)
 	assert.Empty(t, w.opens)
+}
+
+// TestApplyComponentDatabaseErrorAbortsBeforeConverge pins #130's
+// ordering at the pipeline level: a component database the state plane
+// cannot create fails the apply before the converge step issues a
+// single compose up — no container starts up to crash-loop on a
+// missing database.
+func TestApplyComponentDatabaseErrorAbortsBeforeConverge(t *testing.T) {
+	w := newWorld(t, pgUpScript(), map[string]string{stateEnvFile: stateEnvFileContent})
+	w.ensureErr = errors.New("permission denied")
+
+	_, err := w.pipeline.Apply(ctx, apply.Input{ConfigPath: writeConfig(t, twoHostConfig)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity")
+	assert.Empty(t, w.composeUpCalls(), "no host converge runs after the state-plane failure")
+	assert.Empty(t, w.opens, "the stores never open: the failure lands before them")
 }
 
 func TestApplyOpenStoresErrorAborts(t *testing.T) {
