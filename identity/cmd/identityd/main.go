@@ -77,6 +77,7 @@ type config struct {
 	oidcClientID      string
 	oidcUsernameClaim string
 	oidcAutoRegister  bool
+	oidcInsecure      bool
 }
 
 // defaultArgonConcurrency bounds simultaneous argon2id operations on
@@ -309,7 +310,14 @@ func loadAuthnConfig(cfg *config) error {
 		cfg.oidcIssuer = os.Getenv("IDENTITY_OIDC_ISSUER")
 		cfg.oidcClientID = os.Getenv("IDENTITY_OIDC_CLIENT_ID")
 		cfg.oidcUsernameClaim = os.Getenv("IDENTITY_OIDC_USERNAME_CLAIM")
-		cfg.oidcAutoRegister = os.Getenv("IDENTITY_OIDC_AUTO_REGISTER") != "0"
+		cfg.oidcInsecure = os.Getenv("IDENTITY_OIDC_INSECURE") == "1"
+		// Opt-in, not opt-out (CodeRabbit security review on PR #141):
+		// a valid first-sight IdP account must not become an active
+		// local member unless the deployment explicitly says so.
+		switch strings.ToLower(os.Getenv("IDENTITY_OIDC_AUTO_REGISTER")) {
+		case "1", "true", "yes":
+			cfg.oidcAutoRegister = true
+		}
 		if cfg.oidcIssuer == "" || cfg.oidcClientID == "" {
 			return errors.New("missing required config: IDENTITY_OIDC_ISSUER and IDENTITY_OIDC_CLIENT_ID (required when IDENTITY_AUTHN_MODE=oidc)")
 		}
@@ -329,7 +337,8 @@ func wireProvider(ctx context.Context, cfg config, db *sql.DB, repo *principalad
 			ClientID:      cfg.oidcClientID,
 			UsernameClaim: cfg.oidcUsernameClaim,
 			AutoRegister:  cfg.oidcAutoRegister,
-		}, db, cfg.tokenTTL, rand.Reader, clockFn, repo)
+			Insecure:      cfg.oidcInsecure,
+		}, db, cfg.tokenTTL, rand.Reader, clockFn, repo, authnadapter.NewBindingRepository(db))
 	}
 	return authnadapter.NewLocalProvider(db, cfg.tokenTTL, rand.Reader, clockFn), nil
 }

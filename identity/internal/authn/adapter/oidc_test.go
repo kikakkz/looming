@@ -77,11 +77,41 @@ func (s *stubRepo) Count(context.Context) (int64, error) { return 0, nil }
 
 func (s *stubRepo) ExistsAdmin(context.Context) (bool, error) { return false, nil }
 
-func newOIDCForTest(v TokenVerifier, repo *stubRepo) *OIDCProvider {
+// stubBindings is the BindingRepository double.
+type stubBindings struct {
+	byPair  map[string]string // issuer+"\x00"+subject -> principalID
+	created []string
+}
+
+func (s *stubBindings) ByIssuerSubject(_ context.Context, issuer, subject string) (string, error) {
+	id, ok := s.byPair[issuer+"\x00"+subject]
+	if !ok {
+		return "", principaldomain.ErrNotFound
+	}
+	return id, nil
+}
+
+func (s *stubBindings) Create(_ context.Context, issuer, subject, principalID string) error {
+	if s.byPair == nil {
+		s.byPair = map[string]string{}
+	}
+	s.byPair[issuer+"\x00"+subject] = principalID
+	s.created = append(s.created, principalID)
+	return nil
+}
+
+const testIssuer = "https://idp.example.com"
+
+func newOIDC(v TokenVerifier, repo *stubRepo, b *stubBindings) *OIDCProvider {
+	if b == nil {
+		b = &stubBindings{byPair: map[string]string{}}
+	}
 	return &OIDCProvider{
 		LocalProvider: NewLocalProvider(nil, time.Hour, nil, time.Now),
 		verifier:      v,
 		repo:          repo,
+		bindings:      b,
+		issuer:        testIssuer,
 		usernameClaim: "email",
 		autoRegister:  true,
 		clock:         time.Now,
@@ -89,7 +119,7 @@ func newOIDCForTest(v TokenVerifier, repo *stubRepo) *OIDCProvider {
 }
 
 func TestVerifyExternalTokenUnknownToken(t *testing.T) {
-	p := newOIDCForTest(stubVerifier{err: errors.New("bad sig")}, &stubRepo{byUsername: map[string]*principaldomain.Principal{}})
+	p := newOIDC(stubVerifier{err: errors.New("bad sig")}, &stubRepo{byUsername: map[string]*principaldomain.Principal{}}, nil)
 	if _, err := p.VerifyExternalToken(context.Background(), "garbage"); !errors.Is(err, domain.ErrInvalidCredential) {
 		t.Fatalf("want ErrInvalidCredential, got %v", err)
 	}
@@ -97,10 +127,11 @@ func TestVerifyExternalTokenUnknownToken(t *testing.T) {
 
 func TestVerifyExternalTokenAutoRegister(t *testing.T) {
 	repo := &stubRepo{byUsername: map[string]*principaldomain.Principal{}}
-	p := newOIDCForTest(stubVerifier{identity: VerifiedIdentity{
+	bindings := &stubBindings{byPair: map[string]string{}}
+	p := newOIDC(stubVerifier{identity: VerifiedIdentity{
 		Subject: "sub-123",
 		Claims:  map[string]any{"email": "Jane.Doe@Example.com", "name": "Jane Doe"},
-	}}, repo)
+	}}, repo, bindings)
 
 	id, err := p.VerifyExternalToken(context.Background(), "any-token")
 	if err != nil {
@@ -119,8 +150,11 @@ func TestVerifyExternalTokenAutoRegister(t *testing.T) {
 	if got.ID != id {
 		t.Fatalf("returned id %q differs from created %q", id, got.ID)
 	}
-	// Second sight resolves the existing principal instead of
-	// re-registering.
+	// The binding is written and becomes the resolution authority.
+	if len(bindings.created) != 1 || bindings.created[0] != got.ID {
+		t.Fatalf("binding must be created for the new principal, got %v", bindings.created)
+	}
+	// Second sight resolves through the binding without re-registering.
 	if _, err := p.VerifyExternalToken(context.Background(), "any-token"); err != nil {
 		t.Fatalf("second sight: %v", err)
 	}
@@ -129,13 +163,59 @@ func TestVerifyExternalTokenAutoRegister(t *testing.T) {
 	}
 }
 
-func TestVerifyExternalTokenDisabledPrincipalFailsClosed(t *testing.T) {
+// TestVerifyExternalTokenUsernameCollisionIsNotIdentityCollision pins
+// the Critical security property (CodeRabbit review on PR #141): two
+// IdP accounts deriving the same username receive DISTINCT
+// principals, bound to their own issuer+subject pairs.
+func TestVerifyExternalTokenUsernameCollisionIsNotIdentityCollision(t *testing.T) {
+	repo := &stubRepo{byUsername: map[string]*principaldomain.Principal{}}
+	bindings := &stubBindings{byPair: map[string]string{}}
+	p := newOIDC(stubVerifier{}, repo, bindings)
+
+	first, err := p.VerifyExternalToken(context.Background(), "tok-1")
+	if err != nil {
+		t.Fatalf("first account: %v", err)
+	}
+	// Simulate a second verified identity whose claim derives the same
+	// username through a different subject.
+	p.verifier = stubVerifier{identity: VerifiedIdentity{
+		Subject: "sub-OTHER", Claims: map[string]any{"email": "jane.doe@second.example"},
+	}}
+	second, err := p.VerifyExternalToken(context.Background(), "tok-2")
+	if err != nil {
+		t.Fatalf("second account: %v", err)
+	}
+	if first == second {
+		t.Fatalf("colliding derived usernames must not share a principal")
+	}
+	if len(repo.created) != 2 {
+		t.Fatalf("want two principals, got %d", len(repo.created))
+	}
+	suffixed := false
+	for _, created := range repo.created {
+		if created.Username != "jane.doe" {
+			suffixed = true
+		}
+	}
+	if !suffixed {
+		t.Fatalf("the colliding registration must take a suffixed username, got %v / %v",
+			repo.created[0].Username, repo.created[1].Username)
+	}
+	if len(bindings.created) != 2 {
+		t.Fatalf("each identity gets its own binding, got %v", bindings.created)
+	}
+}
+
+func TestVerifyExternalTokenBoundPrincipalDisabledFailsClosed(t *testing.T) {
+	bindings := &stubBindings{byPair: map[string]string{
+		testIssuer + "\x00sub-123": "p-1",
+	}}
 	repo := &stubRepo{byUsername: map[string]*principaldomain.Principal{
 		"jane.doe": {ID: "p-1", Username: "jane.doe", Status: principaldomain.StatusDisabled},
 	}}
-	p := newOIDCForTest(stubVerifier{identity: VerifiedIdentity{
+	p := newOIDC(stubVerifier{identity: VerifiedIdentity{
 		Subject: "sub-123", Claims: map[string]any{"email": "jane.doe@example.com"},
-	}}, repo)
+	}}, repo, bindings)
 	if _, err := p.VerifyExternalToken(context.Background(), "tok"); !errors.Is(err, domain.ErrInvalidCredential) {
 		t.Fatalf("disabled principal must fail closed, got %v", err)
 	}
@@ -143,9 +223,9 @@ func TestVerifyExternalTokenDisabledPrincipalFailsClosed(t *testing.T) {
 
 func TestVerifyExternalTokenNoAutoRegister(t *testing.T) {
 	repo := &stubRepo{byUsername: map[string]*principaldomain.Principal{}}
-	p := newOIDCForTest(stubVerifier{identity: VerifiedIdentity{
+	p := newOIDC(stubVerifier{identity: VerifiedIdentity{
 		Subject: "sub-9", Claims: map[string]any{"email": "new@example.com"},
-	}}, repo)
+	}}, repo, nil)
 	p.autoRegister = false
 	if _, err := p.VerifyExternalToken(context.Background(), "tok"); !errors.Is(err, domain.ErrInvalidCredential) {
 		t.Fatalf("unknown identity without auto-register must fail, got %v", err)

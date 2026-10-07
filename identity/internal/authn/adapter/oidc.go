@@ -16,12 +16,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
 
 	authndomain "github.com/kikakkz/looming/identity/internal/authn/domain"
+	authnport "github.com/kikakkz/looming/identity/internal/authn/port"
 	principaldomain "github.com/kikakkz/looming/identity/internal/principal/domain"
 	principalport "github.com/kikakkz/looming/identity/internal/principal/port"
 )
@@ -39,10 +43,13 @@ type OIDCConfig struct {
 	// usual Keycloak alternatives).
 	UsernameClaim string
 	// AutoRegister provisions an active member principal on first
-	// sight of a verified identity (Gitea's OIDC precedent): the IdP
-	// already authenticated the user, and org-level admission stays
-	// the IdP's group-policy job.
+	// sight of a verified identity — strictly opt-in (the security
+	// default; CodeRabbit review on PR #141).
 	AutoRegister bool
+	// Insecure permits http issuers and JWKS URLs for loopback-only
+	// dev IdPs (the house trusted-network opt-out pattern); anything
+	// cross-host must use https.
+	Insecure bool
 }
 
 // TokenVerifier abstracts go-oidc's verifier for unit tests: the
@@ -96,6 +103,8 @@ type OIDCProvider struct {
 	*LocalProvider
 	verifier      TokenVerifier
 	repo          principalport.Repository
+	bindings      authnport.BindingRepository
+	issuer        string
 	usernameClaim string
 	autoRegister  bool
 	clock         func() time.Time
@@ -104,8 +113,12 @@ type OIDCProvider struct {
 // NewOIDCProvider wires the provider. The issuer's well-known
 // configuration is fetched at construction: a misconfigured IdP must
 // fail identityd's boot, not the first login (fail-fast, house rule).
-// db/ttl/rng/clock feed the embedded LocalProvider.
-func NewOIDCProvider(ctx context.Context, cfg OIDCConfig, db *sql.DB, ttl time.Duration, rng io.Reader, clock func() time.Time, repo principalport.Repository) (*OIDCProvider, error) {
+// Transport is authenticated by default: http issuers/JWKS URLs and
+// https→http redirect downgrades are rejected unless cfg.Insecure
+// (loopback dev IdPs only — the trusted-network opt-out pattern;
+// CodeRabbit security review on PR #141). db/ttl/rng/clock feed the
+// embedded LocalProvider.
+func NewOIDCProvider(ctx context.Context, cfg OIDCConfig, db *sql.DB, ttl time.Duration, rng io.Reader, clock func() time.Time, repo principalport.Repository, bindings authnport.BindingRepository) (*OIDCProvider, error) {
 	if cfg.Issuer == "" || cfg.ClientID == "" {
 		return nil, errors.New("identity: oidc issuer and client_id are required")
 	}
@@ -113,19 +126,73 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCConfig, db *sql.DB, ttl time.D
 	if claim == "" {
 		claim = "email"
 	}
-	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
+	var discoveryCtx context.Context
+	if !cfg.Insecure {
+		if err := requireHTTPS(cfg.Issuer, "issuer"); err != nil {
+			return nil, err
+		}
+		discoveryCtx = oidc.ClientContext(ctx, secureHTTPClient())
+	} else {
+		discoveryCtx = oidc.InsecureIssuerURLContext(ctx, cfg.Issuer)
+	}
+	provider, err := oidc.NewProvider(discoveryCtx, cfg.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("identity: oidc discovery %q: %w", cfg.Issuer, err)
+	}
+	if !cfg.Insecure {
+		if err := checkJWKSURL(provider); err != nil {
+			return nil, err
+		}
 	}
 	verifier := goOIDCVerifier{inner: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID})}
 	return &OIDCProvider{
 		LocalProvider: NewLocalProvider(db, ttl, rng, clock),
 		verifier:      verifier,
 		repo:          repo,
+		bindings:      bindings,
+		issuer:        cfg.Issuer,
 		usernameClaim: claim,
 		autoRegister:  cfg.AutoRegister,
 		clock:         clock,
 	}, nil
+}
+
+// requireHTTPS rejects non-https endpoints with a clear error.
+func requireHTTPS(rawURL, what string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" {
+		return fmt.Errorf("identity: oidc %s must be https (got %q); set IDENTITY_OIDC_INSECURE=1 only for loopback dev IdPs", what, rawURL)
+	}
+	return nil
+}
+
+// checkJWKSURL validates the discovered jwks_uri: an on-path attacker
+// who tampers with discovery could advertise an http key URL and feed
+// the verifier attacker-chosen keys (CWE-319).
+func checkJWKSURL(provider *oidc.Provider) error {
+	claims := struct {
+		JWKSURL string `json:"jwks_uri"`
+	}{}
+	if err := provider.Claims(&claims); err != nil {
+		return fmt.Errorf("identity: oidc discovery claims: %w", err)
+	}
+	return requireHTTPS(claims.JWKSURL, "jwks_uri")
+}
+
+// secureHTTPClient refuses redirects that downgrade to http, so the
+// discovery fetch cannot be walked onto an insecure origin.
+func secureHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("identity: oidc redirect to non-https URL %q refused", req.URL.Redacted())
+			}
+			if len(via) >= 10 {
+				return errors.New("identity: oidc too many redirects")
+			}
+			return nil
+		},
+	}
 }
 
 // VerifyPassword is not offered in OIDC mode: local credentials are
@@ -135,26 +202,28 @@ func (o *OIDCProvider) VerifyPassword(_ context.Context, _, _ string) (string, e
 }
 
 // VerifyExternalToken validates the OIDC ID token and resolves it to
-// a principal. The username derives from the configured claim; a
-// principal the deployment has never seen is auto-registered per
-// policy. Disabled principals fail closed like every other authn
-// path.
+// a principal through the immutable issuer+subject binding — never
+// through username derivation, which is a display/registration
+// attribute only (two IdP accounts can derive the same username; the
+// binding guarantees they never share a principal, CodeRabbit security
+// review on PR #141). A verified identity with no binding registers
+// per policy; disabled principals fail closed like every authn path.
 func (o *OIDCProvider) VerifyExternalToken(ctx context.Context, rawToken string) (string, error) {
 	identity, err := o.verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return "", authndomain.ErrInvalidCredential
 	}
-	username := authndomain.DeriveUsername(identity.Claim(o.usernameClaim), identity.Subject)
-	if username == "" {
-		return "", authndomain.ErrInvalidCredential
-	}
-	p, err := o.repo.ByUsername(ctx, username)
+	principalID, err := o.bindings.ByIssuerSubject(ctx, o.issuer, identity.Subject)
 	if errors.Is(err, principaldomain.ErrNotFound) {
 		if !o.autoRegister {
 			return "", authndomain.ErrInvalidCredential
 		}
-		return o.register(ctx, username, identity)
+		return o.register(ctx, identity)
 	}
+	if err != nil {
+		return "", err
+	}
+	p, err := o.repo.ByID(ctx, principalID)
 	if err != nil {
 		return "", err
 	}
@@ -166,22 +235,49 @@ func (o *OIDCProvider) VerifyExternalToken(ctx context.Context, rawToken string)
 
 // register provisions the first-sight principal: active member (the
 // IdP authenticated the user; org admission is the IdP's job per the
-// auto-registration policy). Username collisions with a local user
-// are impossible — DeriveUsername was ByUsername-missed just before.
-func (o *OIDCProvider) register(ctx context.Context, username string, identity VerifiedIdentity) (string, error) {
+// auto-registration policy), then binds the issuer+subject pair to
+// it. The username derives from the configured claim; a collision
+// with an existing principal (another IdP account deriving the same
+// name) takes a subject suffix — display attribute, not identity.
+func (o *OIDCProvider) register(ctx context.Context, identity VerifiedIdentity) (string, error) {
 	display := identity.Claim("name")
 	if display == "" {
 		display = identity.Claim(o.usernameClaim)
 	}
+	username := authndomain.DeriveUsername(identity.Claim(o.usernameClaim), identity.Subject)
+	if username == "" {
+		return "", authndomain.ErrInvalidCredential
+	}
 	now := o.clock()
-	p, err := principaldomain.NewRegistration(
-		uuid.NewString(), username, principaldomain.KindHuman, display, "",
-		principaldomain.StatusActive, now)
-	if err != nil {
-		return "", fmt.Errorf("identity: oidc auto-register: %w", err)
+	for attempt := 0; ; attempt++ {
+		candidate := username
+		if attempt > 0 {
+			suffix := identity.Subject
+			if len(suffix) > 8 {
+				suffix = suffix[:8]
+			}
+			candidate = fmt.Sprintf("%s-%s", username, strings.ToLower(suffix))
+			if len(candidate) > authndomain.UsernameMaxLen {
+				candidate = candidate[:authndomain.UsernameMaxLen]
+				candidate = strings.TrimRight(candidate, "._-")
+			}
+		}
+		p, err := principaldomain.NewRegistration(
+			uuid.NewString(), candidate, principaldomain.KindHuman, display, "",
+			principaldomain.StatusActive, now)
+		if err != nil {
+			return "", fmt.Errorf("identity: oidc auto-register: %w", err)
+		}
+		err = o.repo.Create(ctx, p)
+		if errors.Is(err, principaldomain.ErrUsernameTaken) && attempt == 0 {
+			continue // attempt 2 appends the subject suffix
+		}
+		if err != nil {
+			return "", fmt.Errorf("identity: oidc auto-register persist: %w", err)
+		}
+		if err := o.bindings.Create(ctx, o.issuer, identity.Subject, p.ID); err != nil {
+			return "", fmt.Errorf("identity: oidc binding persist: %w", err)
+		}
+		return p.ID, nil
 	}
-	if err := o.repo.Create(ctx, p); err != nil {
-		return "", fmt.Errorf("identity: oidc auto-register persist: %w", err)
-	}
-	return p.ID, nil
 }

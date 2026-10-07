@@ -72,12 +72,17 @@ revocation propagates symmetrically to that key's credential only.
   Bootstrap selects (`IDENTITY_AUTHN_MODE=builtin|oidc`); aggregates
   oblivious. OIDC mode (slice E): the login endpoint accepts an
   IdP-issued `id_token`, verifies it against the issuer's JWKS
-  (go-oidc discovery at boot, fail-fast), derives the username from a
-  configurable claim (`email` default), auto-registers first-sight
-  principals active+member when the deployment opts in (Gitea
-  precedent — the IdP already authenticated; org admission stays the
-  IdP's group policy), and issues the same local session token as
-  builtin mode. Disabled principals fail closed in every mode.
+  (go-oidc discovery at boot, fail-fast; issuer and discovered
+  `jwks_uri` must be https — `IDENTITY_OIDC_INSECURE=1` opts out for
+  loopback dev IdPs only, and https→http redirect downgrades are
+  refused). Logins resolve principals through an immutable
+  issuer+subject **binding** (`oidc_bindings`) — never through the
+  derived username, which is a display/registration attribute: two IdP
+  accounts deriving the same username get distinct principals
+  (the colliding one takes a subject suffix). First-sight
+  auto-registration is strictly opt-in (`IDENTITY_OIDC_AUTO_REGISTER=1`),
+  lands active+member, and writes the binding; disabled principals
+  fail closed in every mode.
 - **EngineProvisioner**: outbound to the engine admin channel —
   `Create(ctx, alias, quota) (ref, value, err)`, `SetBudget(ctx, ref,
   quota) error`, `Delete(ctx, ref) error`. One credential per LoomingKey

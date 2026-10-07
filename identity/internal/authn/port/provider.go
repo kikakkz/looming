@@ -58,6 +58,19 @@ func WithTokenInfo(ctx context.Context, info TokenInfo) context.Context {
 	return context.WithValue(ctx, ctxKey{}, info)
 }
 
+// BindingRepository persists the immutable issuer+subject → principal
+// mapping (OIDC mode, slice E). The binding — not the derived
+// username — is the ownership authority: username derivation is a
+// display/registration attribute only.
+type BindingRepository interface {
+	// ByIssuerSubject resolves the bound principal ID or
+	// principaldomain.ErrNotFound.
+	ByIssuerSubject(ctx context.Context, issuer, subject string) (string, error)
+	// Create binds a verified identity to a principal. A raced
+	// duplicate surfaces as the driver's unique-violation error.
+	Create(ctx context.Context, issuer, subject, principalID string) error
+}
+
 // TokenInfoFrom returns the validated session, or false when the
 // request was not authenticated.
 func TokenInfoFrom(ctx context.Context) (TokenInfo, bool) {
