@@ -720,19 +720,19 @@ func TestAssignRolesFlow(t *testing.T) {
 	}
 
 	// Unknown and empty role sets are domain errors.
-	if _, err := svc.AssignRoles(context.Background(), member.ID, []string{"team-lead"}); !errors.Is(err, domain.ErrUnknownRole) {
+	if _, err = svc.AssignRoles(context.Background(), member.ID, []string{"team-lead"}); !errors.Is(err, domain.ErrUnknownRole) {
 		t.Fatalf("want ErrUnknownRole, got %v", err)
 	}
-	if _, err := svc.AssignRoles(context.Background(), member.ID, nil); !errors.Is(err, domain.ErrUnknownRole) {
+	if _, err = svc.AssignRoles(context.Background(), member.ID, nil); !errors.Is(err, domain.ErrUnknownRole) {
 		t.Fatalf("want ErrUnknownRole for empty set, got %v", err)
 	}
 
 	// Stripping admin from the sole active admin hits the folded guard.
-	if _, err := svc.AssignRoles(context.Background(), member.ID, []string{domain.RoleMember}); !errors.Is(err, domain.ErrLastAdmin) {
+	if _, err = svc.AssignRoles(context.Background(), member.ID, []string{domain.RoleMember}); !errors.Is(err, domain.ErrLastAdmin) {
 		t.Fatalf("want ErrLastAdmin stripping the last admin, got %v", err)
 	}
 	// A second active admin unlocks the strip.
-	if _, err := svc.Provision(context.Background(), ProvisionInput{
+	if _, err = svc.Provision(context.Background(), ProvisionInput{
 		Username: "root2", Password: "correct horse battery",
 		Kind: domain.KindHuman, Roles: []string{domain.RoleAdmin},
 	}); err != nil {
@@ -746,7 +746,6 @@ func TestAssignRolesFlow(t *testing.T) {
 		t.Fatalf("want [member], got %v", got.Roles)
 	}
 }
-
 
 func TestGetAndList(t *testing.T) {
 	repo := newFakeRepo()
