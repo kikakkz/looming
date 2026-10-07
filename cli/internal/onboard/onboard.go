@@ -37,6 +37,16 @@ type Options struct {
 
 // Run executes the journey and returns the written profile name.
 func Run(ctx context.Context, opts Options, prompt func(string, bool) (string, error)) (string, error) {
+	name := opts.ProfileName
+	if name == "" {
+		name = profile.DefaultName
+	}
+	// Validate the profile name BEFORE the remote key issuance: a
+	// name rejected here must not leave an orphaned LoomingKey
+	// behind (CodeRabbit review on PR #142).
+	if _, err := profile.Path(name); err != nil {
+		return "", err
+	}
 	identityURL, gatewayURL, err := collectEndpoints(opts, prompt)
 	if err != nil {
 		return "", err
@@ -72,6 +82,9 @@ func collectEndpoints(opts Options, prompt func(string, bool) (string, error)) (
 			return "", "", askErr
 		}
 		gatewayURL = strings.TrimSpace(answer)
+	}
+	if gatewayURL == "" {
+		return "", "", errors.New("onboard: gateway endpoint is required")
 	}
 	return identityURL, gatewayURL, nil
 }
@@ -162,7 +175,7 @@ func registerFlow(ctx context.Context, client *identityclient.Client, opts Optio
 	}
 	invite := opts.InviteToken
 	if invite == "" {
-		answer, askErr := prompt("Invite token (leave empty if the deployment allows open registration)", false)
+		answer, askErr := prompt("Invite token (leave empty if the deployment allows open registration)", true)
 		if askErr != nil {
 			return "", "", askErr
 		}

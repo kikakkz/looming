@@ -316,3 +316,32 @@ func TestOnboardKeyNamePromptAndDefault(t *testing.T) {
 		t.Fatalf("key stored under default profile: %v", err)
 	}
 }
+
+func TestOnboardRejectsBadProfileNameBeforeKeyIssuance(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	fake := newFakeIdentity(t)
+	opts := Options{
+		ProfileName: "../escape",
+		IdentityURL: fake.srv.URL,
+		GatewayURL:  "http://gw:8080",
+		Register:    true,
+	}
+	if _, err := Run(t.Context(), opts, scripted(map[string]string{})); err == nil {
+		t.Fatal("invalid profile name must fail before any key issuance")
+	}
+	if fake.keys != 0 {
+		t.Fatalf("no key may be issued for a bad profile name, got %d", fake.keys)
+	}
+}
+
+func TestOnboardRejectsEmptyGateway(t *testing.T) {
+	opts := Options{IdentityURL: "http://id"}
+	_, err := Run(t.Context(), opts, func(question string, _ bool) (string, error) {
+		return "", nil // gateway answer empty
+	})
+	if err == nil || !containsStr(err.Error(), "gateway") {
+		t.Fatalf("empty gateway must fail: %v", err)
+	}
+}
