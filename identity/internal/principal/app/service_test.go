@@ -131,6 +131,29 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, p *domain.Principal) (*domain
 	return &cp, nil
 }
 
+// SetRoles mirrors the adapter: version guard plus the emulated
+// last-active-admin guard for role strips.
+func (f *fakeRepo) SetRoles(_ context.Context, p *domain.Principal) (*domain.Principal, error) {
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
+	stored, ok := f.byID[p.ID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	if stored.Version != p.Version {
+		return nil, domain.ErrConflict
+	}
+	if !hasString(p.Roles, domain.RoleAdmin) && stored.Status == domain.StatusActive &&
+		hasString(stored.Roles, domain.RoleAdmin) && !f.hasOtherActiveAdmin(p.ID) {
+		return nil, domain.ErrLastAdmin
+	}
+	cp := *p
+	cp.Version++
+	f.byID[p.ID] = &cp
+	return &cp, nil
+}
+
 func (f *fakeRepo) hasOtherActiveAdmin(id string) bool {
 	for otherID, other := range f.byID {
 		if otherID != id && other.Status == domain.StatusActive && hasString(other.Roles, domain.RoleAdmin) {
@@ -674,6 +697,56 @@ func TestSetStatusBlocksDisablingLastActiveAdmin(t *testing.T) {
 		}
 	}
 }
+
+func TestAssignRolesFlow(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo, newFakeInvites(), policyOf(policydomain.ModeAdminOnly))
+	member, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "teammate", Password: "correct horse battery",
+		Kind: domain.KindHuman,
+	})
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if len(member.Roles) != 1 || member.Roles[0] != domain.RoleMember {
+		t.Fatalf("want default member role, got %v", member.Roles)
+	}
+	got, err := svc.AssignRoles(context.Background(), member.ID, []string{domain.RoleMember, domain.RoleAdmin})
+	if err != nil {
+		t.Fatalf("AssignRoles: %v", err)
+	}
+	if len(got.Roles) != 2 {
+		t.Fatalf("want two roles, got %v", got.Roles)
+	}
+
+	// Unknown and empty role sets are domain errors.
+	if _, err := svc.AssignRoles(context.Background(), member.ID, []string{"team-lead"}); !errors.Is(err, domain.ErrUnknownRole) {
+		t.Fatalf("want ErrUnknownRole, got %v", err)
+	}
+	if _, err := svc.AssignRoles(context.Background(), member.ID, nil); !errors.Is(err, domain.ErrUnknownRole) {
+		t.Fatalf("want ErrUnknownRole for empty set, got %v", err)
+	}
+
+	// Stripping admin from the sole active admin hits the folded guard.
+	if _, err := svc.AssignRoles(context.Background(), member.ID, []string{domain.RoleMember}); !errors.Is(err, domain.ErrLastAdmin) {
+		t.Fatalf("want ErrLastAdmin stripping the last admin, got %v", err)
+	}
+	// A second active admin unlocks the strip.
+	if _, err := svc.Provision(context.Background(), ProvisionInput{
+		Username: "root2", Password: "correct horse battery",
+		Kind: domain.KindHuman, Roles: []string{domain.RoleAdmin},
+	}); err != nil {
+		t.Fatalf("Provision second admin: %v", err)
+	}
+	got, err = svc.AssignRoles(context.Background(), member.ID, []string{domain.RoleMember})
+	if err != nil {
+		t.Fatalf("strip with a second admin must succeed: %v", err)
+	}
+	if len(got.Roles) != 1 || got.Roles[0] != domain.RoleMember {
+		t.Fatalf("want [member], got %v", got.Roles)
+	}
+}
+
 
 func TestGetAndList(t *testing.T) {
 	repo := newFakeRepo()

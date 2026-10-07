@@ -181,6 +181,10 @@ func (f *fakePrincipalRepo) UpdateStatus(context.Context, *principaldomain.Princ
 	return nil, errors.New("not implemented")
 }
 
+func (f *fakePrincipalRepo) SetRoles(context.Context, *principaldomain.Principal) (*principaldomain.Principal, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (f *fakePrincipalRepo) Count(context.Context) (int64, error) {
 	return 0, errors.New("not implemented")
 }

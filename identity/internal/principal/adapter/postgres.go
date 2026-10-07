@@ -208,6 +208,36 @@ func (r *Repository) UpdateStatus(ctx context.Context, p *domain.Principal) (*do
 	return r.ByID(ctx, p.ID)
 }
 
+// SetRoles persists a domain-validated role replacement with the same
+// optimistic guard as UpdateStatus plus a second folded guard:
+// stripping 'admin' from the sole active admin is rejected atomarily
+// with domain.ErrLastAdmin (the check-then-act race is closed by doing
+// both tests inside the conditional UPDATE, exactly like UpdateStatus).
+func (r *Repository) SetRoles(ctx context.Context, p *domain.Principal) (*domain.Principal, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE principals
+		   SET roles = $1, updated_at = $2, version = version + 1
+		 WHERE id = $3
+		   AND version = $4
+		   AND ($1::text[] @> '{admin}'
+		        OR NOT (status = 'active')
+		        OR EXISTS (
+		            SELECT 1 FROM principals
+		             WHERE status = 'active' AND roles @> '{admin}' AND id <> $3))`,
+		pq.Array(p.Roles), p.UpdatedAt, p.ID, p.Version)
+	if err != nil {
+		return nil, fmt.Errorf("identity: principal set roles: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("identity: principal set roles affected: %w", err)
+	}
+	if affected == 0 {
+		return nil, r.classifyBlockedUpdate(ctx, p)
+	}
+	return r.ByID(ctx, p.ID)
+}
+
 // classifyBlockedUpdate distinguishes the two zero-row outcomes of the
 // guarded UPDATE: a stale version (domain.ErrConflict) versus the
 // last-active-admin guard (domain.ErrLastAdmin). The read races only

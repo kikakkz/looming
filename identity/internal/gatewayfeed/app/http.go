@@ -138,9 +138,12 @@ func snapshotView(snap *domain.Snapshot) map[string]any {
 	}
 	principals := make([]any, 0, len(snap.Principals))
 	for _, p := range snap.Principals {
+		perms := make([]string, 0, len(p.Permissions))
+		perms = append(perms, p.Permissions...)
 		principals = append(principals, map[string]any{
-			"id":     p.ID,
-			"status": p.Status,
+			"id":          p.ID,
+			"status":      p.Status,
+			"permissions": perms,
 		})
 	}
 	return map[string]any{

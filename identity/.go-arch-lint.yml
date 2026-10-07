@@ -158,7 +158,7 @@ deps:
     mayDependOn: [gatewayfeed-domain, gatewayfeed-port]
 
   gatewayfeed-adapter:
-    mayDependOn: [gatewayfeed-domain, gatewayfeed-port]
+    mayDependOn: [gatewayfeed-domain, gatewayfeed-port, principal-domain]
 
   tests:
     mayDependOn: [migrations]

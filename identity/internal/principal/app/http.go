@@ -161,6 +161,26 @@ func (h *Handler) SetStatusAdmin(w http.ResponseWriter, r *http.Request) {
 	writePrincipal(w, http.StatusOK, p)
 }
 
+// rolesRequest is the POST /v1/admin/principals/{id}/roles body.
+type rolesRequest struct {
+	Roles []string `json:"roles"`
+}
+
+// SetRolesAdmin handles POST /v1/admin/principals/{id}/roles — the
+// slice-D role assignment surface (identity-l1 §6 admin API).
+func (h *Handler) SetRolesAdmin(w http.ResponseWriter, r *http.Request) {
+	var req rolesRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	p, err := h.svc.AssignRoles(r.Context(), r.PathValue("id"), req.Roles)
+	if err != nil {
+		writeUseCaseError(w, r, err)
+		return
+	}
+	writePrincipal(w, http.StatusOK, p)
+}
+
 // CreateInviteAdmin handles POST /v1/admin/invites. The raw token is
 // returned exactly once; the response is the only place it ever
 // appears in plaintext.

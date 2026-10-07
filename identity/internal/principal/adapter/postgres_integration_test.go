@@ -174,6 +174,54 @@ func TestPrincipalRepositoryBlocksDisablingLastActiveAdmin(t *testing.T) {
 	}
 }
 
+func TestPrincipalRepositorySetRoles(t *testing.T) {
+	repo := adapter.NewRepository(pgtest.NewDB(t))
+	ctx := context.Background()
+	admin := newPrincipal("root", domain.StatusActive)
+	admin.Roles = []string{domain.RoleAdmin}
+	if err := repo.Create(ctx, admin); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	member := newPrincipal("ker", domain.StatusActive)
+	if err := repo.Create(ctx, member); err != nil {
+		t.Fatalf("Create member: %v", err)
+	}
+
+	// Happy path: promote the member to admin+member.
+	member.Roles = []string{domain.RoleMember, domain.RoleAdmin}
+	updated, err := repo.SetRoles(ctx, member)
+	if err != nil {
+		t.Fatalf("SetRoles: %v", err)
+	}
+	if len(updated.Roles) != 2 {
+		t.Fatalf("want two roles, got %v", updated.Roles)
+	}
+	member = updated
+
+	// Strip admin from a principal while another active admin exists.
+	member.Roles = []string{domain.RoleMember}
+	if _, err := repo.SetRoles(ctx, member); err != nil {
+		t.Fatalf("strip with backup admin must succeed: %v", err)
+	}
+
+	// The sole active admin cannot be stripped — atomically.
+	admin.Roles = []string{domain.RoleMember}
+	if _, err := repo.SetRoles(ctx, admin); !errors.Is(err, domain.ErrLastAdmin) {
+		t.Fatalf("want ErrLastAdmin, got %v", err)
+	}
+
+	// Stale versions are rejected.
+	fresh := newPrincipal("fresh", domain.StatusActive)
+	if err := repo.Create(ctx, fresh); err != nil {
+		t.Fatalf("Create fresh: %v", err)
+	}
+	fresh.Version = 99
+	fresh.Roles = []string{domain.RoleAdmin}
+	if _, err := repo.SetRoles(ctx, fresh); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("want ErrConflict for stale version, got %v", err)
+	}
+}
+
 func TestInviteRepositoryLifecycle(t *testing.T) {
 	repo := adapter.NewInviteRepository(pgtest.NewDB(t))
 	ctx := context.Background()

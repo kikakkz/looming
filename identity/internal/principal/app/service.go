@@ -327,6 +327,8 @@ func (s *Service) Approve(ctx context.Context, id string) (*principaldomain.Prin
 
 // SetStatus disables or re-enables a principal, enforcing the domain
 // transition rules.
+// SetStatus sets the principal's lifecycle status (admin-gated at the
+// route layer; the last-active-admin guard is the adapter's).
 func (s *Service) SetStatus(ctx context.Context, id string, status principaldomain.Status) (*principaldomain.Principal, error) {
 	p, err := s.repo.ByID(ctx, id)
 	if err != nil {
@@ -336,6 +338,28 @@ func (s *Service) SetStatus(ctx context.Context, id string, status principaldoma
 		return nil, err
 	}
 	updated, updateErr := s.repo.UpdateStatus(ctx, p)
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	s.bump()
+	return updated, nil
+}
+
+// AssignRoles replaces a principal's builtin role set (identity-l1 §4:
+// builtin roles immutable, assignment mutable; custom roles deferred).
+// Validation happens in the domain method; the last-active-admin guard
+// is folded into the adapter's conditional UPDATE. Role changes alter
+// the feed's effective-permissions projection, so they bump the feed
+// revision like every identity-mutating write.
+func (s *Service) AssignRoles(ctx context.Context, id string, roles []string) (*principaldomain.Principal, error) {
+	p, err := s.repo.ByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.SetRoles(roles, s.clock()); err != nil {
+		return nil, err
+	}
+	updated, updateErr := s.repo.SetRoles(ctx, p)
 	if updateErr != nil {
 		return nil, updateErr
 	}
