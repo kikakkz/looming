@@ -15,3 +15,7 @@ exclude:
   paths:
     - cmd/identityd/main.go
     - tests
+    # The OIDC adapter's verification is pure unit-tested against a
+    # stub verifier (JWKS discovery needs an IdP, not a database); the
+    # integration layer covers the local provider half of the package.
+    - internal/authn/adapter/oidc.go

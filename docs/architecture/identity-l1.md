@@ -69,7 +69,15 @@ revocation propagates symmetrically to that key's credential only.
 
 - **AuthNProvider**: builtin (local credentials, invite tokens) |
   OIDC (Keycloak-compatible; OA systems as same-contract adapters).
-  Bootstrap selects; aggregates oblivious.
+  Bootstrap selects (`IDENTITY_AUTHN_MODE=builtin|oidc`); aggregates
+  oblivious. OIDC mode (slice E): the login endpoint accepts an
+  IdP-issued `id_token`, verifies it against the issuer's JWKS
+  (go-oidc discovery at boot, fail-fast), derives the username from a
+  configurable claim (`email` default), auto-registers first-sight
+  principals active+member when the deployment opts in (Gitea
+  precedent — the IdP already authenticated; org admission stays the
+  IdP's group policy), and issues the same local session token as
+  builtin mode. Disabled principals fail closed in every mode.
 - **EngineProvisioner**: outbound to the engine admin channel —
   `Create(ctx, alias, quota) (ref, value, err)`, `SetBudget(ctx, ref,
   quota) error`, `Delete(ctx, ref) error`. One credential per LoomingKey

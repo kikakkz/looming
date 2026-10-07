@@ -59,19 +59,24 @@ func main() {
 
 // config is the environment-driven configuration (IDENTITY_ prefix).
 type config struct {
-	listen           string
-	databaseURL      string
-	bootstrapKey     string
-	tokenTTL         time.Duration
-	argonConcurrency int
-	keyIssueLimit    int
-	keyIssueWindow   time.Duration
-	keyMasterKey     []byte
-	gatewayToken     string
-	watchTimeout     time.Duration
-	engineURL        string
-	engineKey        string
-	engineName       string
+	listen            string
+	databaseURL       string
+	bootstrapKey      string
+	tokenTTL          time.Duration
+	argonConcurrency  int
+	keyIssueLimit     int
+	keyIssueWindow    time.Duration
+	keyMasterKey      []byte
+	gatewayToken      string
+	watchTimeout      time.Duration
+	engineURL         string
+	engineKey         string
+	engineName        string
+	authnMode         string
+	oidcIssuer        string
+	oidcClientID      string
+	oidcUsernameClaim string
+	oidcAutoRegister  bool
 }
 
 // defaultArgonConcurrency bounds simultaneous argon2id operations on
@@ -135,6 +140,9 @@ func loadConfig() (config, error) {
 	if err := loadEngineConfig(&cfg); err != nil {
 		return config{}, err
 	}
+	if err := loadAuthnConfig(&cfg); err != nil {
+		return config{}, err
+	}
 	if err := loadRuntimeLimits(&cfg); err != nil {
 		return config{}, err
 	}
@@ -181,6 +189,10 @@ func loadEngineConfig(cfg *config) error {
 	if cfg.engineURL == "" {
 		return nil
 	}
+	return validateEngineConfig(cfg)
+}
+
+func validateEngineConfig(cfg *config) error {
 	if cfg.engineKey == "" {
 		return errors.New("missing required config: IDENTITY_ENGINE_KEY (set when IDENTITY_ENGINE_URL is set)")
 	}
@@ -283,6 +295,45 @@ type provisionBundle struct {
 // policy refuses any hop that may not carry the master key (CWE-319);
 // an engine without a master key or with an unsafe URL is a boot-time
 // misconfiguration, caught in loadEngineConfig.
+// loadAuthnConfig reads the AuthN mode (identity-l1 §5): builtin
+// local credentials, or OIDC against a Keycloak-compatible IdP.
+func loadAuthnConfig(cfg *config) error {
+	cfg.authnMode = os.Getenv("IDENTITY_AUTHN_MODE")
+	if cfg.authnMode == "" {
+		cfg.authnMode = "builtin"
+	}
+	switch cfg.authnMode {
+	case "builtin":
+		return nil
+	case "oidc":
+		cfg.oidcIssuer = os.Getenv("IDENTITY_OIDC_ISSUER")
+		cfg.oidcClientID = os.Getenv("IDENTITY_OIDC_CLIENT_ID")
+		cfg.oidcUsernameClaim = os.Getenv("IDENTITY_OIDC_USERNAME_CLAIM")
+		cfg.oidcAutoRegister = os.Getenv("IDENTITY_OIDC_AUTO_REGISTER") != "0"
+		if cfg.oidcIssuer == "" || cfg.oidcClientID == "" {
+			return errors.New("missing required config: IDENTITY_OIDC_ISSUER and IDENTITY_OIDC_CLIENT_ID (required when IDENTITY_AUTHN_MODE=oidc)")
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid IDENTITY_AUTHN_MODE %q (want builtin or oidc)", cfg.authnMode)
+	}
+}
+
+// wireProvider selects the AuthNProvider implementation by mode. OIDC
+// construction fetches the IdP's well-known configuration, so a bad
+// issuer fails the boot, not the first login.
+func wireProvider(ctx context.Context, cfg config, db *sql.DB, repo *principaladapter.Repository, clockFn func() time.Time) (authnport.Provider, error) {
+	if cfg.authnMode == "oidc" {
+		return authnadapter.NewOIDCProvider(ctx, authnadapter.OIDCConfig{
+			Issuer:        cfg.oidcIssuer,
+			ClientID:      cfg.oidcClientID,
+			UsernameClaim: cfg.oidcUsernameClaim,
+			AutoRegister:  cfg.oidcAutoRegister,
+		}, db, cfg.tokenTTL, rand.Reader, clockFn, repo)
+	}
+	return authnadapter.NewLocalProvider(db, cfg.tokenTTL, rand.Reader, clockFn), nil
+}
+
 func wireProvision(cfg config, db *sql.DB) provisionBundle {
 	bundle := provisionBundle{
 		quotaRepo: quotaadapter.NewRepository(db),
@@ -316,6 +367,9 @@ func engineAdminClient() *http.Client {
 // run wires and serves; separated from main for the smoke-test shape
 // gateway's main follows.
 func run(log *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -328,11 +382,11 @@ func run(log *slog.Logger) error {
 	defer func() { _ = db.Close() }()
 	pingCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := db.PingContext(pingCtx); err != nil {
-		return fmt.Errorf("identityd: database unreachable: %w", err)
+	if pingErr := db.PingContext(pingCtx); pingErr != nil {
+		return fmt.Errorf("identityd: database unreachable: %w", pingErr)
 	}
-	if err := migrations.Up(cfg.databaseURL); err != nil {
-		return err
+	if migErr := migrations.Up(cfg.databaseURL); migErr != nil {
+		return migErr
 	}
 
 	clock := time.Now
@@ -352,7 +406,14 @@ func run(log *slog.Logger) error {
 	keySvc := keyapp.NewService(keyRepo, repo, sealer, rand.Reader, clockFn, cfg.keyIssueLimit, cfg.keyIssueWindow)
 
 	policySvc := policyapp.NewService(policyStore, clockFn)
-	provider := authnadapter.NewLocalProvider(db, cfg.tokenTTL, rand.Reader, clockFn)
+	// AuthN mode (identity-l1 §5): builtin local credentials, or OIDC
+	// (Keycloak-compatible) where an IdP ID token swaps for a local
+	// session. OIDC wiring fails identityd's boot on misconfiguration
+	// — the discovery fetch is part of construction (fail-fast).
+	provider, err := wireProvider(ctx, cfg, db, repo, clockFn)
+	if err != nil {
+		return err
+	}
 	loginSvc := authnapp.NewLoginService(provider, cfg.tokenTTL, clockFn)
 
 	// Engine provisioning (identity slice C): nil provisioner means no
@@ -397,8 +458,6 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("identityd listening", "addr", cfg.listen)

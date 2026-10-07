@@ -119,7 +119,7 @@ deps:
     mayDependOn: [authn-domain, authn-port]
 
   authn-adapter:
-    mayDependOn: [authn-domain, authn-port]
+    mayDependOn: [authn-domain, authn-port, principal-domain, principal-port] # OIDC auto-registration resolves principals through the principal capability's port (slice E)
 
   key-port:
     mayDependOn: [key-domain, provision-domain]

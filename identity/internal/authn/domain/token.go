@@ -21,6 +21,11 @@ var (
 	ErrInvalidCredential = errors.New("identity: invalid credentials")
 	ErrTokenExpired      = errors.New("identity: token expired")
 	ErrTokenRevoked      = errors.New("identity: token revoked")
+	// ErrExternalAuthnNotSupported marks a VerifyExternalToken call in
+	// a mode whose provider has no external authn (builtin-local
+	// deployments). OIDC-mode deployments implement it; the error
+	// exists so the port contract stays total.
+	ErrExternalAuthnNotSupported = errors.New("identity: external authn not supported in this mode")
 )
 
 // Token is a session credential. The raw value is shown once at issue;

@@ -24,11 +24,24 @@ func NewHandler(login *LoginService) *Handler {
 type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// IDToken is the OIDC-mode credential: an IdP-issued identity
+	// token swapped for a local session token. Mutually exclusive
+	// with the local-credential fields.
+	IDToken string `json:"id_token"`
 }
 
 // Login handles POST /v1/self/login. Token validation for the Bearer
 // routes is a direct Provider call consumed by the cmd middleware —
 // thin enough to need no use case of its own.
+// loginVia routes the request by credential shape: an id_token body
+// is the OIDC-mode login, otherwise local username+password.
+func (h *Handler) loginVia(r *http.Request, req loginRequest) (string, time.Time, error) {
+	if req.IDToken != "" {
+		return h.login.LoginExternal(r.Context(), req.IDToken)
+	}
+	return h.login.Login(r.Context(), req.Username, req.Password)
+}
+
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = r.Body.Close() }()
 	var req loginRequest
@@ -36,10 +49,14 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "malformed JSON body")
 		return
 	}
-	raw, expiresAt, err := h.login.Login(r.Context(), req.Username, req.Password)
+	raw, expiresAt, err := h.loginVia(r, req)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredential) {
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
+			return
+		}
+		if errors.Is(err, domain.ErrExternalAuthnNotSupported) {
+			writeError(w, http.StatusBadRequest, "external_authn_not_supported", "this deployment authenticates local credentials only")
 			return
 		}
 		slog.ErrorContext(r.Context(), "login failed", "err", err)
