@@ -180,9 +180,14 @@ func checkJWKSURL(provider *oidc.Provider) error {
 }
 
 // secureHTTPClient refuses redirects that downgrade to http, so the
-// discovery fetch cannot be walked onto an insecure origin.
+// discovery fetch cannot be walked onto an insecure origin. The
+// finite timeout bounds discovery AND the JWKS refreshes: go-oidc
+// refreshes keys on a background context where cancellation does not
+// stop a stalled fetch (CodeRabbit review on PR #141), so the timeout
+// is the only bound.
 func secureHTTPClient() *http.Client {
 	return &http.Client{
+		Timeout: 15 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if req.URL.Scheme != "https" {
 				return fmt.Errorf("identity: oidc redirect to non-https URL %q refused", req.URL.Redacted())
@@ -249,19 +254,13 @@ func (o *OIDCProvider) register(ctx context.Context, identity VerifiedIdentity) 
 		return "", authndomain.ErrInvalidCredential
 	}
 	now := o.clock()
-	for attempt := 0; ; attempt++ {
-		candidate := username
-		if attempt > 0 {
-			suffix := identity.Subject
-			if len(suffix) > 8 {
-				suffix = suffix[:8]
-			}
-			candidate = fmt.Sprintf("%s-%s", username, strings.ToLower(suffix))
-			if len(candidate) > authndomain.UsernameMaxLen {
-				candidate = candidate[:authndomain.UsernameMaxLen]
-				candidate = strings.TrimRight(candidate, "._-")
-			}
-		}
+	// The retry candidate reserves room for the FULL lowercased
+	// subject suffix before truncating the base: an eight-character
+	// prefix collides for subjects sharing it, and truncation that
+	// eats the suffix retries the same username forever (CodeRabbit
+	// review on PR #141).
+	attempts := []string{username, collisionCandidate(username, identity.Subject)}
+	for _, candidate := range attempts {
 		p, err := principaldomain.NewRegistration(
 			uuid.NewString(), candidate, principaldomain.KindHuman, display, "",
 			principaldomain.StatusActive, now)
@@ -269,8 +268,8 @@ func (o *OIDCProvider) register(ctx context.Context, identity VerifiedIdentity) 
 			return "", fmt.Errorf("identity: oidc auto-register: %w", err)
 		}
 		err = o.repo.Create(ctx, p)
-		if errors.Is(err, principaldomain.ErrUsernameTaken) && attempt == 0 {
-			continue // attempt 2 appends the subject suffix
+		if errors.Is(err, principaldomain.ErrUsernameTaken) {
+			continue // one retry with the suffixed candidate
 		}
 		if err != nil {
 			return "", fmt.Errorf("identity: oidc auto-register persist: %w", err)
@@ -280,4 +279,24 @@ func (o *OIDCProvider) register(ctx context.Context, identity VerifiedIdentity) 
 		}
 		return p.ID, nil
 	}
+	return "", fmt.Errorf("identity: oidc auto-register: derived usernames %q and %q both taken", attempts[0], attempts[1])
+}
+
+// collisionCandidate appends the full lowercased subject to the
+// derived base, truncating the BASE (never the suffix) to fit the
+// username bound so the candidate stays distinguishable.
+func collisionCandidate(base, subject string) string {
+	suffix := "-" + strings.ToLower(subject)
+	maxBase := authndomain.UsernameMaxLen - len(suffix)
+	if maxBase < 1 {
+		maxBase = 1
+	}
+	if len(base) > maxBase {
+		base = base[:maxBase]
+		base = strings.TrimRight(base, "._-")
+		if base == "" {
+			base = "u"
+		}
+	}
+	return base + suffix
 }

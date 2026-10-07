@@ -5,6 +5,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,5 +233,64 @@ func TestVerifyExternalTokenNoAutoRegister(t *testing.T) {
 	}
 	if len(repo.created) != 0 {
 		t.Fatalf("no principal may be created when auto-register is off")
+	}
+}
+
+// collidingRepo fails Create with ErrUsernameTaken when the username
+// already exists — the real adapter's uniqueness contract.
+type collidingRepo struct {
+	*stubRepo
+}
+
+func (c *collidingRepo) Create(_ context.Context, p *principaldomain.Principal) error {
+	if _, taken := c.byUsername[p.Username]; taken {
+		return principaldomain.ErrUsernameTaken
+	}
+	return c.stubRepo.Create(context.Background(), p)
+}
+
+func TestVerifyExternalTokenCollisionTakesSuffixedUsername(t *testing.T) {
+	repo := &collidingRepo{stubRepo: &stubRepo{byUsername: map[string]*principaldomain.Principal{
+		"jane.doe": {ID: "p-existing", Username: "jane.doe", Status: principaldomain.StatusActive},
+	}}}
+	bindings := &stubBindings{byPair: map[string]string{}}
+	p := newOIDC(stubVerifier{identity: VerifiedIdentity{
+		Subject: "sub-XYZ", Claims: map[string]any{"email": "jane.doe@third.example"},
+	}}, repo.stubRepo, bindings)
+	p.repo = repo
+
+	id, err := p.VerifyExternalToken(context.Background(), "tok")
+	if err != nil {
+		t.Fatalf("collision must retry with a suffixed username: %v", err)
+	}
+	got := repo.created[0]
+	if got.Username == "jane.doe" {
+		t.Fatalf("colliding registration must not reuse the taken username")
+	}
+	if !strings.Contains(got.Username, "sub-xyz") {
+		t.Fatalf("suffix must carry the full lowercased subject, got %q", got.Username)
+	}
+	if bindings.byPair[testIssuer+"\x00sub-XYZ"] != id {
+		t.Fatalf("binding must resolve to the suffixed principal")
+	}
+}
+
+func TestVerifyExternalTokenDoubleCollisionFails(t *testing.T) {
+	// Both the derived name and the suffixed candidate are taken.
+	repo := &collidingRepo{stubRepo: &stubRepo{byUsername: map[string]*principaldomain.Principal{
+		"jane.doe":              {ID: "p1", Username: "jane.doe", Status: principaldomain.StatusActive},
+		"jane.doe-sub-xyz-twin": {ID: "p2", Username: "jane.doe-sub-xyz-twin", Status: principaldomain.StatusActive},
+	}}}
+	bindings := &stubBindings{byPair: map[string]string{}}
+	p := newOIDC(stubVerifier{identity: VerifiedIdentity{
+		Subject: "sub-XYZ-TWIN", Claims: map[string]any{"email": "jane.doe@fourth.example"},
+	}}, repo.stubRepo, bindings)
+	p.repo = repo
+
+	if _, err := p.VerifyExternalToken(context.Background(), "tok"); err == nil {
+		t.Fatalf("double collision must fail instead of looping")
+	}
+	if len(bindings.created) != 0 {
+		t.Fatalf("no binding may be written when registration fails")
 	}
 }
