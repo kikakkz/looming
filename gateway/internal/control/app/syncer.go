@@ -180,18 +180,18 @@ func (s *Syncer) applyDiff(resp FeedResponse) {
 // projectAllowlist reconciles the model-permission projection: every
 // active principal's effective permissions expand against the local
 // catalog (control/domain.ExpandModels — the model:use:* wildcard's
-// evaluation point), and the allowlist cache receives per-subject
-// upserts. Subjects that vanish from the feed receive an empty model
-// list, which ModelAllowed denies (fail closed) — the entry itself is
-// harmless to keep, and the full-map ReplaceAll the alternative would
-// need buys nothing at phase-1 subject counts. Idempotent: identical
-// snapshots re-emit identical upserts and the revision guard settles
-// them as no-ops.
+// evaluation point), and the whole batch rides the cache in one
+// revision step. Subjects that vanish from the feed receive an empty
+// model list, which ModelAllowed denies (fail closed); the entries
+// themselves stay harmlessly in the map at phase-1 subject counts.
+// Idempotent: identical snapshots emit identical batches and the
+// revision guard settles a repeated rev as a no-op.
 func (s *Syncer) projectAllowlist(resp FeedResponse) {
 	if s.allowlist == nil {
 		return
 	}
 	current := s.allowlist.Get().V
+	upserts := map[string][]string{}
 	seen := map[string]bool{}
 	for _, p := range resp.Principals {
 		if p.Status != feedActive {
@@ -200,14 +200,20 @@ func (s *Syncer) projectAllowlist(resp FeedResponse) {
 		models := domain.ExpandModels(p.Permissions, s.catalog)
 		seen[p.ID] = true
 		if existing, ok := current[p.ID]; !ok || !equalStrings(existing, models) {
-			s.allowlist.Upsert(Revision(resp.Rev), p.ID, models)
+			upserts[p.ID] = models
 		}
 	}
 	for subject := range current {
 		if !seen[subject] {
-			s.allowlist.Upsert(Revision(resp.Rev), subject, nil)
+			if existing, ok := current[subject]; !ok || len(existing) != 0 {
+				upserts[subject] = nil
+			}
 		}
 	}
+	if len(upserts) == 0 {
+		return
+	}
+	s.allowlist.Apply(Revision(resp.Rev), upserts)
 }
 
 func equalStrings(a, b []string) bool {

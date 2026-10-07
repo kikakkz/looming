@@ -182,11 +182,16 @@ func (h httpFeedSource) do(ctx context.Context, query string) (FeedResponse, err
 			Status           string `json:"status"`
 			EngineCredential string `json:"engine_credential"`
 		} `json:"keys"`
+		Principals []struct {
+			ID          string   `json:"id"`
+			Status      string   `json:"status"`
+			Permissions []string `json:"permissions"`
+		} `json:"principals"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return FeedResponse{}, err
 	}
-	out := FeedResponse{Rev: body.Rev, Keys: make([]FeedKey, 0, len(body.Keys))}
+	out := FeedResponse{Rev: body.Rev, Keys: make([]FeedKey, 0, len(body.Keys)), Principals: make([]FeedPrincipal, 0, len(body.Principals))}
 	for _, k := range body.Keys {
 		raw, err := base64.StdEncoding.DecodeString(k.Hash)
 		if err != nil || len(raw) != 32 {
@@ -195,6 +200,13 @@ func (h httpFeedSource) do(ctx context.Context, query string) (FeedResponse, err
 		var hash [32]byte
 		copy(hash[:], raw)
 		out.Keys = append(out.Keys, FeedKey{Hash: hash, PrincipalID: k.PrincipalID, Status: k.Status, EngineCredential: k.EngineCredential})
+	}
+	for _, p := range body.Principals {
+		out.Principals = append(out.Principals, FeedPrincipal{
+			ID:          p.ID,
+			Status:      p.Status,
+			Permissions: append([]string(nil), p.Permissions...),
+		})
 	}
 	return out, nil
 }

@@ -26,6 +26,7 @@ type update struct {
 	rev     Revision
 	subject string
 	models  []string
+	whole   map[string][]string // batch apply: replace these entries in one revision step
 	ack     chan struct{}
 }
 
@@ -85,6 +86,17 @@ func (c *ModelAllowlistCache) loop(ctx context.Context) {
 			if !ok {
 				return
 			}
+			if u.whole != nil {
+				if u.rev > rev {
+					for subject, models := range u.whole {
+						state[subject] = append([]string(nil), models...)
+					}
+					rev = u.rev
+					c.snap.store(Snapshot{Rev: rev, V: cloneMap(state)})
+				}
+				close(u.ack)
+				continue
+			}
 			if u.rev > rev {
 				state[u.subject] = append([]string(nil), u.models...)
 				rev = u.rev
@@ -93,6 +105,17 @@ func (c *ModelAllowlistCache) loop(ctx context.Context) {
 			close(u.ack) // stale or not, the write is settled
 		}
 	}
+}
+
+// Apply submits a batch projection update: every entry rides one
+// revision step, so a single sync round trips the cache exactly once
+// (per-entry Upserts at the same revision would suppress all but the
+// first — the revision guard is strictly monotonic per message).
+// Blocking makes the revision outcome observable.
+func (c *ModelAllowlistCache) Apply(rev Revision, upserts map[string][]string) {
+	ack := make(chan struct{})
+	c.in <- update{rev: rev, whole: upserts, ack: ack}
+	<-ack
 }
 
 // Upsert submits a projection update and returns once the writer has

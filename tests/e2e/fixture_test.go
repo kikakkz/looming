@@ -318,11 +318,6 @@ func (f *fixture) writeEnvFiles(t *testing.T) {
 func (f *fixture) writeTopology(t *testing.T, accessMode string) {
 	t.Helper()
 
-	allowlist := ""
-	if f.memberAllowlist != "" {
-		allowlist = fmt.Sprintf("        allowlists: %q\n", f.memberAllowlist)
-	}
-
 	doc := fmt.Sprintf(`version: 1
 access: {mode: %s, transport: direct, endpoint: "127.0.0.1"}
 cluster: {name: e2e cluster}
@@ -346,7 +341,8 @@ placements:
         identity_url: "http://identityd:%d"
         identity_insecure: "1"
         guide_ttl: 5s
-%s    env_file: %s
+        catalog: %q
+    env_file: %s
     extra_hosts: ["host.docker.internal:host-gateway"]
   - component: identityd
     host: local
@@ -364,7 +360,7 @@ placements:
 		accessMode,
 		f.pgEnv, filepath.Join(f.bundleRoot, "pgdata"), portPostgres,
 		portGateway, f.upstreamPort, staticUpstreamAuth, portIdentity,
-		allowlist,
+		e2eModel,
 		f.gatewayEnv,
 		portIdentity, f.pgUser, f.pgPassword, f.identityEnv,
 		portTopology, f.pgUser, f.pgPassword, f.topologydEnv,
