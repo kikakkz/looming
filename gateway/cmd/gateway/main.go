@@ -77,14 +77,14 @@ func run(log *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	authn, identityURL, err := wireIdentity(ctx, log)
+	authn, allowlists, identityURL, err := wireIdentity(ctx, log)
 	if err != nil {
 		return err
 	}
 
 	front := frontapp.NewFront(
 		authn,
-		adapter.StaticAllowlist{ModelsBySubject: parseAllowlists(os.Getenv("GATEWAY_ALLOWLISTS"))},
+		allowlists,
 		frontdomain.NewChain(), // no chain links yet: jev/laya land with the risk slice
 		engine,
 		adapter.BodyModelExtractor{},
@@ -125,39 +125,51 @@ func run(log *slog.Logger) error {
 // against: the syncer keeps the KeyCache a faithful copy of the
 // authority's feed; the authenticator authorizes off the cache and
 // falls back to the origin validate endpoint. Both ride the caller's
-// signal context so process shutdown stops the sync loop. The identity
+// signal context so process shutdown stops the sync loop. The same
+// syncer also projects the model-permission read side (slice D):
+// identity's effective permissions expand against the local model
+// catalog (GATEWAY_CATALOG) into the ModelAllowlistCache, and the
+// front layer's allowlist question is served from that cache — the
+// retired GATEWAY_ALLOWLISTS static stub's replacement. The identity
 // URL comes back for the boot log.
-func wireIdentity(ctx context.Context, log *slog.Logger) (*controladapter.IdentityAuthenticator, string, error) {
+func wireIdentity(ctx context.Context, log *slog.Logger) (*controladapter.IdentityAuthenticator, controladapter.PermissionAllowlist, string, error) {
 	identityURL := os.Getenv("GATEWAY_IDENTITY_URL")
 	if identityURL == "" {
-		return nil, "", errConfig("GATEWAY_IDENTITY_URL")
+		return nil, controladapter.PermissionAllowlist{}, "", errConfig("GATEWAY_IDENTITY_URL")
 	}
 	identityTarget, err := url.Parse(identityURL)
 	if err != nil {
-		return nil, "", err
+		return nil, controladapter.PermissionAllowlist{}, "", err
 	}
 	// The service token and raw validate keys ride this link; plain
 	// HTTP needs an explicit trusted-network opt-out (the bundle's
 	// loopback deployments set it, anything crossed-hosts must not).
 	if identityTarget.Scheme != "https" && os.Getenv("GATEWAY_IDENTITY_INSECURE") != "1" {
-		return nil, "", &configError{name: "GATEWAY_IDENTITY_URL must be https unless GATEWAY_IDENTITY_INSECURE=1 (trusted network)"}
+		return nil, controladapter.PermissionAllowlist{}, "", &configError{name: "GATEWAY_IDENTITY_URL must be https unless GATEWAY_IDENTITY_INSECURE=1 (trusted network)"}
 	}
 	identityToken := os.Getenv("GATEWAY_IDENTITY_TOKEN")
 	if identityToken == "" {
-		return nil, "", errConfig("GATEWAY_IDENTITY_TOKEN")
+		return nil, controladapter.PermissionAllowlist{}, "", errConfig("GATEWAY_IDENTITY_TOKEN")
 	}
 	watchTimeout, err := envDuration("GATEWAY_IDENTITY_WATCH_TIMEOUT", 30*time.Second)
 	if err != nil {
-		return nil, "", err
+		return nil, controladapter.PermissionAllowlist{}, "", err
 	}
 	staleAfter, err := envDuration("GATEWAY_IDENTITY_SYNC_STALE_AFTER", 2*watchTimeout)
 	if err != nil {
-		return nil, "", err
+		return nil, controladapter.PermissionAllowlist{}, "", err
 	}
 
 	identityClient := controladapter.NewIdentityClient(identityURL, identityToken, watchTimeout)
 	keyCache := controlapp.NewKeyCache(time.Now)
-	syncer := controlapp.NewSyncer(identityClient, keyCache,
+	// Slice D read side: the syncer also projects effective model
+	// permissions into the allowlist cache. The catalog is engine-side
+	// configuration (AD-32) — the model:use:* wildcard's expansion
+	// source; empty catalog means every model permission expands to
+	// nothing and ModelAllowed denies everything (fail closed).
+	catalog := parseCatalog(os.Getenv("GATEWAY_CATALOG"))
+	allowlistCache := controlapp.NewModelAllowlistCache(ctx)
+	syncer := controlapp.NewSyncer(identityClient, keyCache, allowlistCache, catalog,
 		controldomain.Backoffer{Base: time.Second, Cap: 30 * time.Second},
 		staleAfter, time.Now, log)
 	go func() {
@@ -165,7 +177,7 @@ func wireIdentity(ctx context.Context, log *slog.Logger) (*controladapter.Identi
 			log.Error("identity syncer stopped", "err", runErr)
 		}
 	}()
-	return controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log, syncer.Healthy), identityURL, nil
+	return controladapter.NewIdentityAuthenticator(keyCache, identityClient, positiveTTL(), time.Now, log, syncer.Healthy), controladapter.NewPermissionAllowlist(allowlistCache), identityURL, nil
 }
 
 // guideHandler builds the GET / handler from the environment:
@@ -220,15 +232,20 @@ func (c *configError) Error() string {
 	return "missing required config: " + c.name
 }
 
-// parseAllowlists parses "subject=model|model,subject=model".
-func parseAllowlists(s string) map[string][]string {
-	out := map[string][]string{}
-	for _, group := range strings.Split(s, ",") {
-		kv := strings.SplitN(strings.TrimSpace(group), "=", 2)
-		if len(kv) != 2 {
-			continue
+// parseCatalog parses "model-a,model-b" — the deployment's model
+// catalog (AD-32: engine-side configuration). The model:use:* wildcard
+// expands against this list; an absent catalog fails every model check
+// closed.
+func parseCatalog(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
 		}
-		out[kv[0]] = strings.Split(kv[1], "|")
 	}
 	return out
 }

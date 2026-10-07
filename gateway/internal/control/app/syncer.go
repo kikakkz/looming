@@ -27,8 +27,19 @@ type FeedKey struct {
 // FeedResponse is the gateway-side shape of an identity feed snapshot:
 // the full projection, never a delta.
 type FeedResponse struct {
-	Rev  uint64
-	Keys []FeedKey
+	Rev        uint64
+	Keys       []FeedKey
+	Principals []FeedPrincipal
+}
+
+// FeedPrincipal is one principal row of the feed: status plus the
+// effective permission set (union over builtin role bundles,
+// deterministic order — identity slice D). The gateway intersects
+// model:use:* with its own catalog; identity never evaluates it.
+type FeedPrincipal struct {
+	ID          string
+	Status      string
+	Permissions []string
 }
 
 // FeedSource is the syncer's consumer-side seam over the identity HTTP
@@ -55,6 +66,8 @@ const feedActive = "active"
 type Syncer struct {
 	source     FeedSource
 	cache      *KeyCache
+	allowlist  *ModelAllowlistCache
+	catalog    []string
 	backoffer  domain.Backoffer
 	staleAfter time.Duration
 	clock      func() time.Time
@@ -63,12 +76,15 @@ type Syncer struct {
 }
 
 // NewSyncer wires the syncer. clock is injected (AD-25); log nil falls
-// back to the default logger.
-func NewSyncer(source FeedSource, cache *KeyCache, backoffer domain.Backoffer, staleAfter time.Duration, clock func() time.Time, log *slog.Logger) *Syncer {
+// back to the default logger. allowlist may be nil (the model-
+// permission projection is optional — a nil cache skips it); catalog
+// is the gateway's model catalog (AD-32: engine-side configuration the
+// model:use:* wildcard expands against).
+func NewSyncer(source FeedSource, cache *KeyCache, allowlist *ModelAllowlistCache, catalog []string, backoffer domain.Backoffer, staleAfter time.Duration, clock func() time.Time, log *slog.Logger) *Syncer {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Syncer{source: source, cache: cache, backoffer: backoffer, staleAfter: staleAfter, clock: clock, log: log}
+	return &Syncer{source: source, cache: cache, allowlist: allowlist, catalog: catalog, backoffer: backoffer, staleAfter: staleAfter, clock: clock, log: log}
 }
 
 // Run drives the full→watch→diff loop until ctx ends; it returns nil
@@ -119,6 +135,7 @@ func (s *Syncer) Run(ctx context.Context) error {
 					"prev_rev", since, "new_rev", resp.Rev)
 			}
 			s.cache.Reset(Revision(resp.Rev), activeEntries(resp, s.clock()))
+			s.projectAllowlist(resp)
 			booted = true
 			since = resp.Rev
 			s.markSynced()
@@ -153,9 +170,56 @@ func (s *Syncer) applyDiff(resp FeedResponse) {
 		}
 	}
 	if len(deletes) == 0 && len(upserts) == 0 {
+		s.projectAllowlist(resp)
 		return
 	}
 	s.cache.Apply(Revision(resp.Rev), upserts, deletes)
+	s.projectAllowlist(resp)
+}
+
+// projectAllowlist reconciles the model-permission projection: every
+// active principal's effective permissions expand against the local
+// catalog (control/domain.ExpandModels — the model:use:* wildcard's
+// evaluation point), and the allowlist cache receives per-subject
+// upserts. Subjects that vanish from the feed receive an empty model
+// list, which ModelAllowed denies (fail closed) — the entry itself is
+// harmless to keep, and the full-map ReplaceAll the alternative would
+// need buys nothing at phase-1 subject counts. Idempotent: identical
+// snapshots re-emit identical upserts and the revision guard settles
+// them as no-ops.
+func (s *Syncer) projectAllowlist(resp FeedResponse) {
+	if s.allowlist == nil {
+		return
+	}
+	current := s.allowlist.Get().V
+	seen := map[string]bool{}
+	for _, p := range resp.Principals {
+		if p.Status != feedActive {
+			continue
+		}
+		models := domain.ExpandModels(p.Permissions, s.catalog)
+		seen[p.ID] = true
+		if existing, ok := current[p.ID]; !ok || !equalStrings(existing, models) {
+			s.allowlist.Upsert(Revision(resp.Rev), p.ID, models)
+		}
+	}
+	for subject := range current {
+		if !seen[subject] {
+			s.allowlist.Upsert(Revision(resp.Rev), subject, nil)
+		}
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // activeEntries keeps only the active keys — the projection never

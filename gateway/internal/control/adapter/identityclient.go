@@ -42,8 +42,9 @@ type feedKeyDTO struct {
 }
 
 type feedPrincipalDTO struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	ID          string   `json:"id"`
+	Status      string   `json:"status"`
+	Permissions []string `json:"permissions"`
 }
 
 type feedDTO struct {
@@ -144,7 +145,7 @@ func (c *IdentityClient) getFeed(ctx context.Context, client *http.Client, query
 // malformed hash rows fail the whole response (a corrupt projection is
 // worse than a retry).
 func toFeedResponse(dto feedDTO) (app.FeedResponse, error) {
-	out := app.FeedResponse{Rev: dto.Rev, Keys: make([]app.FeedKey, 0, len(dto.Keys))}
+	out := app.FeedResponse{Rev: dto.Rev, Keys: make([]app.FeedKey, 0, len(dto.Keys)), Principals: make([]app.FeedPrincipal, 0, len(dto.Principals))}
 	for _, k := range dto.Keys {
 		raw, err := base64.StdEncoding.DecodeString(k.Hash)
 		if err != nil || len(raw) != 32 {
@@ -153,6 +154,13 @@ func toFeedResponse(dto feedDTO) (app.FeedResponse, error) {
 		var hash [32]byte
 		copy(hash[:], raw)
 		out.Keys = append(out.Keys, app.FeedKey{Hash: hash, PrincipalID: k.PrincipalID, Status: k.Status, EngineCredential: k.EngineCredential})
+	}
+	for _, p := range dto.Principals {
+		out.Principals = append(out.Principals, app.FeedPrincipal{
+			ID:          p.ID,
+			Status:      p.Status,
+			Permissions: append([]string(nil), p.Permissions...),
+		})
 	}
 	return out, nil
 }

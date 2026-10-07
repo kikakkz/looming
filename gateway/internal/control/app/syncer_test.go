@@ -31,20 +31,26 @@ type feedRow struct {
 // and lets each test move the state forward, fail requests, or roll
 // the revision back (restart).
 type fakeIdentity struct {
-	mu      sync.Mutex
-	rev     uint64
-	keys    map[string]feedRow // base64 hash -> row
-	revoked map[string]bool    // base64 hash -> revoked marker
-	ch      chan struct{}      // closed on every state change
-	srv     *httptest.Server
+	mu         sync.Mutex
+	rev        uint64
+	keys       map[string]feedRow // base64 hash -> row
+	revoked    map[string]bool    // base64 hash -> revoked marker
+	principals map[string]feedPrincipal
+	ch         chan struct{} // closed on every state change
+	srv        *httptest.Server
 
 	failures int // next N feed requests answer 500
 	requests int // total feed requests served (observability)
 }
 
+type feedPrincipal struct {
+	status      string
+	permissions []string
+}
+
 func newFakeIdentity(t *testing.T) *fakeIdentity {
 	t.Helper()
-	f := &fakeIdentity{keys: map[string]feedRow{}, revoked: map[string]bool{}, ch: make(chan struct{})}
+	f := &fakeIdentity{keys: map[string]feedRow{}, revoked: map[string]bool{}, principals: map[string]feedPrincipal{}, ch: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/gateway/feed", f.handleFeed)
 	f.srv = httptest.NewServer(mux)
@@ -63,6 +69,16 @@ func (f *fakeIdentity) setState(rev uint64, keys map[string]feedRow, revoked []s
 	for _, h := range revoked {
 		f.revoked[h] = true
 	}
+	close(f.ch)
+	f.ch = make(chan struct{})
+}
+
+// setPrincipals replaces the principal projection (slice D's feed
+// half) and bumps, waking any held watch.
+func (f *fakeIdentity) setPrincipals(principals map[string]feedPrincipal) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.principals = principals
 	close(f.ch)
 	f.ch = make(chan struct{})
 }
@@ -111,11 +127,19 @@ func (f *fakeIdentity) handleFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		keys = append(keys, k)
 	}
+	principalRows := make([]map[string]any, 0, len(f.principals))
+	for id, p := range f.principals {
+		principalRows = append(principalRows, map[string]any{
+			"id":          id,
+			"status":      p.status,
+			"permissions": p.permissions,
+		})
+	}
 	f.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"rev":        rev,
 		"keys":       keys,
-		"principals": []any{},
+		"principals": principalRows,
 	})
 }
 
@@ -190,7 +214,7 @@ func newTestSyncer(t *testing.T, fake *fakeIdentity) (*Syncer, *KeyCache, *fakeC
 	clock := &fakeClock{t: testSyncNow}
 	cache := NewKeyCache(clock.Now)
 	t.Cleanup(cache.Close) // backstop; tests close explicitly before goleak
-	syncer := NewSyncer(httpFeedSource{base: fake.url()}, cache,
+	syncer := NewSyncer(httpFeedSource{base: fake.url()}, cache, nil, nil,
 		domain.Backoffer{Base: time.Millisecond, Cap: 5 * time.Millisecond},
 		30*time.Second, clock.Now, nil)
 	return syncer, cache, clock
@@ -475,5 +499,67 @@ func TestSyncerCredentialRidesTheDiff(t *testing.T) {
 	waitFor(t, "revocation deletes the entry", func() bool {
 		_, ok := cache.Get().V[hashA]
 		return !ok
+	})
+}
+
+func TestSyncerProjectsModelPermissions(t *testing.T) {
+	fake := newFakeIdentity(t)
+	hashA64, _ := keyA()
+	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
+	fake.setPrincipals(map[string]feedPrincipal{
+		"p-1": {status: "active", permissions: []string{"model:use:*"}},
+		"p-2": {status: "active", permissions: []string{"model:use:gpt-5"}},
+		"p-3": {status: "disabled", permissions: []string{"model:use:*"}},
+	})
+	clock := &fakeClock{t: testSyncNow}
+	cache := NewKeyCache(clock.Now)
+	t.Cleanup(cache.Close)
+	allowlist := NewModelAllowlistCache(context.Background())
+	t.Cleanup(allowlist.Close)
+	catalog := []string{"gpt-5", "claude-sonnet"}
+	syncer := NewSyncer(httpFeedSource{base: fake.url()}, cache, allowlist, catalog,
+		domain.Backoffer{Base: time.Millisecond, Cap: 5 * time.Millisecond},
+		30*time.Second, clock.Now, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = syncer.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	// Wildcard expands against the catalog; the concrete grant
+	// intersects; the disabled principal is skipped entirely.
+	waitFor(t, "wildcard projection", func() bool {
+		got := allowlist.Get().V["p-1"]
+		return len(got) == 2 && got[0] == "gpt-5" && got[1] == "claude-sonnet"
+	})
+	waitFor(t, "concrete projection", func() bool {
+		got := allowlist.Get().V["p-2"]
+		return len(got) == 1 && got[0] == "gpt-5"
+	})
+	if _, ok := allowlist.Get().V["p-3"]; ok {
+		t.Fatalf("disabled principal must not be projected")
+	}
+
+	// A permission change with an unchanged key set still flows:
+	// the allowlist diff is independent of the key diff (role change
+	// bumps the same revision authority).
+	fake.setState(2, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
+	fake.setPrincipals(map[string]feedPrincipal{
+		"p-1": {status: "active", permissions: []string{"model:use:gpt-5"}},
+		"p-2": {status: "active", permissions: []string{}},
+	})
+	waitFor(t, "permission change re-projects", func() bool {
+		one := allowlist.Get().V["p-1"]
+		two, ok := allowlist.Get().V["p-2"]
+		return len(one) == 1 && one[0] == "gpt-5" && ok && len(two) == 0
+	})
+
+	// Vanished principals get an empty list (deny-all), not staleness.
+	fake.setState(3, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
+	fake.setPrincipals(map[string]feedPrincipal{
+		"p-1": {status: "active", permissions: []string{"model:use:*"}},
+	})
+	waitFor(t, "vanished principal empties", func() bool {
+		got, ok := allowlist.Get().V["p-2"]
+		return ok && len(got) == 0
 	})
 }
