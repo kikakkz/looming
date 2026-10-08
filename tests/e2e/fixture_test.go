@@ -3,14 +3,14 @@
 //go:build e2e
 
 // Package e2e_test is the bundle-level end-to-end suite (AD-25's e2e
-// layer, AD-34-neutral): it drives the REAL looming-ctl binary and the
-// REAL component containers over real I/O through the onboarding
+// layer, AD-34-neutral): it drives the REAL looming binary and
+// the REAL component containers over real I/O through the onboarding
 // scenario spine — apply → invite → admin → member/key/quota →
 // gateway forward → guide page toggle → pull-join → teardown.
 //
 // The suite imports no component code: the bundle is a black box
-// reached through its published surfaces (the ctl CLI, the component
-// HTTP APIs, the docker CLI). Every fixture file lives under
+// reached through its published surfaces (the CLI, the
+// component HTTP APIs, the docker CLI). Every fixture file lives under
 // t.TempDir(); nothing touches /etc or any host state beyond the
 // "looming" compose project and its prefixed resources.
 package e2e_test
@@ -70,7 +70,7 @@ const e2eModel = "loom-e2e-model"
 type fixture struct {
 	repoRoot   string // the bundle checkout: compose build contexts
 	bundleRoot string // t.TempDir(): topology.yaml, env files, pgdata
-	ctl        string // the built looming-ctl binary
+	cli        string // the built looming binary
 	binDir     string
 
 	pgUser     string
@@ -94,7 +94,7 @@ type fixture struct {
 	memberAllowlist string
 
 	// dockerEnv is the child-process environment for every docker and
-	// ctl invocation: the ambient environment plus DOCKER_CONFIG
+	// CLI invocation: the ambient environment plus DOCKER_CONFIG
 	// pointed at an empty client config. The ambient docker client
 	// config carries a proxy that is dead on some build hosts; both
 	// BuildKit (build-time) and compose (run-time containers) would
@@ -118,8 +118,8 @@ type fixture struct {
 }
 
 // newFixture builds the scenario fixture: docker availability (loud
-// skip), the ctl binary, the fake upstream, the secret env files, and
-// the topology.yaml — everything first boot needs.
+// skip), the looming binary, the fake upstream, the secret env files,
+// and the topology.yaml — everything first boot needs.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 
@@ -136,17 +136,17 @@ func newFixture(t *testing.T) *fixture {
 	f.pgPassword = randomHex(t, 24)
 	f.keyMasterKey = base64.StdEncoding.EncodeToString(randomBytes(t, 32))
 	f.binDir = t.TempDir()
-	f.ctl = filepath.Join(f.binDir, "looming-ctl")
+	f.cli = filepath.Join(f.binDir, "looming")
 
 	f.upstream = newFakeUpstream(t)
 	f.upstreamPort = f.upstream.port
 
-	buildCtl(t, f.repoRoot, f.ctl)
+	buildCLI(t, f.repoRoot, f.cli)
 	f.writeEnvFiles(t)
 	f.writeDockerConfig(t)
 	f.writeTopology(t, "public")
 
-	// The ctl-rendered compose of the declared host — the channel for
+	// The CLI-rendered compose of the declared host — the channel for
 	// every docker compose call the suite makes (logs, teardown).
 	// Nothing is written to disk.
 	f.teardownCompose = f.dryRunCompose(t)
@@ -224,20 +224,19 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// buildCtl compiles the real ctl once per run — far cheaper than
-// `go run` per invocation, and the same binary the scenario drives
-// for apply, token, and join. The build runs inside the topology
-// component (the polyglot layout's module boundary), not the repo
-// root.
-func buildCtl(t *testing.T, repoRoot, out string) {
+// buildCLI compiles the real looming binary once per run — far cheaper
+// than `go run` per invocation, and the same binary the scenario drives
+// for apply, token, and join. The build runs inside the cli component
+// (the polyglot layout's module boundary), not the repo root.
+func buildCLI(t *testing.T, repoRoot, out string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/looming-ctl")
-	cmd.Dir = filepath.Join(repoRoot, "topology")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/looming")
+	cmd.Dir = filepath.Join(repoRoot, "cli")
 	cmd.Env = os.Environ()
 	outBuf, err := cmd.CombinedOutput()
-	require.NoError(t, err, "go build looming-ctl: %s", outBuf)
+	require.NoError(t, err, "go build looming: %s", outBuf)
 }
 
 func randomBytes(t *testing.T, n int) []byte {
@@ -370,14 +369,14 @@ placements:
 	require.NoError(t, os.WriteFile(path, []byte(doc), 0o600))
 }
 
-// dryRunCompose runs the real ctl's render pass and extracts the
+// dryRunCompose runs the real binary's render pass and extracts the
 // declared host's compose document — the suite's docker channel. The
 // dry-run print shape is: a `--- <host> (<hash>) ---` header line, the
 // YAML body, then the `next:` trailer; the body between them is the
 // artifact.
 func (f *fixture) dryRunCompose(t *testing.T) string {
 	t.Helper()
-	stdout, err := f.runCtl(t, 2*time.Minute,
+	stdout, err := f.runCLI(t, 2*time.Minute,
 		"apply", "--dry-run", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
 	require.NoError(t, err, "apply --dry-run failed:\n%s", stdout)
 
@@ -404,7 +403,7 @@ func (f *fixture) dryRunCompose(t *testing.T) string {
 
 func (f *fixture) topologyPath() string { return filepath.Join(f.bundleRoot, "topology.yaml") }
 
-// topologyURLLocal is the ctl-facing topology database URL: apply runs
+// topologyURLLocal is the CLI-facing topology database URL: apply runs
 // on the host, so loopback + the published port.
 func (f *fixture) topologyDBURL() string {
 	return fmt.Sprintf("postgres://%s:%s@127.0.0.1:%d/topology?sslmode=disable", f.pgUser, f.pgPassword, portPostgres)
@@ -419,20 +418,20 @@ func (f *fixture) gatewayBase() string { return fmt.Sprintf("http://127.0.0.1:%d
 
 func (f *fixture) topologydBase() string { return fmt.Sprintf("http://127.0.0.1:%d", portTopology) }
 
-// runCtl runs the ctl binary with a bounded timeout and returns
+// runCLI runs the looming binary with a bounded timeout and returns
 // combined stdout+stderr plus the exit error (nil on exit 0).
-func (f *fixture) runCtl(t *testing.T, timeout time.Duration, args ...string) (string, error) {
+func (f *fixture) runCLI(t *testing.T, timeout time.Duration, args ...string) (string, error) {
 	t.Helper()
-	return f.runCtlEnv(t, timeout, nil, args...)
+	return f.runCLIEnv(t, timeout, nil, args...)
 }
 
-// runCtlEnv is runCtl with extra environment entries (HOME redirection
+// runCLIEnv is runCLI with extra environment entries (HOME redirection
 // for the join step is the consumer).
-func (f *fixture) runCtlEnv(t *testing.T, timeout time.Duration, extraEnv []string, args ...string) (string, error) {
+func (f *fixture) runCLIEnv(t *testing.T, timeout time.Duration, extraEnv []string, args ...string) (string, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, f.ctl, args...)
+	cmd := exec.CommandContext(ctx, f.cli, args...)
 	cmd.Dir = f.repoRoot // compose build contexts resolve against the bundle root
 	cmd.Env = append(append([]string{}, f.dockerEnv...), extraEnv...)
 	var out bytes.Buffer
