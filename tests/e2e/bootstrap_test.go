@@ -20,7 +20,7 @@ import (
 
 // TestBootstrapScenario is the bundle's end-to-end proof (topology-l1
 // §3 admin bootstrap + end-user onboarding journeys): one sequential
-// run through the real ctl and the real containers, each step
+// run through the real looming binary and the real containers, each step
 // asserting its own contract. Steps share the fixture; a failure
 // stops the scenario (fail fast) and the cleanup still tears the
 // project down.
@@ -44,7 +44,7 @@ func TestBootstrapScenario(t *testing.T) {
 	// registered first so it runs last.
 }
 
-// step1ApplyFirstBoot runs the real `looming-ctl apply` against the
+// step1ApplyFirstBoot runs the real `looming apply` against the
 // declared topology and asserts the first-boot contract: exit 0, the
 // printed one-time invite, and every container serving (identityd's
 // /v1/self/login answering 400-not-401 proves the API is up, not just
@@ -56,7 +56,7 @@ func TestBootstrapScenario(t *testing.T) {
 // comes straight from stdout — no operator-side createdb, no
 // --print-invite recovery.
 func step1ApplyFirstBoot(t *testing.T, f *fixture) {
-	stdout, err := f.runCtl(t, 10*time.Minute,
+	stdout, err := f.runCLI(t, 10*time.Minute,
 		"apply", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
 	require.NoError(t, err, "first apply must converge:\n%s", stdout)
 	assert.Contains(t, stdout, "host local: changed", "first boot converges the declared host:\n%s", stdout)
@@ -107,7 +107,7 @@ func step1ApplyFirstBoot(t *testing.T, f *fixture) {
 	})
 }
 
-// inviteTokenFrom extracts a token from a ctl command's printed summary
+// inviteTokenFrom extracts a token from a CLI command's printed summary
 // (the apply invite line and the token-create line share the
 // "  token: <value>" shape).
 func inviteTokenFrom(stdout string) string {
@@ -272,7 +272,7 @@ func step5GuidePageToggle(t *testing.T, f *fixture) {
 	// the flip must reach the page through the guide re-render plus
 	// the TTL cache expiring, which is the freshness contract.
 	f.writeTopology(t, "private")
-	stdout, err := f.runCtl(t, 10*time.Minute,
+	stdout, err := f.runCLI(t, 10*time.Minute,
 		"apply", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
 	require.NoError(t, err, "apply with access.private:\n%s", stdout)
 	assert.Contains(t, stdout, "host local: skipped", "access alone changes no compose service:\n%s", stdout)
@@ -283,7 +283,7 @@ func step5GuidePageToggle(t *testing.T, f *fixture) {
 	})
 
 	f.writeTopology(t, "public")
-	stdout, err = f.runCtl(t, 10*time.Minute,
+	stdout, err = f.runCLI(t, 10*time.Minute,
 		"apply", "--config", f.topologyPath(), "--bundle-root", f.repoRoot)
 	require.NoError(t, err, "apply back to access.public:\n%s", stdout)
 
@@ -301,7 +301,7 @@ func step5GuidePageToggle(t *testing.T, f *fixture) {
 // the rejoin endpoint refreshes the host — the HTTP-visible proof of
 // registration.
 func step6PullJoin(t *testing.T, f *fixture) {
-	stdout, err := f.runCtl(t, 2*time.Minute,
+	stdout, err := f.runCLI(t, 2*time.Minute,
 		"token", "create", "--role", "engine", "--ttl", "1h", "--database-url", f.topologyDBURL())
 	require.NoError(t, err, "token create:\n%s", stdout)
 	joinToken := inviteTokenFrom(stdout) // same "  token: <value>" print shape
@@ -309,7 +309,7 @@ func step6PullJoin(t *testing.T, f *fixture) {
 
 	joinHome := t.TempDir()
 	f.hostCredentialPath = filepath.Join(joinHome, "host.cred")
-	stdout, err = f.runCtlEnv(t, 2*time.Minute, []string{"HOME=" + joinHome},
+	stdout, err = f.runCLIEnv(t, 2*time.Minute, []string{"HOME=" + joinHome},
 		"join", f.topologydBase(),
 		"--token", joinToken,
 		"--host-id", "engine-2",
@@ -338,7 +338,7 @@ func step6PullJoin(t *testing.T, f *fixture) {
 	require.Equal(t, http.StatusOK, status, "rejoin with the persisted credential: %v", body)
 	assert.Equal(t, "10.0.0.100", body["address"], "the rejoin refreshed the address: %v", body)
 
-	stdout, err = f.runCtl(t, 2*time.Minute, "token", "list", "--database-url", f.topologyDBURL())
+	stdout, err = f.runCLI(t, 2*time.Minute, "token", "list", "--database-url", f.topologyDBURL())
 	require.NoError(t, err, "token list:\n%s", stdout)
 	assert.Contains(t, stdout, "used", "the one-time token shows consumed:\n%s", stdout)
 }

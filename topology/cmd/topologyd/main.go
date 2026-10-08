@@ -22,13 +22,13 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver
 
-	guideadapter "github.com/kikakkz/looming/topology/internal/guide/adapter"
-	guideapp "github.com/kikakkz/looming/topology/internal/guide/app"
-	hostadapter "github.com/kikakkz/looming/topology/internal/host/adapter"
-	joinadapter "github.com/kikakkz/looming/topology/internal/join/adapter"
-	joinapp "github.com/kikakkz/looming/topology/internal/join/app"
-	topologyadapter "github.com/kikakkz/looming/topology/internal/topology/adapter"
-	"github.com/kikakkz/looming/topology/migrations"
+	guideadapter "github.com/kikakkz/looming/platform/go/guideadapter"
+	guideapp "github.com/kikakkz/looming/platform/go/guideapp"
+	hostadapter "github.com/kikakkz/looming/platform/go/hostadapter"
+	joinadapter "github.com/kikakkz/looming/platform/go/joinadapter"
+	joinapp "github.com/kikakkz/looming/platform/go/joinapp"
+	"github.com/kikakkz/looming/platform/go/migrations"
+	topologyadapter "github.com/kikakkz/looming/platform/go/topologyadapter"
 )
 
 func main() {

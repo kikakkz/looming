@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command looming is the user-facing CLI (cli-l1): onboard, configure,
-// usage. The admin face (bootstrap/apply/token/join) migrates here in
-// CLI-1; until then it lives in topology/cmd/looming-ctl.
+// Command looming is the user-facing CLI (cli-l1): one binary, two
+// faces (AD-37). The user face (onboard/configure/usage) is a pure
+// HTTP client; the admin face (apply/token/guide/join — local-root
+// operations per cli-l1 §4) arrived with CLI-1 (#108), retiring the
+// temporary topology admin binary and consuming the platform/go kit.
 package main
 
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/kikakkz/looming/cli/internal/admin/applycmd"
+	"github.com/kikakkz/looming/cli/internal/admin/dbcmd"
+	"github.com/kikakkz/looming/cli/internal/admin/joincmd"
 	"github.com/kikakkz/looming/cli/internal/agentcfg"
 	"github.com/kikakkz/looming/cli/internal/identityclient"
 	"github.com/kikakkz/looming/cli/internal/onboard"
@@ -31,7 +38,22 @@ func root() *cobra.Command {
 		Short: "Looming CLI — connect local agents to your cluster",
 	}
 	root.AddCommand(onboardCmd(), configureCmd(), usageCmd())
+	root.AddCommand(adminCmd(os.Stdout, os.Stderr)...)
 	return root
+}
+
+// adminCmd assembles the admin face (cli-l1 §4): apply converges the
+// deployment, token/guide talk to the topology database directly, and
+// join is the pulling host's self-registration. Every command is a
+// thin wrapper over the platform/go kit (#108's extraction).
+func adminCmd(stdout, stderr io.Writer) []*cobra.Command {
+	log := slog.New(slog.NewTextHandler(stderr, nil))
+	return []*cobra.Command{
+		applycmd.New(stdout, log),
+		dbcmd.NewToken(stdout),
+		dbcmd.NewGuide(stdout),
+		joincmd.New(stdout),
+	}
 }
 
 func onboardCmd() *cobra.Command {

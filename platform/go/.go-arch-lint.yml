@@ -1,0 +1,105 @@
+# AD-23 dependency matrix for the platform/go shared kit (AD-34 rule 2:
+# the language-internal shared home, extracted by CLI-1 #108 when the
+# cli component's admin face became the second same-language consumer
+# of the topology chain). Version 3 schema; module-aware.
+#
+# The kit is the topology component's headless core: the apply chain
+# (config/render/exec/apply), the four capabilities' domain vocabulary
+# + ports + use-case services + postgres adapters (topology, host,
+# guide, join), the schema migrations, and the integration test helper.
+# Both consumers (cli's admin face, topology's topologyd) import it;
+# nothing here imports a component.
+#
+# Dependency rules (the AD-23 layering, unchanged by the move):
+# - *domain packages are pure: stdlib only (also enforced by depguard).
+# - *port packages depend only on their capability's domain.
+# - *app packages orchestrate domains + ports across capabilities
+#   (join-app and guide-app read the host/topology ports; apply
+#   composes everything).
+# - *adapter packages implement their capability's ports against
+#   postgres; they never reach into another capability.
+# - apply owns the converge pipeline and the composition root's StdDeps
+#   wiring (the real adapters + migrations behind the Deps seams).
+version: 3
+
+allow:
+  depOnAnyVendor: true # pinned deps live in go.mod; matrix governs
+                       # package coupling, the job it exists for
+  deepScan: false    # DI-pattern noise: adapters implementing ports
+                     # consumed by app are the hexagon, not a violation
+
+excludeFiles:
+  - "^.*_test\\.go$" # test doubles legitimately cross seams
+
+components:
+  config:          { in: config }
+  render:          { in: render }
+  exec:            { in: exec }
+  apply:           { in: apply }
+  topologydomain:  { in: topologydomain }
+  topologyport:    { in: topologyport }
+  topologyapp:     { in: topologyapp }
+  topologyadapter: { in: topologyadapter }
+  hostdomain:      { in: hostdomain }
+  hostport:        { in: hostport }
+  hostapp:         { in: hostapp }
+  hostadapter:     { in: hostadapter }
+  guidedomain:     { in: guidedomain }
+  guideport:       { in: guideport }
+  guideapp:        { in: guideapp }
+  guideadapter:    { in: guideadapter }
+  joindomain:      { in: joindomain }
+  joinport:        { in: joinport }
+  joinapp:         { in: joinapp }
+  joinadapter:     { in: joinadapter }
+  migrations:      { in: migrations }
+  tests:           { in: tests/pgtest }
+
+deps:
+  config:
+    mayDependOn: [render, topologydomain]
+
+  render:
+    mayDependOn: [topologydomain]
+
+  topologyport:
+    mayDependOn: [topologydomain]
+
+  topologyapp:
+    mayDependOn: [topologydomain, topologyport]
+
+  topologyadapter:
+    mayDependOn: [topologydomain, topologyport]
+
+  hostport:
+    mayDependOn: [hostdomain]
+
+  hostapp:
+    mayDependOn: [hostdomain, hostport]
+
+  hostadapter:
+    mayDependOn: [hostdomain, hostport]
+
+  guideport:
+    mayDependOn: [guidedomain]
+
+  guideapp:
+    mayDependOn: [guidedomain, guideport, hostport, topologydomain, topologyport]
+
+  guideadapter:
+    mayDependOn: [guidedomain, guideport]
+
+  joinport:
+    mayDependOn: [joindomain]
+
+  joinapp:
+    mayDependOn: [joindomain, joinport, hostdomain, hostport, topologydomain, topologyport]
+
+  joinadapter:
+    mayDependOn: [joindomain, joinport]
+
+  apply:
+    mayDependOn: [config, render, exec, topologydomain, topologyport, topologyapp, topologyadapter, hostdomain, hostport, hostadapter, guidedomain, guideport, guideapp, guideadapter, migrations]
+
+  tests:
+    mayDependOn: [migrations]

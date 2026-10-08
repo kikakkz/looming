@@ -91,7 +91,10 @@ packages: `app/` (use-case orchestration), `domain/` (pure model and
 business rules), `port/` (interfaces), `adapter/` (driving and driven
 implementations). `<component>/cmd/<binary>/` holds only `main`
 wiring. The repo root stays language-neutral; other languages claim
-their own top-level component directories.
+their own top-level component directories. The `platform/<lang>/`
+shared kits are the AD-34 rule-2 exception: their packages are public
+by design (components import them across module boundaries), and the
+arch matrix substitutes for `internal/` visibility.
 
 **Architecture (AD-23).** Each component's bounded contexts and their
 dependency matrix are declared in its own `.go-arch-lint.yml`
@@ -122,21 +125,17 @@ cites its `kind/flake` issue number; test-only helpers live under
 ## Directory map
 
 - `gateway/` — the model-gateway component (Go): `go.mod`, `cmd/`,
-  `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33), Go
-  tool configs. First component (AD-34); slice C (#114) added per-key engine credentials: feed `engine_credential` consumption (`Identity{Subject, EngineCredential}` authenticator shape), explicit `EnginePlane.Forward` credential, per-request upstream auth with static fallback.
+  `internal/<capability>/{app,domain,port,adapter}` (AD-23/AD-33), Go tool configs. First component (AD-34); slice C (#114) added per-key engine credentials: feed `engine_credential` consumption (`Identity{Subject, EngineCredential}` authenticator shape), explicit `EnginePlane.Forward` credential, per-request upstream auth with static fallback.
 - `identity/` — the identity component (Go, AD-34): principals, policy, authn builtin+OIDC, keys, quota, engine provisioning (design: `docs/architecture/identity-l1.md`, AD-35).
-- `cli/` — the `looming` user CLI (Go, AD-34/AD-37): onboard/configure/usage (design: `docs/architecture/cli-l1.md`); admin face still in `topology/cmd/looming-ctl` until CLI-1.
-- `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1 (#107) added the `apply` converge pipeline (config loader, renderer, executor, `cmd/looming-ctl` — placement temporary pending #108); T2 (#107) added the join capability (`internal/join`) + the `cmd/topologyd` join/rejoin service; T3 (#107) added the guide capability (`internal/guide`, topologyd's `GET /v1/internal/guide`) and the gateway's public onboarding page at `GET /` (TTL-cached fetch of the guide).
-- `tests/e2e/` — the bundle e2e suite (AD-25 `e2e` layer): cross-component,
-  AD-34-neutral, own `go.mod`; drives the real ctl and real containers through the onboarding scenario.
+- `cli/` — the `looming` CLI (Go, AD-34/AD-37): one binary, two faces — user face onboard/configure/usage + admin face apply/token/guide/join (design: `docs/architecture/cli-l1.md`; admin face landed post-CLI-1, #108, consuming platform/go).
+- `topology/` — the topology component (Go, AD-34): bootstrap/topology plane — Topology aggregate, host registry, phase-1 schema (design: `docs/architecture/topology-l1.md`, AD-36); T1–T3 (#107) landed the apply pipeline, the join capability, and the guide capability; CLI-1 (#108) extracted that headless core into `platform/go` and retired the temporary admin ctl binary, leaving the `cmd/topologyd` join/rejoin + guide service binary (its image builds from the bundle root; the gateway's public onboarding page fetches topologyd's guide at `GET /`).
+- `platform/go/` — the shared Go kit (AD-34's two-consumer extraction, #108): apply/render/exec/config + the topology/host/guide/join domain vocabulary with their ports, services, and postgres adapters + schema migrations; consumed by `cli/`'s admin face and `topology/`'s topologyd. Own `go.mod`; no `cmd/`.
+- `tests/e2e/` — the bundle e2e suite (AD-25 `e2e` layer): cross-component, AD-34-neutral, own `go.mod`; drives the real `looming` CLI and real containers through the onboarding scenario.
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
-- `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo
-  tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap
-  map: [.ai/index.yaml](.ai/index.yaml) — read it first, never crawl.
+- `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap map: [.ai/index.yaml](.ai/index.yaml) — read it first, never crawl.
 - `.github/` — templates, CODEOWNERS, workflows, contributing policy.
 - `.ai/memory/decisions.md` — pointer; the decisions themselves live one per
-  file in `.ai/memory/decisions/` (generated index: `decisions/README.md`).
-  Read them before proposing anything architectural.
+  file in `.ai/memory/decisions/` (generated index: `decisions/README.md`). Read them before proposing anything architectural.
 
 ## Collaboration protocol
 

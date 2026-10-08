@@ -127,16 +127,15 @@ slice CLI-2):
 ## 6. Platform extraction (the platform/go seam)
 
 AD-34 rule 2: `platform/<lang>/` exists only at two or more
-same-language consumers. The apply/render/exec/config chain now under
-`topology/internal/` gains its second consumer the moment `cli/` ships
-its admin face, so the chain moves to `platform/go/` and both the
-topology component and `cli/` consume it.
-
-That extraction is **slice CLI-1, an implementation PR — not this
-design PR**. Until CLI-1 lands, `topology/cmd/looming-ctl` remains the
-admin entry and nothing moves preemptively. Slice CLI-0 is
-deliberately shaped to prove the split: a pure HTTP client with zero
-platform dependency.
+same-language consumers. The apply/render/exec/config chain gained its
+second consumer the moment `cli/` shipped its admin face, so the chain
+moved to `platform/go/` and both the topology component and `cli/`
+consume it — landed as slice CLI-1 (#108). The kit carries the
+topology/host/guide/join domain vocabulary with their ports, services,
+and postgres adapters, plus the schema migrations; `topologyd` is the
+topology component's only remaining binary, and the admin face lives
+in the `looming` binary. Slice CLI-0 proved the split before the move:
+a pure HTTP client with zero platform dependency.
 
 ## 7. Aspects
 
@@ -168,6 +167,9 @@ topology chain's idempotency.
   --agent kimi-code`, `usage`): pure HTTP client, zero platform
   dependency (proves the §6 split).
 - **CLI-1** — `platform/go/` extraction + admin face migration +
-  `topology/cmd/looming-ctl` retirement.
+  `topology/cmd/looming-ctl` retirement. **Done (2026-10-08, #108):**
+  the headless kit lives in `platform/go/`, the `looming` binary
+  carries the admin face (apply/token/guide/join), and topologyd is
+  the topology component's only binary.
 - **CLI-2** — remaining agent adapters (codex, claude) + status
   deep-dive (the component `/healthz` contract lands here).

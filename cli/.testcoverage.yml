@@ -8,4 +8,10 @@ exclude:
   paths:
     # cmd packages are manual-DI wiring only (AD-23); their behaviour
     # is covered through the capability tests.
-    - cmd/looming/main.go
+    - cmd/looming
+    # dbcmd's RunE bodies beyond input validation are exercised at the
+    # integration layer (real schema via testcontainers,
+    # .testcoverage.integration.yml) — the same split the retired
+    # topology ctl's command file carried (#108's migration): the unit
+    # layer covers validation and wiring only.
+    - internal/admin/dbcmd

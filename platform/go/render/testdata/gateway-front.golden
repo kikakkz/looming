@@ -1,0 +1,30 @@
+name: looming
+services:
+    gateway-front:
+        build:
+            args:
+                - GOPROXY
+            context: gateway
+        environment:
+            GATEWAY_IDENTITY_INSECURE: "1"
+            GATEWAY_IDENTITY_URL: http://10.0.0.12:8081
+            GATEWAY_LISTEN: :8080
+            GATEWAY_TOPOLOGY_URL: http://10.0.0.11:8181
+            GATEWAY_UPSTREAM: http://10.0.0.13:4000
+        ports:
+            - 8080:8080
+        restart: unless-stopped
+    topologyd:
+        build:
+            args:
+                - GOPROXY
+            context: .
+            dockerfile: topology/Dockerfile
+        entrypoint:
+            - /usr/local/bin/topologyd
+        environment:
+            TOPOLOGY_DATABASE_URL: postgres://postgres:pw@10.0.0.11:5432/topology
+            TOPOLOGY_LISTEN: :8181
+        ports:
+            - 8181:8181
+        restart: unless-stopped

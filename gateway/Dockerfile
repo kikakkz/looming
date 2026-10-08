@@ -3,8 +3,8 @@
 # gateway's phase-1 image (topology-l1 §2: every component is a
 # container on the single runtime plane). Multi-stage build with the
 # component directory as context — compose renders
-# build.context: gateway relative to the bundle root the ctl runs
-# from. GOPROXY is a build-arg so mirrored/offline environments
+# build.context: gateway relative to the bundle root `looming apply`
+# runs from. GOPROXY is a build-arg so mirrored/offline environments
 # override it without editing the file. Distroless nonroot: no shell,
 # no package manager; the static variant carries CA certificates for
 # the TLS era (#110) while phase-1 HTTP stays plain.

@@ -1,0 +1,22 @@
+# Coverage thresholds (AD-25), checked by go-test-coverage against the
+# unit-layer profile. Profile path is relative to the module root.
+# Same exclusions the topology component carried pre-extraction: the
+# driven adapters, the migration runner, the integration test helper,
+# and apply's composition-root wiring (StdDeps + the real
+# store/provision helpers behind the Deps seams) carry no unit tests by
+# design (AD-25 layering) — the integration layer is their coverage
+# home.
+profile: coverage.out
+threshold:
+  file: 80
+  package: 80
+  total: 80
+exclude:
+  paths:
+    - topologyadapter
+    - hostadapter
+    - guideadapter
+    - joinadapter
+    - apply/std.go
+    - migrations
+    - tests
