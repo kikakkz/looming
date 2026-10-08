@@ -1,0 +1,16 @@
+# Integration-layer thresholds (AD-25), checked by go-test-coverage
+# against the integration-tagged profile (coverage-integration.out).
+# The database-direct admin commands (dbcmd: token create|list|revoke,
+# guide show) are validated at the unit layer and exercised for real
+# here — over the real schema via testcontainers — same split the
+# retired ctl carried (topology's integration profile, #108's move).
+profile: coverage-integration.out
+threshold:
+  file: 80
+  package: 80
+  total: 80
+exclude:
+  paths:
+    # cmd packages are manual-DI wiring only (AD-23); their behaviour
+    # is covered through the capability tests.
+    - cmd/looming
