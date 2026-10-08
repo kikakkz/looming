@@ -57,7 +57,9 @@ lint-semgrep:
 # (same warn-and-skip policy as shellcheck; CI installs the tools and
 # turns these red). Language-specific tooling stays under the component
 # it serves: every check runs from inside that component's directory.
-GO_COMPONENTS := $(sort $(patsubst %/go.mod,%,$(wildcard */go.mod)))
+# platform/go is the AD-34 shared kit nested one level deeper; the
+# tests/e2e module is the bundle e2e layer with its own target.
+GO_COMPONENTS := $(sort $(patsubst %/go.mod,%,$(wildcard */go.mod)) platform/go)
 
 lint-go:
 	@if [ -z "$(GO_COMPONENTS)" ]; then \
@@ -156,7 +158,7 @@ test-coverage:
 	fi
 
 # Bundle e2e layer (AD-25, `e2e` build tag): the onboarding scenario
-# driven through the real looming-ctl against real component
+# driven through the real looming CLI against real component
 # containers. Deliberately OUTSIDE ci-gate — AD-25 deferred this layer
 # until a runner budget exists, and this target IS that layer landing:
 # its cost stays visible as its own target (and its own CI job in

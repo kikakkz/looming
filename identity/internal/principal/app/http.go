@@ -229,7 +229,7 @@ const bootstrapRegisterPath = "/v1/self/register"
 // middleware in cmd (IDENTITY_BOOTSTRAP_KEY); the one-shot window is a
 // domain rule, closed with 409 once an admin exists or a bootstrap
 // invite was minted. The raw token is returned exactly once —
-// looming-ctl apply prints it and the operator carries it to the
+// `looming apply` prints it and the operator carries it to the
 // mailbox.
 func (h *Handler) CreateBootstrapInvite(w http.ResponseWriter, r *http.Request) {
 	var req bootstrapInviteRequest

@@ -1,0 +1,11 @@
+# Build-context hygiene for the images that build from the bundle root
+# (topologyd since CLI-1, #108): VCS metadata, agent control plane,
+# docs, and test artifacts never belong in a build.
+.git
+.wt
+.github
+.ai
+docs
+assets
+tests
+**/*.out

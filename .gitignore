@@ -29,3 +29,7 @@ coverage/
 
 # Go test artifacts
 coverage*.out
+
+# Component binaries: a component whose only package is a main
+# (topology post-CLI-1) has `go build ./...` drop the binary in cwd.
+/topology/topologyd

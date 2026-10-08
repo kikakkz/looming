@@ -66,7 +66,7 @@ func writeAuthError(w http.ResponseWriter, status int, code string) {
 
 // requireBootstrapKey guards the one-shot first-admin endpoint with the
 // IDENTITY_BOOTSTRAP_KEY shared secret: the operator-side
-// `looming-ctl apply` is the only legitimate caller (topology-l1 §4).
+// `looming apply` is the only legitimate caller (topology-l1 §4).
 // Scheme is strict `Authorization: Bootstrap <key>` and the comparison
 // is constant-time (CWE-208). When the key is unconfigured the route
 // stays mounted but reports bootstrap_disabled (503) — deployments

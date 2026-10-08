@@ -14,16 +14,16 @@ import (
 	"testing"
 	"time"
 
-	guideapp "github.com/kikakkz/looming/topology/internal/guide/app"
-	guidedomain "github.com/kikakkz/looming/topology/internal/guide/domain"
-	guideport "github.com/kikakkz/looming/topology/internal/guide/port"
-	hostdomain "github.com/kikakkz/looming/topology/internal/host/domain"
-	hostport "github.com/kikakkz/looming/topology/internal/host/port"
-	joinapp "github.com/kikakkz/looming/topology/internal/join/app"
-	"github.com/kikakkz/looming/topology/internal/join/domain"
-	joinport "github.com/kikakkz/looming/topology/internal/join/port"
-	topologydomain "github.com/kikakkz/looming/topology/internal/topology/domain"
-	topologyport "github.com/kikakkz/looming/topology/internal/topology/port"
+	guideapp "github.com/kikakkz/looming/platform/go/guideapp"
+	guidedomain "github.com/kikakkz/looming/platform/go/guidedomain"
+	guideport "github.com/kikakkz/looming/platform/go/guideport"
+	hostdomain "github.com/kikakkz/looming/platform/go/hostdomain"
+	hostport "github.com/kikakkz/looming/platform/go/hostport"
+	joinapp "github.com/kikakkz/looming/platform/go/joinapp"
+	domain "github.com/kikakkz/looming/platform/go/joindomain"
+	joinport "github.com/kikakkz/looming/platform/go/joinport"
+	topologydomain "github.com/kikakkz/looming/platform/go/topologydomain"
+	topologyport "github.com/kikakkz/looming/platform/go/topologyport"
 )
 
 // stubTokens is the TokenStore port against memory — just enough surface

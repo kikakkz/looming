@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kikakkz/looming/topology/tests/pgtest"
+	"github.com/kikakkz/looming/platform/go/tests/pgtest"
 )
 
 // freePort reserves an ephemeral port for the test server.

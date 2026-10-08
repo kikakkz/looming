@@ -1,0 +1,10 @@
+go 1.25.0
+
+use (
+	./cli
+	./gateway
+	./identity
+	./platform/go
+	./tests/e2e
+	./topology
+)

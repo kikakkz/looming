@@ -1,0 +1,16 @@
+name: looming
+services:
+    topologyd:
+        build:
+            args:
+                - GOPROXY
+            context: .
+            dockerfile: topology/Dockerfile
+        entrypoint:
+            - /usr/local/bin/topologyd
+        environment:
+            TOPOLOGY_DATABASE_URL: postgres://postgres:pw@10.0.0.11:5432/topology
+            TOPOLOGY_LISTEN: :8081
+        ports:
+            - 8081:8081
+        restart: unless-stopped
