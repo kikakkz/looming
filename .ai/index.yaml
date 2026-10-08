@@ -51,6 +51,10 @@
 # 2026-10-06 session memory (#108) re-validated: memory sedimentation
 # updates .ai/memory/progress.md + activeContext.md; anchors unchanged,
 # all read_order anchors resolve.
+# 2026-10-08 CLI-1 (#108) re-validated: AGENTS.md directory map gains
+# platform/go/, the cli/ line names the landed admin face, topology/
+# drops the retired ctl; Makefile's GO_COMPONENTS names platform/go;
+# all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

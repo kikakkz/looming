@@ -168,6 +168,9 @@ topology chain's idempotency.
   --agent kimi-code`, `usage`): pure HTTP client, zero platform
   dependency (proves the §6 split).
 - **CLI-1** — `platform/go/` extraction + admin face migration +
-  `topology/cmd/looming-ctl` retirement.
+  `topology/cmd/looming-ctl` retirement. **Done (2026-10-08, #108):**
+  the headless kit lives in `platform/go/`, the `looming` binary
+  carries the admin face (apply/token/guide/join), and topologyd is
+  the topology component's only binary.
 - **CLI-2** — remaining agent adapters (codex, claude) + status
   deep-dive (the component `/healthz` contract lands here).
