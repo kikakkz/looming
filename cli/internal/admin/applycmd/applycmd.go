@@ -97,6 +97,11 @@ func New(stdout io.Writer, log *slog.Logger) *cobra.Command {
 			}
 
 			printSummary(stdout, result, dryRun)
+			if dryRun {
+				// Nothing converged — the revision is 0 by contract,
+				// and "apply converged" would be a false log line.
+				return nil
+			}
 			if result.Failed() {
 				return errors.New("apply: one or more hosts failed to converge (see the summary above)")
 			}

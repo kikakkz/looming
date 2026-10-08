@@ -454,4 +454,16 @@ func TestBundleRootMixesBuildContextIntoHash(t *testing.T) {
 	if changed[0].Hash == rooted[0].Hash {
 		t.Fatalf("a build-context source change must change the convergence hash")
 	}
+
+	// The bundle root's .dockerignore governs what Docker ships for the
+	// topologyd "." context without living inside any digest directory
+	// (CodeRabbit review on PR #145) — editing it must reconverge.
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".dockerignore"), []byte("*.md\n"), 0o600))
+	ignored, err := render.Render(render.Input{StateHostID: in.StateHostID, State: in.State, Hosts: in.Hosts, Placements: in.Placements, BundleRoot: root})
+	if err != nil {
+		t.Fatalf("Render after .dockerignore change: %v", err)
+	}
+	if ignored[0].Hash == changed[0].Hash {
+		t.Fatalf("a root .dockerignore change must change the convergence hash")
+	}
 }

@@ -401,11 +401,15 @@ func Hash(content string) string {
 // scope (its build directory by default; the contract's DigestDirs
 // when the image reads a wider set — topologyd's cross-module build
 // covers platform/go too): sorted (path, file-sha256) pairs
-// combined into one digest. Dockerfiles reference the directories,
-// not their contents, so a source-only change leaves the rendered
-// compose text untouched — without this digest the apply pipeline
-// would mark the host unchanged and the stale image would keep
-// running (CodeRabbit review on PR #140). Deterministic: directory
+// combined into one digest, plus the root .dockerignore — which
+// governs what the topologyd cross-module context ships to the daemon
+// without living inside any digest directory (dotfiles are skipped
+// except when a walked dir contains them). Dockerfiles reference the
+// directories, not their contents, so a source-only change leaves the
+// rendered compose text untouched — without this digest the apply
+// pipeline would mark the host unchanged and the stale image would
+// keep running (CodeRabbit review on PR #140; the root-.dockerignore
+// rule is CodeRabbit review on PR #145). Deterministic: directory
 // walk order is sorted; symlinks and dotfiles are skipped.
 func buildContextDigest(root string) (string, error) {
 	h := sha256.New()
@@ -429,6 +433,19 @@ func buildContextDigest(root string) (string, error) {
 				}
 			}
 		}
+	}
+	// The bundle root's .dockerignore decides which files Docker
+	// actually sends for the topologyd "." context; an edit must
+	// reconverge even though no digest directory contains it.
+	// #nosec G304 -- path is inside the operator-supplied bundle root.
+	data, readErr := os.ReadFile(filepath.Join(root, ".dockerignore"))
+	switch {
+	case readErr == nil:
+		if _, writeErr := fmt.Fprintf(h, "%s:%x\n", ".dockerignore", sha256.Sum256(data)); writeErr != nil {
+			return "", fmt.Errorf("render: digest write: %w", writeErr)
+		}
+	case !errors.Is(readErr, os.ErrNotExist):
+		return "", fmt.Errorf("render: digest root .dockerignore: %w", readErr)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
