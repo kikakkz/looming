@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-38 — management agent: deterministic-hard, LLM-soft placement derivation](0038-management-agent-deterministic-hard-llm-soft.md)
 - [AD-37 — looming CLI: single binary, two faces](0037-looming-cli-single-binary-two-faces.md)
 - [AD-36 — topology and bootstrap plane](0036-topology-and-bootstrap-plane.md)
 - [AD-35 — identity model — flat RBAC](0035-identity-model-flat-rbac.md)

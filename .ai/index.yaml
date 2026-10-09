@@ -55,6 +55,8 @@
 # platform/go/, the cli/ line names the landed admin face, topology/
 # drops the retired ctl; Makefile's GO_COMPONENTS names platform/go;
 # all read_order anchors resolve.
+# AD-38 re-validated 2026-10-09: decisions/README.md regenerated for
+# the management-agent AD (#144); all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
