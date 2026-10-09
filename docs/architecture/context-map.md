@@ -13,7 +13,7 @@ method for deriving and refining this map is
 | 1 | Identity & access | Principal, LoomingKey, Quota, IdentityMap, RegistrationPolicy | identity lifecycle, quota policy, ACL subjects | request-time enforcement (stateless gateways enforce, never decide) |
 | 2 | Model gateway | EnginePlane contract, identity/engine **projections** | front layer: authn fan-in, model-permission enforcement (fail-closed), interception chain, credential injection, metering **emission**; cp: caches + EnginePlane.Admin channel | routing config and quota execution (engine instance); Quota policy and IdentityMap authority (Identity & access); record stores (Records) |
 | 3 | Session | Session, EventStream, Approval | durable runtime identity, append-only runtime event stream, approval rendering | long-term record storage (→ #9) |
-| 4 | Orchestration | Blueprint, Run, Task | planner/executor/worker/judge dispatch, run state machines | sandbox internals (→ #5); policy rules (→ #8) |
+| 4 | Orchestration | Blueprint, Run, Task | planner/executor/worker/judge dispatch, run state machines; management agent (advise, #144) — first instantiation | sandbox internals (→ #5); policy rules (→ #8) |
 | 5 | Sandbox | Sandbox, Pool, Image | model-triggered provisioning, lifecycle, resource limits | credentials (credential proxy, AD-27 §6) |
 | 6 | Knowledge | KnowledgeBase, ChunkIndex, RetrievalPipeline | RAG-style domain-knowledge enhancement; source ACLs as item metadata at ingest | agent experience (→ #7); governance of tools (→ #8) |
 | 7 | Memory | MemoryItem, ReviewGate | agent experience/decisions at org/project/user scopes; review-gated writes | domain documents (→ #6) |

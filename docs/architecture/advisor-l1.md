@@ -1,0 +1,173 @@
+# Advisor L1 — module design
+
+Derived in #144 (management agent, placement-derivation slice 1).
+Authority: AD-38 (the deterministic-hard/LLM-soft split and this
+design's decisions), AD-36 (topology plane the product lands in),
+AD-37 (CLI two faces — advise is an admin-face command). Vocabulary:
+[glossary](glossary.md).
+
+## 1. Scope
+
+Placement derivation: given declared machine facts and component
+requirement profiles, derive which components can run on which
+machines (deterministic feasibility), and — with LLM assistance from
+slice 1.2 — rank feasible assignments with reasons and risks. The
+product is always the topology.yaml `placements:` section; human
+confirm is the gate before anything reaches disk.
+
+In scope: profile schema + loader, pure evaluator, machine-facts
+fields, `looming topology advise` interaction, append-only session
+log. Out of scope (named triggers, §7): LLM reasoning (1.2), join-time
+discovery (1.3), capacity management, re-balancing, auto-apply.
+
+**Positioning.** Looming is itself an agent (AD-38): the default
+posture is understand-environment → propose → human confirms →
+execute; commands are explicit modes. Advise is that paradigm's first
+surface and the Orchestration context's first instantiation — the
+loop runs embedded in the CLI process (the sandbox-zero-dependency
+two-layer split from #144); sandboxed execution arrives with
+agentruntime later.
+
+## 2. Model
+
+```
+ComponentProfile (knowledge; review-gated, shipped as data)
+  ├─ name    — must match the render allowlist vocabulary; unknown
+  │            names fail closed at load time
+  ├─ kind    — component family: kind-level defaults, per-profile override
+  ├─ hard:   — evaluator input ONLY; the model never sees ambiguity here
+  │   ├─ min_cpu_cores / min_memory_mb / min_disk_gb
+  │   ├─ arch: [x86_64, arm64]
+  │   ├─ needs_egress: bool
+  │   └─ ports: [...]      — claimed port names (conflict rule input)
+  └─ soft:   — serialized verbatim into the model context (slice 1.2)
+      ├─ preferred_zone: cloud | lan
+      └─ spread: component  — anti-affinity preference across instances
+
+Host.capabilities (facts; hand-declared in 1.1, discovered in 1.3)
+  ├─ hardware: { cpu_cores, memory_mb, disk_gb, arch }
+  └─ network:  { zone: cloud | lan, egress: bool, latencies_ms? }
+
+Feasibility = Evaluator(facts, profiles) → per (component, host) pair:
+  FEASIBLE | INFEASIBLE(violated hard rules, missing facts)
+```
+
+**Fail-closed everywhere.** A profile failing schema validation, a
+component name outside the render allowlist, or a fact a hard rule
+needs but the host does not declare — each fails closed with the gap
+named, never a default pass. A host with no `capabilities` block
+makes every component infeasible there, and the table says why.
+
+**Knowledge growth by review.** New components acquire derivation
+ability by adding a profile through PR + CI (schema validation +
+allowlist cross-check) — the same review-gated class as AGENTS.md and
+.ai assets. When the Registry context (#8) lands, profiles migrate
+there as entries and the loader swaps to retrieval; the schema does
+not change.
+
+## 3. Journey — `looming topology advise`
+
+1. **Load.** Read the topology file (hosts + declared capabilities)
+   and the profiles; record the profile-set hash.
+2. **Evaluate.** Run the evaluator → the full (component × host)
+   feasibility matrix. Slice 1.1 renders it as the table (§4) and
+   stops here.
+3. **Reason (1.2).** Genesis channel (#143) call: feasible set + soft
+   preferences + operator free text ("node3 runs a database, avoid
+   it") → ranked candidate placements, each with reasons and risks.
+   Free-text preferences affect the current session only — a recurring
+   preference becomes a profile change through review, never
+   sedimented silently.
+4. **Re-validate.** Every model-proposed placement re-runs through
+   the evaluator; a violation rejects the candidate and regenerates
+   (max 3), then degrades to table mode. The hard layer is the
+   backstop, not the model's own judgment.
+5. **Preview.** Unified diff of the topology file's `placements:`
+   section against current disk state.
+6. **Decide.** confirm (write the file — never auto-apply; the next
+   step is the operator's `looming apply`) / edit (open an editor) /
+   regenerate (add a preference, re-reason) / abort.
+7. **Record.** Append the session record (§6) — facts snapshot,
+   profile hash, raw model output with reasoning, human decision.
+
+## 4. Command surface
+
+```
+looming topology advise [--file PATH]   # default /etc/looming/topology.yaml
+```
+
+Table mode (slice 1.1) renders one row per (component, host) pair —
+the complete matrix, no pagination: the pair count is profiles ×
+hosts, bounded by definition, so a "top-K + --all" split is
+unnecessary at this granularity (C2 of the design discussion resolved
+this way). Ordering: components in allowlist order; hosts by memory
+headroom descending, CPU headroom as tiebreak (bin-packing
+convention). FEASIBLE rows show headroom; INFEASIBLE rows name the
+violated hard rules and any missing facts.
+
+## 5. Evaluator contract
+
+Pure functions in `platform/go/advisor`, one rule per hard
+constraint, each independently unit-tested across the full violation
+matrix:
+
+- **resource floors** — cpu/mem/disk below the profile minimum → infeasible
+- **egress** — profile `needs_egress: true` on a host with
+  `egress: false` → infeasible
+- **architecture** — host arch not in the profile arch list → infeasible
+- **ports** — claimed port names must exist in the component's render
+  Contract; feasibility reports the claimed set, while the existing
+  Declare surface keeps authority over conflict arbitration — the
+  evaluator never re-implements it
+- **fact completeness** — any hard-rule input absent → infeasible +
+  `missing: [facts...]`
+
+Input: declared hosts with capabilities, the profile set. Output:
+typed verdicts, never strings the caller must parse. No I/O, no model
+access, no global state — the same purity rule as the rest of
+platform/go. Module seam: `cli/internal/advisor` owns the interaction
+and depends on `platform/go/advisor`; the dependency never reverses.
+
+## 6. Aspects
+
+- **Model channel (1.2).** Genesis three-stage lifecycle (#143):
+  direct endpoint while the cluster is empty → after convergence the
+  credential rides the gateway as an upstream engine key, local copy
+  erased. Slice 1.1 ships no model call.
+- **Session record.** `~/.looming/advisor/sessions/<ts>.jsonl`,
+  append-only: facts snapshot, profile-set hash, raw model output with
+  reasoning, decision, rendered diff. This is the sediment the later
+  event backbone (Records context) absorbs — this slice builds no
+  event bus.
+- **Security.** Profiles and facts are operator-visible and
+  secret-free by construction; the session log may quote operator
+  free text — the advisor directory is mode 0700 under `~/.looming`,
+  the same discipline as credentials.yaml (AD-37 §5).
+- **Test pyramid.** Evaluator: full violation-matrix unit tests.
+  Table mode: golden-render tests. Journey: diff/confirm/abort flow
+  against a fixture topology file in integration tests. No model call
+  is testable in CI — 1.2 ships the model boundary behind an
+  interface with a recorded-response fake.
+
+## 7. Deferred (named triggers)
+
+- **LLM reasoning + full interaction protocol** — slice 1.2; closes #143.
+- **Join-time capability discovery** (egress probe, hardware read) — slice 1.3.
+- **`--yes` non-interactive pass-through** — deferred per maintainer
+  (non-blocking, not rejected); the shape is predetermined (AD-38
+  rule 9) when a real automation consumer exists.
+- **Plan-level composition** (whole-cluster assignment search beyond
+  pair feasibility) — arrives with model ranking in 1.2; no
+  deterministic plan solver is built before a consumer asks.
+- **Profile migration to Registry (#8)** — when the Registry context lands.
+
+## 8. Implementation slices (tracked in #144)
+
+- **1.1 deterministic-first** — profile schema + loader,
+  `Host.capabilities` fields, evaluator, `advise` table mode.
+  Valuable and fully testable without any model.
+- **1.2 model reasoning** — genesis channel (#143), ranked proposals
+  with reasons/risks, the re-validation loop, the full decide
+  interaction; closes #143.
+- **1.3 discovery** — join-time facts collection replaces hand
+  declaration; profiles migrate to Registry when #8 lands.
