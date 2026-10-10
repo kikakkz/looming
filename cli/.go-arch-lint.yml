@@ -5,10 +5,11 @@
 # CLI-1 (#108) migrated the admin face in from the retired topology
 # admin binary: applycmd converges via platform/go's apply pipeline,
 # dbcmd is the database-direct group (token create|list|revoke + guide
-# show), joincmd is the pulling host's self-registration. The admin
-# packages consume the platform/go kit as vendor imports (allowed by
-# depOnAnyVendor, pinned in go.mod) and stay independent of each other
-# and of the user-face capabilities.
+# show), joincmd is the pulling host's self-registration, advisecmd
+# (AD-38 slice 1.1) renders the advisor's deterministic placement
+# feasibility table. The admin packages consume the platform/go kit as
+# vendor imports (allowed by depOnAnyVendor, pinned in go.mod) and stay
+# independent of each other and of the user-face capabilities.
 version: 3
 
 allow:
@@ -26,10 +27,11 @@ components:
   applycmd:       { in: internal/admin/applycmd }
   dbcmd:          { in: internal/admin/dbcmd }
   joincmd:        { in: internal/admin/joincmd }
+  advisecmd:      { in: internal/advisor }
   cmd:            { in: cmd/looming }
 
 deps:
   onboard:
     mayDependOn: [profile, identityclient]
   cmd:
-    mayDependOn: [profile, identityclient, agentcfg, onboard, applycmd, dbcmd, joincmd]
+    mayDependOn: [profile, identityclient, agentcfg, onboard, applycmd, dbcmd, joincmd, advisecmd]
