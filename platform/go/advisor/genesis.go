@@ -76,16 +76,29 @@ func (s GenesisState) MarkErased(now time.Time) GenesisState {
 
 // SwitchReady reports whether stage 2 may complete now: a converge was
 // signalled, the gateway env file carries the genesis credential, and
-// — when the CLI wrote that file — a converge came AFTER the write (a
-// converge is what recreates the gateway container, so one predating
-// the write proves nothing about the running gateway). An operator-
-// prepared file (no CLI write on record) needs no ordering proof: the
-// signalling converge already ran with it in place.
-func (s GenesisState) SwitchReady(envMatches bool) bool {
-	if s.Stage != StageDirect || s.ConvergedAt == "" || !envMatches {
+// the converge postdates every evidence of the credential being in
+// place — the file's own modification time, and, when the CLI wrote
+// the file, the write stamp. A converge is what recreates the gateway
+// container, so one predating the file's last edit proves nothing
+// about the running gateway; an operator edit landing after the last
+// converge must not read as ready either way. Stamps carry second
+// precision, so a write and a converge in the same second
+// conservatively read as not ready (fail-closed: the next converge
+// clears it). A zero envModAt (stat evidence unavailable) never reads
+// as ready.
+func (s GenesisState) SwitchReady(envMatches bool, envModAt time.Time) bool {
+	if s.Stage != StageDirect || s.ConvergedAt == "" || !envMatches || envModAt.IsZero() {
 		return false
 	}
-	return s.EnvWrittenAt == "" || s.ConvergedAt > s.EnvWrittenAt
+	converged, err := time.Parse(time.RFC3339, s.ConvergedAt)
+	if err != nil || !envModAt.Before(converged) {
+		return false
+	}
+	if s.EnvWrittenAt == "" {
+		return true
+	}
+	written, err := time.Parse(time.RFC3339, s.EnvWrittenAt)
+	return err == nil && written.Before(converged)
 }
 
 // The gateway's upstream engine credential rides the phase-1 secret
@@ -101,8 +114,52 @@ const (
 // the genesis credential as the gateway's upstream engine credential —
 // docker env-file format (KEY=value lines).
 func RenderGatewayEnv(endpoint, apiKey string) string {
-	return GatewayUpstreamEnv + "=" + endpoint + "\n" +
-		GatewayUpstreamAuthEnv + "=" + apiKey + "\n"
+	return MergeGatewayEnv("", endpoint, apiKey)
+}
+
+// MergeGatewayEnv returns env-file content with the two managed
+// upstream keys set to the genesis credential: the first line of each
+// managed key is replaced in place, later duplicates collapse, absent
+// keys append at the end. Every other line — comments, blanks, the
+// operator's other secrets on the same channel — survives verbatim.
+func MergeGatewayEnv(existing, endpoint, apiKey string) string {
+	values := map[string]string{
+		GatewayUpstreamEnv:     endpoint,
+		GatewayUpstreamAuthEnv: apiKey,
+	}
+	var out []string
+	seen := map[string]bool{}
+	if existing != "" {
+		for _, line := range strings.Split(existing, "\n") {
+			trimmed := strings.TrimSpace(line)
+			key := ""
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				if k, _, ok := strings.Cut(trimmed, "="); ok {
+					key = strings.TrimSpace(k)
+				}
+			}
+			if v, managed := values[key]; managed {
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, key+"="+v)
+				continue
+			}
+			out = append(out, line)
+		}
+		// A file ending with a newline leaves a trailing empty element;
+		// the managed-key appends below re-add the terminator.
+		if n := len(out); n > 0 && out[n-1] == "" {
+			out = out[:n-1]
+		}
+	}
+	for _, key := range []string{GatewayUpstreamEnv, GatewayUpstreamAuthEnv} {
+		if !seen[key] {
+			out = append(out, key+"="+values[key])
+		}
+	}
+	return strings.Join(out, "\n") + "\n"
 }
 
 // GatewayEnvMatches reports whether content (a gateway env file) maps

@@ -725,6 +725,7 @@ func TestGenesisValidation(t *testing.T) {
 		{"missing endpoint", `genesis: {model: "m"}`, "genesis.endpoint is required"},
 		{"endpoint not a url", `genesis: {endpoint: "genesis.example.com"}`, "must be an absolute http(s) URL"},
 		{"endpoint not absolute", `genesis: {endpoint: "/v1"}`, "must be an absolute http(s) URL"},
+		{"endpoint embeds credentials", `genesis: {endpoint: "https://user:secret@genesis.example.com/v1"}`, "must not embed credentials"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

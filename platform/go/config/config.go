@@ -893,6 +893,8 @@ func (c *Config) validateGenesis(doc *yaml.Node) error {
 		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint is required when the genesis section is present")
 	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
 		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint %q must be an absolute http(s) URL", c.Genesis.Endpoint)
+	case u.User != nil:
+		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint must not embed credentials in the URL (userinfo) — the api key rides the secret channel, never the topology file")
 	}
 	c.Genesis.Endpoint = endpoint
 	c.Genesis.Model = strings.TrimSpace(c.Genesis.Model)

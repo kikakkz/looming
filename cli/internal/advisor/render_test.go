@@ -63,6 +63,17 @@ func indexOf(lines []string, cell string) int {
 	return -1
 }
 
+// requireOrdered asserts both cells render on their own lines and that
+// earlier's line precedes later's: indexOf's -1 miss must fail the
+// test, not silently satisfy the ordering comparison.
+func requireOrdered(t *testing.T, lines []string, earlier, later, msg string) {
+	t.Helper()
+	ei, li := indexOf(lines, earlier), indexOf(lines, later)
+	require.NotEqual(t, -1, ei, "%s: %q missing from the table", msg, earlier)
+	require.NotEqual(t, -1, li, "%s: %q missing from the table", msg, later)
+	assert.Less(t, ei, li, msg)
+}
+
 func containsCell(line, cell string) bool {
 	for _, field := range strings.Fields(line) {
 		if field == cell {
@@ -108,9 +119,9 @@ func TestRenderTableOrdering(t *testing.T) {
 		{Component: "identityd", Host: "none", Feasible: true},
 	}
 	lines = splitLines(renderTable(pairs))
-	assert.Less(t, indexOf(lines, "cpu"), indexOf(lines, "high"), "memory tie breaks on cpu desc")
-	assert.Less(t, indexOf(lines, "high"), indexOf(lines, "low"), "memory desc")
-	assert.Less(t, indexOf(lines, "low"), indexOf(lines, "none"), "unknown headroom last")
+	requireOrdered(t, lines, "cpu", "high", "memory tie breaks on cpu desc")
+	requireOrdered(t, lines, "high", "low", "memory desc")
+	requireOrdered(t, lines, "low", "none", "unknown headroom last")
 
 	// Infeasible pairs rank by the same headroom convention (advisor-l1
 	// §4's ordering is stated for hosts, not only feasible rows): two
@@ -120,7 +131,7 @@ func TestRenderTableOrdering(t *testing.T) {
 		{Component: "identityd", Host: "a-big", Feasible: false, Headroom: &padvisor.Headroom{MemoryMB: 4096, CPUCores: 2}},
 	}
 	lines = splitLines(renderTable(infeasible))
-	assert.Less(t, indexOf(lines, "a-big"), indexOf(lines, "z-small"), "infeasible pairs rank by memory headroom")
+	requireOrdered(t, lines, "a-big", "z-small", "infeasible pairs rank by memory headroom")
 }
 
 // TestBuildSessionRecord pins the record's shape: the file path, the

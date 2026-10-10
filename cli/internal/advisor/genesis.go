@@ -205,7 +205,11 @@ func advanceStageTwo(ctx context.Context, state padvisor.GenesisState, cfg *conf
 		return redactReport(report, creds), nil
 	}
 
-	if !state.SwitchReady(true) {
+	info, err := os.Stat(envFile)
+	if err != nil {
+		return nil, fmt.Errorf("genesis: stat gateway env file %q: %w", envFile, err)
+	}
+	if !state.SwitchReady(matches, info.ModTime()) {
 		report.Notes = append(report.Notes, "stage 2 pending: the env file carries the genesis credential, and a converge after the write is still awaited (re-run `looming apply`)")
 		return redactReport(report, creds), nil
 	}
@@ -213,10 +217,18 @@ func advanceStageTwo(ctx context.Context, state padvisor.GenesisState, cfg *conf
 	if err := ensureServiceKey(ctx, creds); err != nil {
 		return nil, err
 	}
+	// Persist the switched stage before erasing the local key: a state
+	// save failing with the key already gone would wedge every later
+	// sync (stage still direct, key unrecoverable). A run dying between
+	// the two saves is retried by syncGatewayStage.
+	switched := state.MarkSwitched(now)
+	if err := saveGenesisState(switched); err != nil {
+		return nil, err
+	}
 	if err := eraseGenesisKey(creds); err != nil {
 		return nil, err
 	}
-	if err := saveGenesisState(state.MarkSwitched(now).MarkErased(now)); err != nil {
+	if err := saveGenesisState(switched.MarkErased(now)); err != nil {
 		return nil, err
 	}
 	report.Stage = padvisor.StageGateway
@@ -265,12 +277,24 @@ func gatewayEnvFile(cfg *config.Config) string {
 	return ""
 }
 
-// writeGatewayEnvFile renders the genesis credential into the
+// writeGatewayEnvFile merges the genesis credential into the
 // operator-declared env file — the gateway's upstream engine credential
-// on the phase-1 secret channel. 0600: it is secret material at rest.
+// on the phase-1 secret channel. Only the two managed keys are set;
+// unrelated lines (the operator's other secrets, comments) survive
+// verbatim. 0600 always, via an explicit Chmod: WriteFile alone would
+// keep a pre-existing file's looser mode.
 func writeGatewayEnvFile(path, endpoint, apiKey string) error {
-	if err := os.WriteFile(path, []byte(padvisor.RenderGatewayEnv(endpoint, apiKey)), 0o600); err != nil {
+	// #nosec G304 -- the path is the operator-declared env file.
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("genesis: read gateway env file %q: %w", path, err)
+	}
+	merged := padvisor.MergeGatewayEnv(string(existing), endpoint, apiKey)
+	if err := os.WriteFile(path, []byte(merged), 0o600); err != nil {
 		return fmt.Errorf("genesis: write gateway env file %q: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("genesis: chmod gateway env file %q: %w", path, err)
 	}
 	return nil
 }

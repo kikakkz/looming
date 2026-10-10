@@ -55,43 +55,53 @@ func TestGenesisStateCarriesNoSecrets(t *testing.T) {
 }
 
 // TestSwitchReadyMatrix: the stage-1→2 gate, evidence by evidence.
-// The load-bearing case is the last pair: a converge PREDATING the
-// CLI's env-file write proves nothing about the running gateway (the
-// write needs a later converge to be picked up), while an
-// operator-prepared file (no write on record) switches on the first
-// signal.
+// The load-bearing cases: a converge PREDATING the CLI's env-file
+// write proves nothing about the running gateway (the write needs a
+// later converge to be picked up); the file's own modification time
+// bounds readiness from the other side — an operator edit landing
+// after the last converge must not read as ready, because that
+// converge never recreated the gateway with it.
 func TestSwitchReadyMatrix(t *testing.T) {
 	cases := []struct {
-		name  string
-		state GenesisState
-		env   bool
-		want  bool
+		name     string
+		state    GenesisState
+		env      bool
+		envModAt time.Time
+		want     bool
 	}{
-		{"already switched", GenesisState{Stage: StageGateway, ConvergedAt: stamp(t0)}, true, false},
-		{"no converge yet", GenesisState{Stage: StageDirect}, true, false},
-		{"env mismatch", GenesisState{Stage: StageDirect, ConvergedAt: stamp(t0)}, false, false},
+		{"already switched", GenesisState{Stage: StageGateway, ConvergedAt: stamp(t0)}, true, t0, false},
+		{"no converge yet", GenesisState{Stage: StageDirect}, true, t0, false},
+		{"env mismatch", GenesisState{Stage: StageDirect, ConvergedAt: stamp(t0)}, false, t0, false},
+		{"zero mtime never ready", GenesisState{Stage: StageDirect, ConvergedAt: stamp(t0)}, true, time.Time{}, false},
 		{
 			"operator prepared file switches on first signal",
 			GenesisState{Stage: StageDirect, ConvergedAt: stamp(t0)},
-			true,
-			true,
+			true, t0.Add(-time.Minute), true,
+		},
+		{
+			"operator edit after the converge blocks",
+			GenesisState{Stage: StageDirect, ConvergedAt: stamp(t0)},
+			true, t0.Add(time.Minute), false,
 		},
 		{
 			"cli written file waits for a later converge",
 			GenesisState{Stage: StageDirect, ConvergedAt: stamp(t0), EnvWrittenAt: stamp(t1)},
-			true,
-			false,
+			true, t0, false,
 		},
 		{
 			"converge after the write completes",
 			GenesisState{Stage: StageDirect, ConvergedAt: stamp(t2), EnvWrittenAt: stamp(t1)},
-			true,
-			true,
+			true, t1.Add(-time.Minute), true,
+		},
+		{
+			"operator edit after a satisfied write still blocks",
+			GenesisState{Stage: StageDirect, ConvergedAt: stamp(t2), EnvWrittenAt: stamp(t1)},
+			true, t2.Add(time.Minute), false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.state.SwitchReady(tc.env))
+			assert.Equal(t, tc.want, tc.state.SwitchReady(tc.env, tc.envModAt))
 		})
 	}
 }
@@ -124,4 +134,49 @@ func TestGatewayEnvRenderShape(t *testing.T) {
 	require.Len(t, lines, 2)
 	assert.Equal(t, GatewayUpstreamEnv+"=https://e.example.com/v1", lines[0])
 	assert.Equal(t, GatewayUpstreamAuthEnv+"=k", lines[1])
+}
+
+// TestMergeGatewayEnv: the managed keys are set in place — the
+// operator's other secrets, comments, and blanks on the same env file
+// survive verbatim; duplicates collapse; absent keys append.
+func TestMergeGatewayEnv(t *testing.T) {
+	const endpoint, key = "https://genesis.example.com/v1", "genesis-key"
+
+	t.Run("empty renders the two managed lines", func(t *testing.T) {
+		assert.Equal(t, RenderGatewayEnv(endpoint, key), MergeGatewayEnv("", endpoint, key))
+	})
+
+	t.Run("unrelated lines survive, managed keys replace in place", func(t *testing.T) {
+		existing := "# operator secret channel\nOTHER_SECRET=hunter2\n\n" +
+			GatewayUpstreamEnv + "=https://old.example.com/v1\n" +
+			"TRAILING=keepme\n"
+		got := MergeGatewayEnv(existing, endpoint, key)
+		assert.True(t, GatewayEnvMatches(got, endpoint, key))
+		assert.Contains(t, got, "# operator secret channel\n")
+		assert.Contains(t, got, "OTHER_SECRET=hunter2\n")
+		assert.Contains(t, got, "TRAILING=keepme\n")
+		assert.NotContains(t, got, "old.example.com")
+		// The managed key keeps its original position (before TRAILING).
+		assert.Less(t, strings.Index(got, GatewayUpstreamEnv+"="), strings.Index(got, "TRAILING="))
+	})
+
+	t.Run("missing keys append at the end", func(t *testing.T) {
+		got := MergeGatewayEnv("OTHER=value\n", endpoint, key)
+		assert.True(t, GatewayEnvMatches(got, endpoint, key))
+		assert.True(t, strings.HasPrefix(got, "OTHER=value\n"))
+	})
+
+	t.Run("duplicate managed keys collapse", func(t *testing.T) {
+		existing := GatewayUpstreamEnv + "=a\n" + GatewayUpstreamEnv + "=b\n"
+		got := MergeGatewayEnv(existing, endpoint, key)
+		assert.Equal(t, 1, strings.Count(got, GatewayUpstreamEnv+"="))
+		assert.True(t, GatewayEnvMatches(got, endpoint, key))
+	})
+
+	t.Run("commented managed keys are not lines", func(t *testing.T) {
+		existing := "# " + GatewayUpstreamEnv + "=old\n"
+		got := MergeGatewayEnv(existing, endpoint, key)
+		assert.True(t, GatewayEnvMatches(got, endpoint, key))
+		assert.Contains(t, got, "# "+GatewayUpstreamEnv+"=old\n")
+	})
 }
