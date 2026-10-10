@@ -165,7 +165,9 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 
 - **1.1 deterministic-first** — profile schema + loader,
   `Host.capabilities` fields, evaluator, `advise` table mode.
-  Valuable and fully testable without any model.
+  Valuable and fully testable without any model. Landed as slice 1.1
+  (#147): `looming advise` renders the deterministic feasibility
+  table; slices 1.2/1.3 remain.
 - **1.2 model reasoning** — genesis channel (#143), ranked proposals
   with reasons/risks, the re-validation loop, the full decide
   interaction; closes #143.
