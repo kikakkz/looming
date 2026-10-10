@@ -111,6 +111,16 @@ func TestRenderTableOrdering(t *testing.T) {
 	assert.Less(t, indexOf(lines, "cpu"), indexOf(lines, "high"), "memory tie breaks on cpu desc")
 	assert.Less(t, indexOf(lines, "high"), indexOf(lines, "low"), "memory desc")
 	assert.Less(t, indexOf(lines, "low"), indexOf(lines, "none"), "unknown headroom last")
+
+	// Infeasible pairs rank by the same headroom convention (advisor-l1
+	// §4's ordering is stated for hosts, not only feasible rows): two
+	// egress-false hosts order by declared memory desc, not host id.
+	infeasible := []padvisor.Verdict{
+		{Component: "identityd", Host: "z-small", Feasible: false, Headroom: &padvisor.Headroom{MemoryMB: 512, CPUCores: -1}},
+		{Component: "identityd", Host: "a-big", Feasible: false, Headroom: &padvisor.Headroom{MemoryMB: 4096, CPUCores: 2}},
+	}
+	lines = splitLines(renderTable(infeasible))
+	assert.Less(t, indexOf(lines, "a-big"), indexOf(lines, "z-small"), "infeasible pairs rank by memory headroom")
 }
 
 // TestBuildSessionRecord pins the record's shape: the file path, the

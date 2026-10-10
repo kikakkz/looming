@@ -205,7 +205,10 @@ func TestEvaluateViolationMatrix(t *testing.T) {
 				assert.Equal(t, tc.rule, v.Violations[0].Rule)
 				assert.NotEmpty(t, v.Violations[0].Detail)
 				assert.Empty(t, v.Missing)
-				assert.Nil(t, v.Headroom)
+				// Headroom is computed for infeasible pairs too (the
+				// table's host ordering ranks by it) — declared facts
+				// mean a non-nil value, negative allowed.
+				require.NotNil(t, v.Headroom)
 			}
 			if tc.wantMiss != nil {
 				assert.Empty(t, v.Violations)

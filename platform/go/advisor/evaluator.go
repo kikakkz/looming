@@ -46,11 +46,13 @@ type RuleViolation struct {
 	Detail string
 }
 
-// Headroom is the feasible pair's remaining capacity after the
-// profile's floors: the bin-packing figures the table mode ranks by.
-// It is nil unless the host declared both facts — a feasible pair can
-// legitimately involve no resource rule (all-zero floors), and
-// headroom cannot be computed from undeclared facts.
+// Headroom is the pair's remaining capacity after the profile's
+// floors: the bin-packing figures the table mode ranks by. It is nil
+// unless the host declared both facts — it cannot be computed from
+// undeclared facts. It is computed for infeasible pairs too (negative
+// when a floor fails): the table's host ordering ranks by headroom
+// regardless of feasibility, while the display only quotes it on
+// FEASIBLE rows (advisor-l1 §4).
 type Headroom struct {
 	MemoryMB int
 	CPUCores int
@@ -112,9 +114,7 @@ func evaluatePair(p Profile, h config.Host) Verdict {
 	v.Feasible = len(violations) == 0 && len(missing) == 0
 	v.Violations = violations
 	v.Missing = sortedStrings(missing)
-	if v.Feasible {
-		v.Headroom = headroom(p, h)
-	}
+	v.Headroom = headroom(p, h)
 	return v
 }
 
@@ -214,10 +214,12 @@ func checkArch(p Profile, h config.Host, violations []RuleViolation, missing []s
 	return violations, missing
 }
 
-// headroom computes the feasible pair's remaining capacity after the
-// profile's floors. Both facts must be declared — anything else leaves
-// it nil (the table renders "n/a"). On a feasible pair the floors hold
-// whenever they are non-zero, so the subtraction never goes negative.
+// headroom computes the pair's remaining capacity after the profile's
+// floors, feasible or not — infeasible pairs can read negative (a
+// failed floor), which is exactly the ranking signal the table's host
+// ordering consumes. Both facts must be declared; anything else
+// leaves it nil (the table renders "n/a" on feasible rows, and ranks
+// fact-less pairs last either way).
 func headroom(p Profile, h config.Host) *Headroom {
 	hw := h.Capabilities
 	if hw == nil || hw.Hardware.MemoryMB == 0 || hw.Hardware.CPUCores == 0 {
