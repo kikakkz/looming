@@ -125,15 +125,64 @@ type StatePostgres struct {
 	Port    int
 }
 
+// Zone and Arch are the capability vocabularies a host's declared
+// facts draw from (advisor-l1 §2). The advisor's evaluator matches
+// profiles against exactly these values, so the config layer is where
+// the vocabulary is pinned.
+const (
+	ZoneCloud = "cloud"
+	ZoneLAN   = "lan"
+)
+
+const (
+	ArchX8664 = "x86_64"
+	ArchARM64 = "arm64"
+)
+
 // Host is one declared machine. ID is the operator-chosen identity
 // every reference (placements, artifacts, output) uses; Address is a
 // plain phase-1 IP or hostname; SSHUser selects the executor channel
 // (empty means local docker — the single-host degenerate case).
+// Capabilities is the optional advisor-l1 §2 facts block (slice 1.1:
+// hand-declared; slice 1.3: join-time discovery) — nil keeps phase-1
+// files valid; the advisor fails closed on the gap, never a default.
 type Host struct {
-	ID      string
-	Address string
-	SSHUser string
-	Labels  []string
+	ID           string
+	Address      string
+	SSHUser      string
+	Labels       []string
+	Capabilities *Capabilities
+}
+
+// Capabilities is one host's declared machine facts, the advisor
+// evaluator's hard-rule input. Scalars at zero/empty mean "not
+// declared" (the evaluator reads them as a missing fact); Egress is a
+// pointer because declared-false and undeclared must stay distinct —
+// needs-egress on a host with egress: false is a violation, on a host
+// without the fact it is a named gap.
+type Capabilities struct {
+	Hardware Hardware
+	Network  Network
+}
+
+// Hardware is the declared compute shape: core count, memory, disk,
+// and the CPU architecture vocabulary (x86_64 | arm64, empty when not
+// declared).
+type Hardware struct {
+	CPUCores int
+	MemoryMB int
+	DiskGB   int
+	Arch     string
+}
+
+// Network is the declared placement-relevant network shape: the zone
+// vocabulary (cloud | lan, empty when not declared), whether the host
+// can reach out of the cluster (nil = undeclared), and optional
+// latency figures keyed by target host id.
+type Network struct {
+	Zone        string
+	Egress      *bool
+	LatenciesMS map[string]int
 }
 
 // Placement declares one component on one host: the named ports it
@@ -196,10 +245,52 @@ type rawStatePostgres struct {
 }
 
 type rawHost struct {
-	ID      string   `yaml:"id"`
-	Address string   `yaml:"address"`
-	SSHUser string   `yaml:"ssh_user"`
-	Labels  []string `yaml:"labels"`
+	ID           string           `yaml:"id"`
+	Address      string           `yaml:"address"`
+	SSHUser      string           `yaml:"ssh_user"`
+	Labels       []string         `yaml:"labels"`
+	Capabilities *rawCapabilities `yaml:"capabilities"`
+}
+
+type rawCapabilities struct {
+	Hardware rawHardware `yaml:"hardware"`
+	Network  rawNetwork  `yaml:"network"`
+}
+
+type rawHardware struct {
+	CPUCores int    `yaml:"cpu_cores"`
+	MemoryMB int    `yaml:"memory_mb"`
+	DiskGB   int    `yaml:"disk_gb"`
+	Arch     string `yaml:"arch"`
+}
+
+type rawNetwork struct {
+	Zone        string         `yaml:"zone"`
+	Egress      *bool          `yaml:"egress"`
+	LatenciesMS map[string]int `yaml:"latencies_ms"`
+}
+
+// convertHost maps the raw host entry onto the validated shape,
+// allocating the capabilities block only when the operator declared
+// one (nil stays nil — the phase-1 file shape).
+func convertHost(h rawHost) Host {
+	out := Host{ID: h.ID, Address: h.Address, SSHUser: h.SSHUser, Labels: h.Labels}
+	if h.Capabilities != nil {
+		out.Capabilities = &Capabilities{
+			Hardware: Hardware{
+				CPUCores: h.Capabilities.Hardware.CPUCores,
+				MemoryMB: h.Capabilities.Hardware.MemoryMB,
+				DiskGB:   h.Capabilities.Hardware.DiskGB,
+				Arch:     h.Capabilities.Hardware.Arch,
+			},
+			Network: Network{
+				Zone:        h.Capabilities.Network.Zone,
+				Egress:      h.Capabilities.Network.Egress,
+				LatenciesMS: h.Capabilities.Network.LatenciesMS,
+			},
+		}
+	}
+	return out
 }
 
 type rawPlacement struct {
@@ -276,7 +367,7 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	for _, h := range raw.Hosts {
-		cfg.Hosts = append(cfg.Hosts, Host(h))
+		cfg.Hosts = append(cfg.Hosts, convertHost(h))
 	}
 	for _, p := range raw.Placements {
 		// Field-for-field convertible with rawPlacement: the compiler
@@ -463,10 +554,43 @@ func (c *Config) validateHosts(doc *yaml.Node) error {
 		if prev, dup := addresses[h.Address]; dup {
 			return c.fail(line, ErrDuplicateHost, "host address %q repeats entry at line %d", h.Address, lines[prev])
 		}
+		if msg := capabilitiesChecks(h.Capabilities); msg != "" {
+			return c.fail(line, ErrInvalidHost, "host %q: %s", h.ID, msg)
+		}
 		ids[h.ID] = i
 		addresses[h.Address] = i
 	}
 	return nil
+}
+
+// capabilitiesChecks validates the declared facts block: non-negative
+// figures, vocabulary-pinned zone and arch, non-negative latencies.
+// Nil is valid — the advisor evaluator, not the schema, owns the
+// fail-closed gap (advisor-l1 §2: a host without capabilities makes
+// every component infeasible there, with the missing facts named).
+func capabilitiesChecks(cap *Capabilities) string {
+	if cap == nil {
+		return ""
+	}
+	hw, nw := cap.Hardware, cap.Network
+	switch {
+	case hw.CPUCores < 0:
+		return fmt.Sprintf("capabilities.hardware.cpu_cores is %d, must be >= 0", hw.CPUCores)
+	case hw.MemoryMB < 0:
+		return fmt.Sprintf("capabilities.hardware.memory_mb is %d, must be >= 0", hw.MemoryMB)
+	case hw.DiskGB < 0:
+		return fmt.Sprintf("capabilities.hardware.disk_gb is %d, must be >= 0", hw.DiskGB)
+	case hw.Arch != "" && hw.Arch != ArchX8664 && hw.Arch != ArchARM64:
+		return fmt.Sprintf("capabilities.hardware.arch %q must be %q or %q", hw.Arch, ArchX8664, ArchARM64)
+	case nw.Zone != "" && nw.Zone != ZoneCloud && nw.Zone != ZoneLAN:
+		return fmt.Sprintf("capabilities.network.zone %q must be %q or %q", nw.Zone, ZoneCloud, ZoneLAN)
+	}
+	for target, ms := range nw.LatenciesMS {
+		if ms < 0 {
+			return fmt.Sprintf("capabilities.network.latencies_ms[%q] is %d, must be >= 0", target, ms)
+		}
+	}
+	return ""
 }
 
 func (c *Config) validatePlacements(doc *yaml.Node) error {
