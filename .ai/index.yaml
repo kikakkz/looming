@@ -60,6 +60,10 @@
 # 2026-10-10 advisor slice 1.1 (#144) re-validated: AGENTS.md directory
 # map platform/go + cli lines name the advisor package and the advise
 # command; all read_order anchors resolve.
+# 2026-10-11 genesis slice 1.2-A (#143, #148) re-validated: AGENTS.md
+# directory map cli/ line names the genesis model-channel lifecycle and
+# platform/go/ line names the LLMClient seam + stage machine; all
+# read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
