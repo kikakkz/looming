@@ -25,7 +25,7 @@ func testLog() *slog.Logger {
 func runWith(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	cmd := New(&out, testLog())
+	cmd := New(&out, testLog(), nil)
 	cmd.SetArgs(args)
 	err := cmd.ExecuteContext(context.Background())
 	return out.String(), err
@@ -104,7 +104,7 @@ func TestApplyWithoutStatePlaneDemandsDatabaseURL(t *testing.T) {
 }
 
 func TestApplyHelpListsFlags(t *testing.T) {
-	cmd := New(io.Discard, testLog())
+	cmd := New(io.Discard, testLog(), nil)
 	cmd.SetArgs([]string{"--help"})
 	require.NoError(t, cmd.ExecuteContext(context.Background()))
 	usage := cmd.Flags().FlagUsages()

@@ -9,6 +9,7 @@
 package applycmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -37,7 +38,11 @@ const DatabaseURLEnv = "TOPOLOGY_DATABASE_URL"
 // to end (state plane → declare → render → per-host docker converge),
 // or stop after the render with --dry-run. --print-invite requests the
 // first-admin bootstrap invite even when the converge changed nothing.
-func New(stdout io.Writer, log *slog.Logger) *cobra.Command {
+// convergedHook, when non-nil, runs after a successful non-dry-run
+// converge — cmd/looming wires the genesis lifecycle's gateway-ready
+// signal here (#143); a hook failure warns in the log and never fails
+// the converge that already happened.
+func New(stdout io.Writer, log *slog.Logger, convergedHook func(context.Context) error) *cobra.Command {
 	var configPath, bundleRoot string
 	var dryRun, printInvite bool
 
@@ -106,6 +111,11 @@ func New(stdout io.Writer, log *slog.Logger) *cobra.Command {
 				return errors.New("apply: one or more hosts failed to converge (see the summary above)")
 			}
 			log.Info("apply converged", "revision", result.Revision)
+			if convergedHook != nil {
+				if hookErr := convergedHook(cmd.Context()); hookErr != nil {
+					log.Warn("post-converge hook failed", "err", hookErr)
+				}
+			}
 			return nil
 		},
 	}

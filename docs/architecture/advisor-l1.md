@@ -130,10 +130,23 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 
 ## 6. Aspects
 
-- **Model channel (1.2).** Genesis three-stage lifecycle (#143):
-  direct endpoint while the cluster is empty → after convergence the
-  credential rides the gateway as an upstream engine key, local copy
-  erased. Slice 1.1 ships no model call.
+- **Model channel (1.2-A landed).** Genesis three-stage lifecycle
+  (#143, closed by slice 1.2-A): stage 1 calls the genesis endpoint
+  directly — an empty cluster is fine; apply's converge success is the
+  gateway-ready signal; stage 2 the credential rides the gateway-front
+  placement's declared env file as `GATEWAY_UPSTREAM(_AUTH)` — the
+  phase-1 secret channel, the same upstream-auth surface slice D
+  (#114) ships — while the advisor's own calls switch to the gateway
+  front with a service-identity LoomingKey (identity's kind=service
+  principal, self-issued key, stored in the client-side secret
+  channel); then the local genesis copy is erased — no emergency
+  fallback, recovery = the admin re-provides. The `LLMClient` seam
+  (OpenAI-compatible chat completions — the converged shape both the
+  gateway and third-party endpoints serve) lives in
+  platform/go/advisor; the CLI owns the lifecycle state at
+  `~/.looming/advisor/genesis.json` (the 0600 class, secrets never in
+  it) and the `looming genesis set|sync|status` surface. Slice 1.1
+  shipped no model call; slice 1.2-B puts the seam to work.
 - **Session record.** `~/.looming/advisor/sessions/<ts>.jsonl`,
   append-only: facts snapshot, profile-set hash, raw model output with
   reasoning, decision, rendered diff. This is the sediment the later
@@ -168,8 +181,10 @@ and depends on `platform/go/advisor`; the dependency never reverses.
   Valuable and fully testable without any model. Landed as slice 1.1
   (#147): `looming advise` renders the deterministic feasibility
   table; slices 1.2/1.3 remain.
-- **1.2 model reasoning** — genesis channel (#143), ranked proposals
-  with reasons/risks, the re-validation loop, the full decide
-  interaction; closes #143.
+- **1.2 model reasoning** — genesis channel (#143; landed as 1.2-A:
+  the LLMClient seam, the lifecycle state machine, the service
+  identity, the erasure — closes #143), ranked proposals with
+  reasons/risks, the re-validation loop, the full decide interaction
+  (1.2-B); closes #143.
 - **1.3 discovery** — join-time facts collection replaces hand
   declaration; profiles migrate to Registry when #8 lands.

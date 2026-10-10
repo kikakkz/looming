@@ -11,13 +11,17 @@ import (
 	"github.com/kikakkz/looming/platform/go/config"
 )
 
-// sessionsDirName is the advisor state directory under the operator's
-// home: the append-only session log lives at
-// ~/.looming/advisor/sessions/<UTC RFC3339>.jsonl (advisor-l1 §6).
-// The directory is mode 0700 — the same discipline as credentials.yaml
-// (AD-37 §5): the record may quote operator free text from slice 1.2
-// onward, so it sits in the credentials class from the start.
-const sessionsDirName = ".looming/advisor/sessions"
+// advisorDirName is the advisor state directory under the operator's
+// home; the genesis lifecycle state file lives directly in it, and the
+// append-only session log at advisorDirName/sessions/<UTC RFC3339>.jsonl
+// (advisor-l1 §6). The directory is mode 0700 — the same discipline as
+// credentials.yaml (AD-37 §5): the record may quote operator free text
+// from slice 1.2 onward, so it sits in the credentials class from the
+// start.
+const advisorDirName = ".looming/advisor"
+
+// sessionsDirName is the append-only session log's home.
+const sessionsDirName = advisorDirName + "/sessions"
 
 // sessionRecord is one appended JSONL line: the facts snapshot, the
 // profile-set hash, the matrix summary, and the human decision. Slice
