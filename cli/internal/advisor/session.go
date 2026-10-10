@@ -24,16 +24,40 @@ const advisorDirName = ".looming/advisor"
 const sessionsDirName = advisorDirName + "/sessions"
 
 // sessionRecord is one appended JSONL line: the facts snapshot, the
-// profile-set hash, the matrix summary, and the human decision. Slice
-// 1.2 extends it with the raw model output; the append-only shape does
-// not change.
+// profile-set hash, the matrix summary, the human decision, and — for
+// reasoned sessions (slice 1.2) — the guardrailed proposal with its
+// rejection trail. The append-only shape does not change.
 type sessionRecord struct {
-	Timestamp     string        `json:"ts"`
-	File          string        `json:"file"`
-	ProfileSHA256 string        `json:"profile_sha256"`
-	FactsSnapshot []config.Host `json:"facts_snapshot"`
-	Matrix        matrixSummary `json:"matrix"`
-	Decision      string        `json:"decision"`
+	Timestamp     string          `json:"ts"`
+	File          string          `json:"file"`
+	ProfileSHA256 string          `json:"profile_sha256"`
+	FactsSnapshot []config.Host   `json:"facts_snapshot"`
+	Matrix        matrixSummary   `json:"matrix"`
+	Decision      string          `json:"decision"`
+	Proposal      *proposalRecord `json:"proposal,omitempty"`
+}
+
+// proposalRecord is the reasoned session's model output: the operator
+// preference (quoted — the log may quote operator free text, which is
+// why the directory sits at 0700), the guardrail trail, the accepted
+// placements with their reasons, and the risk list. Never carries
+// credentials: the genesis api key and the service LoomingKey never
+// enter the record (redaction asserted in tests).
+type proposalRecord struct {
+	Preference string            `json:"preference,omitempty"`
+	Attempts   int               `json:"attempts,omitempty"`
+	Degraded   bool              `json:"degraded,omitempty"`
+	Rejections []string          `json:"rejections,omitempty"`
+	Placements []placementRecord `json:"placements,omitempty"`
+	Risks      []string          `json:"risks,omitempty"`
+}
+
+// placementRecord is one accepted (guardrail-passed) placement with
+// the model's reason.
+type placementRecord struct {
+	Component string `json:"component"`
+	Host      string `json:"host"`
+	Reason    string `json:"reason"`
 }
 
 // matrixSummary is the session record's feasibility-matrix digest:

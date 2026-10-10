@@ -93,7 +93,8 @@ not change.
 ## 4. Command surface
 
 ```
-looming topology advise [--file PATH]   # default /etc/looming/topology.yaml
+looming advise [--file PATH] [--reason] [--preference TEXT]
+               # default /etc/looming/topology.yaml
 ```
 
 Table mode (slice 1.1) renders one row per (component, host) pair —
@@ -104,6 +105,15 @@ this way). Ordering: components in allowlist order; hosts by memory
 headroom descending, CPU headroom as tiebreak (bin-packing
 convention). FEASIBLE rows show headroom; INFEASIBLE rows name the
 violated hard rules and any missing facts.
+
+Reason mode (slice 1.2, `--reason`) runs the §3 journey steps 3–7:
+`--preference` carries the operator's free text (session-only;
+prompted when omitted on a terminal); regeneration folds additions
+forward. The proposal names (component, host) pairs; the CLI owns the
+mechanical splice — moved components keep their published ports and
+operator wiring, new components get the contract listen port as the
+lowest free port ≥ 1024 on the target host, and the spliced document
+must load through the real config validator before it is ever shown.
 
 ## 5. Evaluator contract
 
@@ -181,10 +191,16 @@ and depends on `platform/go/advisor`; the dependency never reverses.
   Valuable and fully testable without any model. Landed as slice 1.1
   (#147): `looming advise` renders the deterministic feasibility
   table; slices 1.2/1.3 remain.
-- **1.2 model reasoning** — genesis channel (#143; landed as 1.2-A:
-  the LLMClient seam, the lifecycle state machine, the service
-  identity, the erasure — closes #143), ranked proposals with
-  reasons/risks, the re-validation loop, the full decide interaction
-  (1.2-B); closes #143.
+- **1.2 model reasoning** — landed in two parts. 1.2-A (#148) the
+  genesis channel: the LLMClient seam, the lifecycle state machine, the
+  service identity, the erasure — closes #143. 1.2-B the reasoned
+  interaction: `looming advise --reason` proposes ranked placements
+  with reasons and risks over the evaluator's feasible set + the
+  profiles' soft sections + the operator's session preference; the
+  guardrail re-runs every placement through the evaluator (max 3
+  attempts, then degrades to the table mode); the placements splice
+  previews as a unified diff and lands on disk only on confirm —
+  edit (revalidated through the real config validator), regenerate
+  (preference folds forward), or abort.
 - **1.3 discovery** — join-time facts collection replaces hand
   declaration; profiles migrate to Registry when #8 lands.

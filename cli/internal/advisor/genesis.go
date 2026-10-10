@@ -365,7 +365,7 @@ func modelChannel(cfg *config.Config) (padvisor.LLMClient, error) {
 		return padvisor.NewGatewayClient(strings.TrimSuffix(p.GatewayURL, "/")+"/v1", key, nil)
 	}
 	if cfg == nil || cfg.Genesis == nil {
-		return nil, errors.New("advise: no genesis section in the topology and the channel never switched to the gateway — model calls unavailable")
+		return nil, errors.New("advise: model calls need the genesis channel — declare genesis: {endpoint: ...} in the topology and run `looming genesis set`, or complete the switch to the gateway (see `looming genesis status`)")
 	}
 	key, err := creds.GenesisKey()
 	if err != nil {
