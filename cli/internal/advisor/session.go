@@ -64,6 +64,13 @@ func appendSessionRecordTo(dir string, rec sessionRecord) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("advise: create session directory: %w", err)
 	}
+	// MkdirAll leaves an existing directory's mode untouched — widen a
+	// previously-created or hand-edged directory back to the
+	// credentials-class contract (AD-37 §5) before the append.
+	// #nosec G302 -- directory mode, not a file: 0700 is the contract.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("advise: secure session directory: %w", err)
+	}
 	// #nosec G304 -- the path is the operator's own advisor state directory.
 	f, err := os.OpenFile(filepath.Join(dir, rec.Timestamp+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {

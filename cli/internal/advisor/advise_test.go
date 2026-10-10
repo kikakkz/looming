@@ -4,7 +4,10 @@ package advisor
 
 import (
 	"bytes"
+	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +29,33 @@ func TestRunPrintsTableAndExitsZeroEvenWithInfeasiblePairs(t *testing.T) {
 	assert.Contains(t, out, "missing facts:")
 	assert.Empty(t, stderr.String())
 }
+
+// TestRunWarnsAndSkipsRecordWhenTableWriteFails: a broken stdout
+// means the table never reached the operator — warn, exit 0, and
+// record nothing.
+func TestRunWarnsAndSkipsRecordWhenTableWriteFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var stderr strings.Builder
+	require.NoError(t, run(failWriter{}, &stderr, filepath.Join("testdata", "topology.yaml")))
+	assert.Contains(t, stderr.String(), "table not written")
+	entries, err := os.ReadDir(filepath.Join(home, sessionsDirName))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// No directory, no record — exactly the point.
+	case err != nil:
+		require.NoError(t, err)
+	default:
+		assert.Empty(t, entries, "no session record when the table was not delivered")
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errWrite }
+
+var errWrite = errors.New("write failed")
 
 // TestRunLoadFailureExitsNonZero: an unreadable or invalid topology
 // file is the command's only failure mode.

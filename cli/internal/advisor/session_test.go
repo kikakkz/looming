@@ -57,6 +57,24 @@ func TestAppendSessionRecordCreatesDirAndAppends(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), fileInfo.Mode().Perm(), "session file must be 0600")
 }
 
+// TestAppendSessionRecordSecuresPreExistingWideDirectory: the mode
+// contract holds even when the directory already existed wider
+// (MkdirAll alone would leave it permissive).
+func TestAppendSessionRecordSecuresPreExistingWideDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	// #nosec G301 G302 -- deliberately wide: the test asserts the append tightens it.
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	// #nosec G302 -- deliberately wide: the test asserts the append tightens it.
+	require.NoError(t, os.Chmod(dir, 0o755))
+
+	rec := sessionRecord{Timestamp: "2026-10-09T12:34:56Z", Decision: decisionTableViewed}
+	require.NoError(t, appendSessionRecordTo(dir, rec))
+
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "pre-existing directory must be tightened to 0700")
+}
+
 // TestAppendSessionRecordErrorPaths covers the fail-closed branches:
 // home resolution, directory creation, and log-open failures each
 // surface as errors (run() downgrades them to a warning — the exit

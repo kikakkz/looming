@@ -75,7 +75,12 @@ func run(stdout, stderr io.Writer, filePath string) error {
 	}
 
 	verdicts := padvisor.Evaluate(cfg.Hosts, profiles)
-	_, _ = fmt.Fprint(stdout, renderTable(verdicts))
+	if _, err := fmt.Fprint(stdout, renderTable(verdicts)); err != nil {
+		// The table never reached the operator — recording a
+		// "table-viewed" decision would be a false record.
+		_, _ = fmt.Fprintf(stderr, "advise: warning: table not written: %v\n", err)
+		return nil
+	}
 
 	rec := buildSessionRecord(filePath, cfg.Hosts, verdicts, profileSHA256(padvisor.DefaultProfilesYAML()), time.Now())
 	if err := appendSessionRecord(rec); err != nil {
