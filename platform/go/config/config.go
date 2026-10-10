@@ -54,6 +54,7 @@ var (
 	ErrUnknownComponent     = errors.New("config: unknown component (phase-1 allowlist)")
 	ErrInvalidPlacement     = errors.New("config: invalid placement")
 	ErrInvalidBootstrap     = errors.New("config: invalid bootstrap section")
+	ErrInvalidGenesis       = errors.New("config: invalid genesis section")
 )
 
 // Error is one config failure with file context: what failed, in which
@@ -94,6 +95,7 @@ type Config struct {
 	Hosts          []Host
 	Placements     []Placement
 	Bootstrap      *Bootstrap
+	Genesis        *Genesis
 
 	source string // file path, for error context
 }
@@ -211,6 +213,22 @@ type Bootstrap struct {
 	CLIDownloadURL string
 }
 
+// Genesis is the optional model-channel bootstrap section (#143):
+// the OpenAI-compatible endpoint the management agent's LLM calls
+// target in stage 1, before the cluster's own gateway exists. The
+// genesis api_key NEVER lives here — it rides the client-side secret
+// channel (cli-l1 §4), and the strict decoder rejects an api_key key
+// under genesis: rather than ignoring it, so a plaintext key in the
+// topology file is a loud config error, not a silent leak.
+type Genesis struct {
+	// Endpoint is the absolute http(s) base URL the channel posts
+	// chat completions to (…/chat/completions is appended).
+	Endpoint string
+	// Model is the optional model name sent in the request body;
+	// empty leaves the choice to the channel's default.
+	Model string
+}
+
 // raw mirrors the YAML shape for strict decoding: unknown keys are
 // rejected (a typo'd field is a config error, not a silent default).
 type rawConfig struct {
@@ -221,6 +239,7 @@ type rawConfig struct {
 	Hosts      []rawHost      `yaml:"hosts"`
 	Placements []rawPlacement `yaml:"placements"`
 	Bootstrap  *rawBootstrap  `yaml:"bootstrap"`
+	Genesis    *rawGenesis    `yaml:"genesis"`
 }
 
 type rawCluster struct {
@@ -307,6 +326,15 @@ type rawBootstrap struct {
 	CLIDownloadURL string `yaml:"cli_download_url"`
 }
 
+// rawGenesis mirrors the genesis: section. There is deliberately no
+// api_key field: the strict decoder rejects that key with a field-not-
+// found error, which is the fail-closed guard against a plaintext
+// secret in the operator-edited file (#143).
+type rawGenesis struct {
+	Endpoint string `yaml:"endpoint"`
+	Model    string `yaml:"model"`
+}
+
 // portNamePattern and hostIDPattern constrain the vocabulary other
 // planes consume: port names become env/docker references, host ids
 // become artifact keys and CLI output.
@@ -365,6 +393,9 @@ func Load(path string) (*Config, error) {
 		if raw.Bootstrap.CLIDownloadURL != "" {
 			cfg.CLIDownloadURL = raw.Bootstrap.CLIDownloadURL
 		}
+	}
+	if raw.Genesis != nil {
+		cfg.Genesis = &Genesis{Endpoint: raw.Genesis.Endpoint, Model: raw.Genesis.Model}
 	}
 	for _, h := range raw.Hosts {
 		cfg.Hosts = append(cfg.Hosts, convertHost(h))
@@ -505,6 +536,9 @@ func (c *Config) validate(doc *yaml.Node) error {
 		return err
 	}
 	if err := c.validateBootstrap(doc); err != nil {
+		return err
+	}
+	if err := c.validateGenesis(doc); err != nil {
 		return err
 	}
 	return nil
@@ -839,6 +873,29 @@ func (c *Config) validateBootstrap(doc *yaml.Node) error {
 		}
 		c.CLIDownloadURL = strings.TrimSpace(raw)
 	}
+	return nil
+}
+
+// validateGenesis checks the optional model-channel section: present
+// means the endpoint is a non-empty absolute http(s) URL — the genesis
+// api_key is never part of this file (the strict decoder already
+// rejected an api_key key at decode time), and the model name is free
+// text the channel may default.
+func (c *Config) validateGenesis(doc *yaml.Node) error {
+	if c.Genesis == nil {
+		return nil
+	}
+	line := sectionLine(doc, "genesis")
+	endpoint := strings.TrimSpace(c.Genesis.Endpoint)
+	u, err := url.Parse(endpoint)
+	switch {
+	case endpoint == "":
+		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint is required when the genesis section is present")
+	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint %q must be an absolute http(s) URL", c.Genesis.Endpoint)
+	}
+	c.Genesis.Endpoint = endpoint
+	c.Genesis.Model = strings.TrimSpace(c.Genesis.Model)
 	return nil
 }
 
