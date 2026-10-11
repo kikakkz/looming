@@ -255,16 +255,19 @@ func joinPreference(current, addition string) string {
 }
 
 // renderProposalPreview prints the ranked proposal with reasons and
-// risks, then the unified diff against the on-disk file.
+// risks, then the unified diff against the on-disk file. Model echoes
+// are scrubbed before they reach the terminal, not only the session
+// record: a model can repeat a credential the operator pasted into
+// --preference back into a reason or risk.
 func renderProposalPreview(stdout io.Writer, ioDeps reasonIO, filePath string, disk, candidate []byte, result *padvisor.ProposalResult) {
 	_, _ = fmt.Fprint(stdout, "\nPROPOSED PLACEMENTS (ranked)\n")
 	for i, p := range result.Proposal.Placements {
-		_, _ = fmt.Fprintf(stdout, "  %d. %s → %s\n     reason: %s\n", i+1, p.Component, p.Host, p.Reason)
+		_, _ = fmt.Fprintf(stdout, "  %d. %s → %s\n     reason: %s\n", i+1, p.Component, p.Host, ioDeps.redactScrubs(p.Reason))
 	}
 	if len(result.Proposal.Risks) > 0 {
 		_, _ = fmt.Fprint(stdout, "RISKS\n")
 		for _, risk := range result.Proposal.Risks {
-			_, _ = fmt.Fprintf(stdout, "  - %s\n", risk)
+			_, _ = fmt.Fprintf(stdout, "  - %s\n", ioDeps.redactScrubs(risk))
 		}
 	}
 	_, _ = fmt.Fprint(stdout, "\n")

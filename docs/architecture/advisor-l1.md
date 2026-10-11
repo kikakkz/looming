@@ -93,8 +93,8 @@ not change.
 ## 4. Command surface
 
 ```
-looming advise [--file PATH] [--reason] [--preference TEXT]
-               # default /etc/looming/topology.yaml
+looming topology advise [--file PATH] [--reason] [--preference TEXT]
+                        # default /etc/looming/topology.yaml
 ```
 
 Table mode (slice 1.1) renders one row per (component, host) pair —
@@ -189,12 +189,12 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 - **1.1 deterministic-first** — profile schema + loader,
   `Host.capabilities` fields, evaluator, `advise` table mode.
   Valuable and fully testable without any model. Landed as slice 1.1
-  (#147): `looming advise` renders the deterministic feasibility
+  (#147): `looming topology advise` renders the deterministic feasibility
   table; slices 1.2/1.3 remain.
 - **1.2 model reasoning** — landed in two parts. 1.2-A (#148) the
   genesis channel: the LLMClient seam, the lifecycle state machine, the
   service identity, the erasure — closes #143. 1.2-B the reasoned
-  interaction: `looming advise --reason` proposes ranked placements
+  interaction: `looming topology advise --reason` proposes ranked placements
   with reasons and risks over the evaluator's feasible set + the
   profiles' soft sections + the operator's session preference; the
   guardrail re-runs every placement through the evaluator (max 3

@@ -42,13 +42,24 @@ const defaultTopologyPath = "/etc/looming/topology.yaml"
 // arrives with slice 1.2 and extends this vocabulary.
 const decisionTableViewed = "table-viewed"
 
-// New builds `looming advise`: the deterministic placement-feasibility
-// table for the declared topology (slice 1.1), and with --reason the
+// New builds `looming topology`: the admin-face topology group — its
+// advise child renders the deterministic placement-feasibility table
+// for the declared topology (slice 1.1), and with --reason the
 // model-assisted proposal flow (slice 1.2, advisor-l1 §3): the genesis
 // channel proposes ranked placements with reasons and risks, the
 // evaluator guardrails every proposal, and the operator confirms,
-// edits, regenerates, or aborts before anything reaches disk.
+// edits, regenerates, or aborts before anything reaches disk. The
+// group is the namespace slice 1.3's `facts` command joins.
 func New(stdout, stderr io.Writer) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "topology",
+		Short: "Topology aids: placement feasibility and facts",
+	}
+	cmd.AddCommand(newAdvise(stdout, stderr))
+	return cmd
+}
+
+func newAdvise(stdout, stderr io.Writer) *cobra.Command {
 	var filePath string
 	var reason bool
 	var preference string

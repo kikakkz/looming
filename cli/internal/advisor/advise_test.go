@@ -71,13 +71,13 @@ func TestRunLoadFailureExitsNonZero(t *testing.T) {
 }
 
 func TestNewFlagDefaults(t *testing.T) {
-	cmd := New(&bytes.Buffer{}, &bytes.Buffer{})
+	cmd := newAdvise(&bytes.Buffer{}, &bytes.Buffer{})
 	flag := cmd.Flags().Lookup("file")
 	require.NotNil(t, flag)
 	assert.Equal(t, defaultTopologyPath, flag.DefValue)
 
 	var stdout, stderr bytes.Buffer
-	cmd = New(&stdout, &stderr)
+	cmd = newAdvise(&stdout, &stderr)
 	cmd.SetArgs([]string{"--file", ""})
 	err := cmd.Execute()
 	require.Error(t, err, "an empty --file is a usage error, not a silent default")
@@ -130,7 +130,7 @@ genesis: {endpoint: "`+server.URL+`/v1"}
 	defer func() { os.Stdin = oldStdin }()
 
 	var stdout, stderr bytes.Buffer
-	cmd := New(&stdout, &stderr)
+	cmd := newAdvise(&stdout, &stderr)
 	cmd.SetArgs([]string{"--file", path, "--reason", "--preference", "lean edge"})
 	require.NoError(t, cmd.Execute())
 
@@ -164,7 +164,7 @@ placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
 `), 0o600))
 
 	var stdout, stderr bytes.Buffer
-	cmd := New(&stdout, &stderr)
+	cmd := newAdvise(&stdout, &stderr)
 	cmd.SetArgs([]string{"--file", path, "--reason"})
 	err := cmd.Execute()
 	require.Error(t, err)
@@ -173,7 +173,7 @@ placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
 
 // TestAdviseReasonFlagContract: the flag surface the command exposes.
 func TestAdviseReasonFlagContract(t *testing.T) {
-	cmd := New(&bytes.Buffer{}, &bytes.Buffer{})
+	cmd := newAdvise(&bytes.Buffer{}, &bytes.Buffer{})
 	for _, name := range []string{"file", "reason", "preference"} {
 		require.NotNil(t, cmd.Flags().Lookup(name), "flag --%s must exist", name)
 	}
