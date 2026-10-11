@@ -33,8 +33,9 @@ structure. Checks target behavior, not names:
   - R3: the pinned-image smoke gate pulls every pin, boots a postgres
     fixture, probes identityd (``/v1/self/login`` -> 400), topologyd
     (``/v1/internal/guide`` -> 401), and the gateway (-> 404), rechecks
-    container liveness, and fails closed on a probe miss — a red gate
-    means no Release (release-l1 §3.6)
+    container liveness over ``docker ps -a`` (exited containers
+    included — a post-probe crash is still red), and fails closed on a
+    probe miss — a red gate means no Release (release-l1 §3.6)
   - R3: the CLI cross-compiles with CGO_ENABLED=0 for linux/amd64 +
     linux/arm64 from ./cmd/looming
   - R3: the release step runs ``gh release create --notes-file`` over
@@ -240,6 +241,10 @@ def _smoke_gate_problems(text: str) -> list[str]:
                    f"({TOPOLOGY_ROUTE} -> 401)")
     if not EXPECT_GATEWAY_RE.search(script):
         bad.append("smoke gate lacks the gateway probe (-> 404)")
+    if "docker ps -a" not in script:
+        bad.append("smoke gate's liveness recheck cannot see exited "
+                   "containers (`docker ps -a` missing — plain `docker "
+                   "ps` would skip a crashed container)")
     if "docker inspect" not in script or "State.Running" not in script:
         bad.append("smoke gate has no post-probe liveness recheck")
     if "never answered" not in script or "exit 1" not in script:

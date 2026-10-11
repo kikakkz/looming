@@ -120,6 +120,7 @@ __PRECHECK__      - name: Build and push multi-arch image
           expect "gateway (pinned)" 404 probe_gateway
           echo "::error::smoke gate: $desc never answered HTTP $want"
           exit 1
+          docker ps -a --filter network=smoke-net --format '{{.Names}}' | grep -v '^smoke-pg$'
           docker inspect -f '{{.State.Running}}' smoke-identity
       - name: Cross-compile CLI
         run: |
@@ -469,6 +470,17 @@ class SmokeGateTests(unittest.TestCase):
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
         self.assertIn("liveness", problems[0])
+
+    def test_plain_docker_ps_cannot_see_exited_containers(self):
+        # CodeRabbit review on PR #164: `docker ps` lists running
+        # containers only — a container that crashed after a lucky
+        # probe would vanish from the recheck and the gate would
+        # false-green; the recheck must use `docker ps -a`
+        text = VALID.replace("docker ps -a --filter network=smoke-net",
+                             "docker ps --filter network=smoke-net")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("docker ps -a", problems[0])
 
     def test_probe_miss_without_fail_closed_fails(self):
         text = VALID.replace(

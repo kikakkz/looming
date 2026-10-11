@@ -453,9 +453,11 @@ jobs:
           done < pins.tsv
 
           # A crash right after a lucky first probe is still red: every
-          # smoke container must be running at the end.
+          # smoke container must be running at the end. `docker ps -a`
+          # lists exited containers too — plain `docker ps` would hide
+          # exactly the crashed ones and green-light a dead gate.
           failed=0
-          for name in $(docker ps --filter network=smoke-net --format '{{.Names}}' | grep -v '^smoke-pg$'); do
+          for name in $(docker ps -a --filter network=smoke-net --format '{{.Names}}' | grep -v '^smoke-pg$'); do
             if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != "true" ]; then
               echo "::error::smoke gate: $name exited during the gate"
               docker logs "$name" >&2 || true
