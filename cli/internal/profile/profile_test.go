@@ -4,6 +4,7 @@ package profile
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,11 +12,12 @@ import (
 
 // withFakeHome points HOME at a temp dir so the store tests never
 // touch the developer's real ~/.looming.
-func withFakeHome(t *testing.T) {
+func withFakeHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // windows safety, no-op elsewhere
+	return home
 }
 
 func TestProfileRoundTrip(t *testing.T) {
@@ -116,5 +118,62 @@ func TestDefaultProfile(t *testing.T) {
 	p, err := Default()
 	if err != nil || p.Name != DefaultName {
 		t.Fatalf("default: %v %+v", err, p)
+	}
+}
+
+// TestGenesisSecretLifecycle: the genesis api key rides the same
+// client-side secret channel as every other credential (#143), and
+// erasure leaves no residue in the file — the store keeps no copy.
+func TestGenesisSecretLifecycle(t *testing.T) {
+	home := withFakeHome(t)
+	c, err := LoadCredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, keyErr := c.GenesisKey(); keyErr == nil {
+		t.Fatal("a missing genesis key must error with the recovery hint")
+	}
+
+	c.SetGenesis("genesis-test-key")
+	if saveErr := c.Save(); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	again, err := LoadCredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := again.GenesisKey()
+	if err != nil || key != "genesis-test-key" {
+		t.Fatalf("genesis key mismatch: %q (%v)", key, err)
+	}
+
+	// Erasure is what #143's stage 2 ends in: the field vanishes from
+	// the serialized store, not just from memory.
+	again.SetGenesis("")
+	if saveErr := again.Save(); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	// #nosec G304 -- the test reads the store file it just wrote.
+	raw, err := os.ReadFile(filepath.Join(home, ".looming", "credentials.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "genesis-test-key") || strings.Contains(string(raw), "genesis") {
+		t.Fatalf("erased genesis secret must not survive in the store file:\n%s", raw)
+	}
+	info, err := os.Stat(filepath.Join(home, ".looming", "credentials.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("credentials file must be 0600, got %o", info.Mode().Perm())
+	}
+
+	cleared, err := LoadCredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Genesis != nil {
+		t.Fatalf("erased genesis entry must reload as absent, got %+v", cleared.Genesis)
 	}
 }

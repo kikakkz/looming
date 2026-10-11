@@ -1,0 +1,10 @@
+COMPONENT      HOST   STATUS      HEADROOM            DETAIL
+gateway-front  gw-1   FEASIBLE    15360 MB / 6 cores  
+gateway-front  app-1  INFEASIBLE                      resource-floor: host declares 1 cpu cores, profile requires at least 2; egress: profile requires egress, host "app-1" declares none
+gateway-front  bare   INFEASIBLE                      missing facts: hardware.arch, hardware.cpu_cores, hardware.disk_gb, hardware.memory_mb, network.egress
+identityd      gw-1   FEASIBLE    15360 MB / 6 cores  
+identityd      app-1  INFEASIBLE                      resource-floor: host declares 1 cpu cores, profile requires at least 2; egress: profile requires egress, host "app-1" declares none
+identityd      bare   INFEASIBLE                      missing facts: hardware.arch, hardware.cpu_cores, hardware.disk_gb, hardware.memory_mb, network.egress
+topologyd      gw-1   FEASIBLE    15872 MB / 7 cores  
+topologyd      app-1  FEASIBLE    1536 MB / 0 cores   
+topologyd      bare   INFEASIBLE                      missing facts: hardware.arch, hardware.cpu_cores, hardware.disk_gb, hardware.memory_mb

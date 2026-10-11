@@ -54,6 +54,7 @@ var (
 	ErrUnknownComponent     = errors.New("config: unknown component (phase-1 allowlist)")
 	ErrInvalidPlacement     = errors.New("config: invalid placement")
 	ErrInvalidBootstrap     = errors.New("config: invalid bootstrap section")
+	ErrInvalidGenesis       = errors.New("config: invalid genesis section")
 )
 
 // Error is one config failure with file context: what failed, in which
@@ -94,6 +95,7 @@ type Config struct {
 	Hosts          []Host
 	Placements     []Placement
 	Bootstrap      *Bootstrap
+	Genesis        *Genesis
 
 	source string // file path, for error context
 }
@@ -125,15 +127,64 @@ type StatePostgres struct {
 	Port    int
 }
 
+// Zone and Arch are the capability vocabularies a host's declared
+// facts draw from (advisor-l1 §2). The advisor's evaluator matches
+// profiles against exactly these values, so the config layer is where
+// the vocabulary is pinned.
+const (
+	ZoneCloud = "cloud"
+	ZoneLAN   = "lan"
+)
+
+const (
+	ArchX8664 = "x86_64"
+	ArchARM64 = "arm64"
+)
+
 // Host is one declared machine. ID is the operator-chosen identity
 // every reference (placements, artifacts, output) uses; Address is a
 // plain phase-1 IP or hostname; SSHUser selects the executor channel
 // (empty means local docker — the single-host degenerate case).
+// Capabilities is the optional advisor-l1 §2 facts block (slice 1.1:
+// hand-declared; slice 1.3: join-time discovery) — nil keeps phase-1
+// files valid; the advisor fails closed on the gap, never a default.
 type Host struct {
-	ID      string
-	Address string
-	SSHUser string
-	Labels  []string
+	ID           string
+	Address      string
+	SSHUser      string
+	Labels       []string
+	Capabilities *Capabilities
+}
+
+// Capabilities is one host's declared machine facts, the advisor
+// evaluator's hard-rule input. Scalars at zero/empty mean "not
+// declared" (the evaluator reads them as a missing fact); Egress is a
+// pointer because declared-false and undeclared must stay distinct —
+// needs-egress on a host with egress: false is a violation, on a host
+// without the fact it is a named gap.
+type Capabilities struct {
+	Hardware Hardware
+	Network  Network
+}
+
+// Hardware is the declared compute shape: core count, memory, disk,
+// and the CPU architecture vocabulary (x86_64 | arm64, empty when not
+// declared).
+type Hardware struct {
+	CPUCores int
+	MemoryMB int
+	DiskGB   int
+	Arch     string
+}
+
+// Network is the declared placement-relevant network shape: the zone
+// vocabulary (cloud | lan, empty when not declared), whether the host
+// can reach out of the cluster (nil = undeclared), and optional
+// latency figures keyed by target host id.
+type Network struct {
+	Zone        string
+	Egress      *bool
+	LatenciesMS map[string]int
 }
 
 // Placement declares one component on one host: the named ports it
@@ -162,6 +213,22 @@ type Bootstrap struct {
 	CLIDownloadURL string
 }
 
+// Genesis is the optional model-channel bootstrap section (#143):
+// the OpenAI-compatible endpoint the management agent's LLM calls
+// target in stage 1, before the cluster's own gateway exists. The
+// genesis api_key NEVER lives here — it rides the client-side secret
+// channel (cli-l1 §4), and the strict decoder rejects an api_key key
+// under genesis: rather than ignoring it, so a plaintext key in the
+// topology file is a loud config error, not a silent leak.
+type Genesis struct {
+	// Endpoint is the absolute http(s) base URL the channel posts
+	// chat completions to (…/chat/completions is appended).
+	Endpoint string
+	// Model is the optional model name sent in the request body;
+	// empty leaves the choice to the channel's default.
+	Model string
+}
+
 // raw mirrors the YAML shape for strict decoding: unknown keys are
 // rejected (a typo'd field is a config error, not a silent default).
 type rawConfig struct {
@@ -172,6 +239,7 @@ type rawConfig struct {
 	Hosts      []rawHost      `yaml:"hosts"`
 	Placements []rawPlacement `yaml:"placements"`
 	Bootstrap  *rawBootstrap  `yaml:"bootstrap"`
+	Genesis    *rawGenesis    `yaml:"genesis"`
 }
 
 type rawCluster struct {
@@ -196,10 +264,52 @@ type rawStatePostgres struct {
 }
 
 type rawHost struct {
-	ID      string   `yaml:"id"`
-	Address string   `yaml:"address"`
-	SSHUser string   `yaml:"ssh_user"`
-	Labels  []string `yaml:"labels"`
+	ID           string           `yaml:"id"`
+	Address      string           `yaml:"address"`
+	SSHUser      string           `yaml:"ssh_user"`
+	Labels       []string         `yaml:"labels"`
+	Capabilities *rawCapabilities `yaml:"capabilities"`
+}
+
+type rawCapabilities struct {
+	Hardware rawHardware `yaml:"hardware"`
+	Network  rawNetwork  `yaml:"network"`
+}
+
+type rawHardware struct {
+	CPUCores int    `yaml:"cpu_cores"`
+	MemoryMB int    `yaml:"memory_mb"`
+	DiskGB   int    `yaml:"disk_gb"`
+	Arch     string `yaml:"arch"`
+}
+
+type rawNetwork struct {
+	Zone        string         `yaml:"zone"`
+	Egress      *bool          `yaml:"egress"`
+	LatenciesMS map[string]int `yaml:"latencies_ms"`
+}
+
+// convertHost maps the raw host entry onto the validated shape,
+// allocating the capabilities block only when the operator declared
+// one (nil stays nil — the phase-1 file shape).
+func convertHost(h rawHost) Host {
+	out := Host{ID: h.ID, Address: h.Address, SSHUser: h.SSHUser, Labels: h.Labels}
+	if h.Capabilities != nil {
+		out.Capabilities = &Capabilities{
+			Hardware: Hardware{
+				CPUCores: h.Capabilities.Hardware.CPUCores,
+				MemoryMB: h.Capabilities.Hardware.MemoryMB,
+				DiskGB:   h.Capabilities.Hardware.DiskGB,
+				Arch:     h.Capabilities.Hardware.Arch,
+			},
+			Network: Network{
+				Zone:        h.Capabilities.Network.Zone,
+				Egress:      h.Capabilities.Network.Egress,
+				LatenciesMS: h.Capabilities.Network.LatenciesMS,
+			},
+		}
+	}
+	return out
 }
 
 type rawPlacement struct {
@@ -214,6 +324,15 @@ type rawPlacement struct {
 type rawBootstrap struct {
 	AdminEmail     string `yaml:"admin_email"`
 	CLIDownloadURL string `yaml:"cli_download_url"`
+}
+
+// rawGenesis mirrors the genesis: section. There is deliberately no
+// api_key field: the strict decoder rejects that key with a field-not-
+// found error, which is the fail-closed guard against a plaintext
+// secret in the operator-edited file (#143).
+type rawGenesis struct {
+	Endpoint string `yaml:"endpoint"`
+	Model    string `yaml:"model"`
 }
 
 // portNamePattern and hostIDPattern constrain the vocabulary other
@@ -275,8 +394,11 @@ func Load(path string) (*Config, error) {
 			cfg.CLIDownloadURL = raw.Bootstrap.CLIDownloadURL
 		}
 	}
+	if raw.Genesis != nil {
+		cfg.Genesis = &Genesis{Endpoint: raw.Genesis.Endpoint, Model: raw.Genesis.Model}
+	}
 	for _, h := range raw.Hosts {
-		cfg.Hosts = append(cfg.Hosts, Host(h))
+		cfg.Hosts = append(cfg.Hosts, convertHost(h))
 	}
 	for _, p := range raw.Placements {
 		// Field-for-field convertible with rawPlacement: the compiler
@@ -416,6 +538,9 @@ func (c *Config) validate(doc *yaml.Node) error {
 	if err := c.validateBootstrap(doc); err != nil {
 		return err
 	}
+	if err := c.validateGenesis(doc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -463,10 +588,43 @@ func (c *Config) validateHosts(doc *yaml.Node) error {
 		if prev, dup := addresses[h.Address]; dup {
 			return c.fail(line, ErrDuplicateHost, "host address %q repeats entry at line %d", h.Address, lines[prev])
 		}
+		if msg := capabilitiesChecks(h.Capabilities); msg != "" {
+			return c.fail(line, ErrInvalidHost, "host %q: %s", h.ID, msg)
+		}
 		ids[h.ID] = i
 		addresses[h.Address] = i
 	}
 	return nil
+}
+
+// capabilitiesChecks validates the declared facts block: non-negative
+// figures, vocabulary-pinned zone and arch, non-negative latencies.
+// Nil is valid — the advisor evaluator, not the schema, owns the
+// fail-closed gap (advisor-l1 §2: a host without capabilities makes
+// every component infeasible there, with the missing facts named).
+func capabilitiesChecks(cap *Capabilities) string {
+	if cap == nil {
+		return ""
+	}
+	hw, nw := cap.Hardware, cap.Network
+	switch {
+	case hw.CPUCores < 0:
+		return fmt.Sprintf("capabilities.hardware.cpu_cores is %d, must be >= 0", hw.CPUCores)
+	case hw.MemoryMB < 0:
+		return fmt.Sprintf("capabilities.hardware.memory_mb is %d, must be >= 0", hw.MemoryMB)
+	case hw.DiskGB < 0:
+		return fmt.Sprintf("capabilities.hardware.disk_gb is %d, must be >= 0", hw.DiskGB)
+	case hw.Arch != "" && hw.Arch != ArchX8664 && hw.Arch != ArchARM64:
+		return fmt.Sprintf("capabilities.hardware.arch %q must be %q or %q", hw.Arch, ArchX8664, ArchARM64)
+	case nw.Zone != "" && nw.Zone != ZoneCloud && nw.Zone != ZoneLAN:
+		return fmt.Sprintf("capabilities.network.zone %q must be %q or %q", nw.Zone, ZoneCloud, ZoneLAN)
+	}
+	for target, ms := range nw.LatenciesMS {
+		if ms < 0 {
+			return fmt.Sprintf("capabilities.network.latencies_ms[%q] is %d, must be >= 0", target, ms)
+		}
+	}
+	return ""
 }
 
 func (c *Config) validatePlacements(doc *yaml.Node) error {
@@ -715,6 +873,31 @@ func (c *Config) validateBootstrap(doc *yaml.Node) error {
 		}
 		c.CLIDownloadURL = strings.TrimSpace(raw)
 	}
+	return nil
+}
+
+// validateGenesis checks the optional model-channel section: present
+// means the endpoint is a non-empty absolute http(s) URL — the genesis
+// api_key is never part of this file (the strict decoder already
+// rejected an api_key key at decode time), and the model name is free
+// text the channel may default.
+func (c *Config) validateGenesis(doc *yaml.Node) error {
+	if c.Genesis == nil {
+		return nil
+	}
+	line := sectionLine(doc, "genesis")
+	endpoint := strings.TrimSpace(c.Genesis.Endpoint)
+	u, err := url.Parse(endpoint)
+	switch {
+	case endpoint == "":
+		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint is required when the genesis section is present")
+	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint %q must be an absolute http(s) URL", c.Genesis.Endpoint)
+	case u.User != nil:
+		return c.fail(line, ErrInvalidGenesis, "genesis.endpoint must not embed credentials in the URL (userinfo) — the api key rides the secret channel, never the topology file")
+	}
+	c.Genesis.Endpoint = endpoint
+	c.Genesis.Model = strings.TrimSpace(c.Genesis.Model)
 	return nil
 }
 

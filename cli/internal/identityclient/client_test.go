@@ -129,3 +129,53 @@ func TestSelfQuotaValue(t *testing.T) {
 		t.Fatalf("quota: %+v", quota)
 	}
 }
+
+// TestProvisionServicePrincipalPostsKindService: #143 stage 2's service
+// identity rides identity's existing admin surface — the request
+// carries the admin bearer and kind=service, the response exposes the
+// new principal's id (the password hash never leaves the service).
+func TestProvisionServicePrincipalPostsKindService(t *testing.T) {
+	c := newFake(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/admin/principals" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer admin-session" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["kind"] != "service" || body["username"] != "looming-advisor" || body["password"] == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"id": "p-1", "username": "looming-advisor", "kind": "service", "status": "active",
+		})
+	})
+	p, err := c.ProvisionServicePrincipal(context.Background(), "admin-session", "looming-advisor", "bootstrap-pw-123456", "Looming management agent")
+	if err != nil {
+		t.Fatalf("ProvisionServicePrincipal: %v", err)
+	}
+	if p.ID != "p-1" || p.Kind != "service" || p.Status != "active" {
+		t.Fatalf("principal shape: %+v", p)
+	}
+}
+
+// TestProvisionServicePrincipalUsernameTaken: the idempotency signal —
+// a repeat provision surfaces identity's 409 username_taken so the
+// caller can branch into its recovery path.
+func TestProvisionServicePrincipalUsernameTaken(t *testing.T) {
+	c := newFake(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{"code": "username_taken", "message": "username looming-advisor is taken"},
+		})
+	})
+	_, err := c.ProvisionServicePrincipal(context.Background(), "admin-session", "looming-advisor", "bootstrap-pw-123456", "x")
+	if !IsCode(err, "username_taken") {
+		t.Fatalf("want username_taken, got %v", err)
+	}
+}

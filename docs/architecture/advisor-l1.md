@@ -93,7 +93,8 @@ not change.
 ## 4. Command surface
 
 ```
-looming topology advise [--file PATH]   # default /etc/looming/topology.yaml
+looming topology advise [--file PATH] [--reason] [--preference TEXT]
+                        # default /etc/looming/topology.yaml
 ```
 
 Table mode (slice 1.1) renders one row per (component, host) pair —
@@ -104,6 +105,15 @@ this way). Ordering: components in allowlist order; hosts by memory
 headroom descending, CPU headroom as tiebreak (bin-packing
 convention). FEASIBLE rows show headroom; INFEASIBLE rows name the
 violated hard rules and any missing facts.
+
+Reason mode (slice 1.2, `--reason`) runs the §3 journey steps 3–7:
+`--preference` carries the operator's free text (session-only;
+prompted when omitted on a terminal); regeneration folds additions
+forward. The proposal names (component, host) pairs; the CLI owns the
+mechanical splice — moved components keep their published ports and
+operator wiring, new components get the contract listen port as the
+lowest free port ≥ 1024 on the target host, and the spliced document
+must load through the real config validator before it is ever shown.
 
 ## 5. Evaluator contract
 
@@ -130,10 +140,23 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 
 ## 6. Aspects
 
-- **Model channel (1.2).** Genesis three-stage lifecycle (#143):
-  direct endpoint while the cluster is empty → after convergence the
-  credential rides the gateway as an upstream engine key, local copy
-  erased. Slice 1.1 ships no model call.
+- **Model channel (1.2-A landed).** Genesis three-stage lifecycle
+  (#143, closed by slice 1.2-A): stage 1 calls the genesis endpoint
+  directly — an empty cluster is fine; apply's converge success is the
+  gateway-ready signal; stage 2 the credential rides the gateway-front
+  placement's declared env file as `GATEWAY_UPSTREAM(_AUTH)` — the
+  phase-1 secret channel, the same upstream-auth surface slice D
+  (#114) ships — while the advisor's own calls switch to the gateway
+  front with a service-identity LoomingKey (identity's kind=service
+  principal, self-issued key, stored in the client-side secret
+  channel); then the local genesis copy is erased — no emergency
+  fallback, recovery = the admin re-provides. The `LLMClient` seam
+  (OpenAI-compatible chat completions — the converged shape both the
+  gateway and third-party endpoints serve) lives in
+  platform/go/advisor; the CLI owns the lifecycle state at
+  `~/.looming/advisor/genesis.json` (the 0600 class, secrets never in
+  it) and the `looming genesis set|sync|status` surface. Slice 1.1
+  shipped no model call; slice 1.2-B puts the seam to work.
 - **Session record.** `~/.looming/advisor/sessions/<ts>.jsonl`,
   append-only: facts snapshot, profile-set hash, raw model output with
   reasoning, decision, rendered diff. This is the sediment the later
@@ -165,9 +188,19 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 
 - **1.1 deterministic-first** — profile schema + loader,
   `Host.capabilities` fields, evaluator, `advise` table mode.
-  Valuable and fully testable without any model.
-- **1.2 model reasoning** — genesis channel (#143), ranked proposals
-  with reasons/risks, the re-validation loop, the full decide
-  interaction; closes #143.
+  Valuable and fully testable without any model. Landed as slice 1.1
+  (#147): `looming topology advise` renders the deterministic feasibility
+  table; slices 1.2/1.3 remain.
+- **1.2 model reasoning** — landed in two parts. 1.2-A (#148) the
+  genesis channel: the LLMClient seam, the lifecycle state machine, the
+  service identity, the erasure — closes #143. 1.2-B the reasoned
+  interaction: `looming topology advise --reason` proposes ranked placements
+  with reasons and risks over the evaluator's feasible set + the
+  profiles' soft sections + the operator's session preference; the
+  guardrail re-runs every placement through the evaluator (max 3
+  attempts, then degrades to the table mode); the placements splice
+  previews as a unified diff and lands on disk only on confirm —
+  edit (revalidated through the real config validator), regenerate
+  (preference folds forward), or abort.
 - **1.3 discovery** — join-time facts collection replaces hand
   declaration; profiles migrate to Registry when #8 lands.

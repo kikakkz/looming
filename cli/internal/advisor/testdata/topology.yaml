@@ -1,0 +1,17 @@
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts:
+  - id: gw-1
+    address: 10.0.0.11
+    capabilities:
+      hardware: {cpu_cores: 8, memory_mb: 16384, disk_gb: 200, arch: x86_64}
+      network: {zone: cloud, egress: true}
+  - id: app-1
+    address: 10.0.0.12
+    capabilities:
+      hardware: {cpu_cores: 1, memory_mb: 2048, disk_gb: 20, arch: arm64}
+      network: {zone: lan, egress: false}
+  - id: bare
+    address: 10.0.0.13
+placements:
+  - {component: gateway-front, host: gw-1, ports: {http: 8080}}

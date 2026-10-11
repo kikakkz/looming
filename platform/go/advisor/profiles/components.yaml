@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Component requirement profiles (advisor-l1 §2) — review-gated
+# knowledge shipped as data (AD-38 decision 3): adding a component's
+# derivation ability is adding a profile here, never a code change.
+# The schema: kinds: carries family defaults; profiles: carries one
+# entry per render-allowlist component, folded over its kind's
+# defaults (profile values win when present). hard: feeds the
+# evaluator; soft: is model context in slice 1.2 and judged nowhere
+# here. Values are deliberately conservative floors — a host at the
+# floor must genuinely run the component; the 1.2 model ranks what the
+# headroom above the floor is worth.
+
+kinds:
+  # Edge services face the public network: they reach out of the
+  # cluster by definition, so egress defaults true.
+  edge:
+    hard:
+      arch: [x86_64, arm64]
+      needs_egress: true
+    soft:
+      preferred_zone: cloud
+      spread: component
+  # Internal services answer inbound cluster traffic; whether a given
+  # one also reaches upstreams is a per-component call.
+  service:
+    hard:
+      arch: [x86_64, arm64]
+      needs_egress: false
+    soft:
+      spread: component
+
+profiles:
+  # The model gateway: terminates agent traffic, proxies to engines,
+  # serves the public onboarding page. Egress is its job description
+  # (AD-38 decision 5 names model gateways as the egress-needing
+  # class); stream proxying with request buffering motivates the 2
+  # cores / 1 GiB floor; the zone preference reflects its public
+  # entry-point role.
+  gateway-front:
+    kind: edge
+    hard:
+      min_cpu_cores: 2
+      min_memory_mb: 1024
+      min_disk_gb: 10
+      ports: [http]
+  # Principals, policy, authn, keys, quota, engine provisioning.
+  # Postgres rides the state plane (LAN), but OIDC discovery and the
+  # engine provisioning's LiteLLM reach are upstream calls — egress is
+  # required (fail-closed: a LAN-only identityd cannot finish OIDC
+  # login). Key ops are crypto-heavy, hence the same 2-core / 1 GiB
+  # floor as the gateway.
+  identityd:
+    kind: service
+    hard:
+      min_cpu_cores: 2
+      min_memory_mb: 1024
+      min_disk_gb: 10
+      needs_egress: true
+      ports: [http]
+    soft:
+      preferred_zone: lan
+  # The join/rejoin API and guide service: pure inbound cluster
+  # traffic, no upstreams, so it stays the no-egress service default.
+  # It fronts no heavy work — 1 core / 512 MiB is its honest floor.
+  topologyd:
+    kind: service
+    hard:
+      min_cpu_cores: 1
+      min_memory_mb: 512
+      min_disk_gb: 5
+      ports: [http]

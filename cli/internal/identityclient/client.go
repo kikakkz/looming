@@ -138,6 +138,37 @@ type IssuedKey struct {
 	Key string `json:"key"`
 }
 
+// ProvisionedPrincipal is the admin provisioning response shape the
+// CLI consumes (identity's principalView; the password hash never
+// leaves the service).
+type ProvisionedPrincipal struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Kind     string `json:"kind"`
+	Status   string `json:"status"`
+}
+
+// ProvisionServicePrincipal creates a service-kind principal (#143
+// stage 2's service identity, identity-l1 §5's kind=service shape).
+// adminToken is an operator admin session's bearer; a username_taken
+// conflict (the principal exists from an earlier attempt) surfaces as
+// an Error with Code "username_taken" for the caller's idempotency
+// handling.
+func (c *Client) ProvisionServicePrincipal(ctx context.Context, adminToken, username, password, displayName string) (*ProvisionedPrincipal, error) {
+	var out ProvisionedPrincipal
+	err := c.doAuth(ctx, http.MethodPost, "/v1/admin/principals", adminToken,
+		map[string]string{
+			"username":     username,
+			"password":     password,
+			"display_name": displayName,
+			"kind":         "service",
+		}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // IssueKey creates a LoomingKey for the session's principal.
 func (c *Client) IssueKey(ctx context.Context, session *Session, name string) (*IssuedKey, error) {
 	var out IssuedKey

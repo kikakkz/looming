@@ -4,11 +4,12 @@
 # of the topology chain). Version 3 schema; module-aware.
 #
 # The kit is the topology component's headless core: the apply chain
-# (config/render/exec/apply), the four capabilities' domain vocabulary
-# + ports + use-case services + postgres adapters (topology, host,
-# guide, join), the schema migrations, and the integration test helper.
-# Both consumers (cli's admin face, topology's topologyd) import it;
-# nothing here imports a component.
+# (config/render/exec/apply), the management agent's deterministic
+# feasibility layer (advisor, AD-38), the four capabilities' domain
+# vocabulary + ports + use-case services + postgres adapters
+# (topology, host, guide, join), the schema migrations, and the
+# integration test helper. Both consumers (cli's admin face, topology's
+# topologyd) import it; nothing here imports a component.
 #
 # Dependency rules (the AD-23 layering, unchanged by the move):
 # - *domain packages are pure: stdlib only (also enforced by depguard).
@@ -34,6 +35,7 @@ excludeFiles:
 components:
   config:          { in: config }
   render:          { in: render }
+  advisor:         { in: advisor }
   exec:            { in: exec }
   apply:           { in: apply }
   topologydomain:  { in: topologydomain }
@@ -58,6 +60,14 @@ components:
 deps:
   config:
     mayDependOn: [render, topologydomain]
+
+  # The advisor (AD-38) is the management agent's deterministic hard
+  # layer: it reads declared host facts (config.Host.Capabilities) and
+  # matches them against review-gated profile data, cross-checked
+  # against the render contracts (render.Allowlist/Lookup) — the two
+  # dependencies its rules are built from, and no wider.
+  advisor:
+    mayDependOn: [config, render]
 
   render:
     mayDependOn: [topologydomain]

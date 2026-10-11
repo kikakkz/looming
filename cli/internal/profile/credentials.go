@@ -31,6 +31,17 @@ type Credentials struct {
 	// and other self-API views ride the session; gateway traffic
 	// rides the LoomingKey.
 	Sessions map[string]Session `yaml:"sessions,omitempty"`
+	// Genesis is the bootstrap model-channel credential (#143): the
+	// genesis api_key the advisor's stage-1 channel consumes. It is
+	// erased the moment the channel switches to the gateway — the
+	// store keeps no copy (#143: no emergency fallback; recovery =
+	// the admin re-provides).
+	Genesis *GenesisSecret `yaml:"genesis,omitempty"`
+}
+
+// GenesisSecret is the one genesis credential the store ever holds.
+type GenesisSecret struct {
+	APIKey string `yaml:"api_key"`
 }
 
 // credentialsPath is the store file.
@@ -94,6 +105,25 @@ func (c *Credentials) SetLoomingKey(name, raw string) { c.LoomingKeys[name] = ra
 
 // SetSession caches one identity login under its name.
 func (c *Credentials) SetSession(name string, s Session) { c.Sessions[name] = s }
+
+// SetGenesis stores the genesis api_key (#143 stage 1); an empty key
+// clears the entry.
+func (c *Credentials) SetGenesis(apiKey string) {
+	if apiKey == "" {
+		c.Genesis = nil
+		return
+	}
+	c.Genesis = &GenesisSecret{APIKey: apiKey}
+}
+
+// GenesisKey reads the genesis api_key; a missing entry names the
+// recovery path instead of just failing.
+func (c *Credentials) GenesisKey() (string, error) {
+	if c.Genesis == nil || c.Genesis.APIKey == "" {
+		return "", errors.New("cli: no genesis api key (run `looming genesis set`)")
+	}
+	return c.Genesis.APIKey, nil
+}
 
 // Session reads one cached login.
 func (c *Credentials) Session(name string) (Session, error) {
