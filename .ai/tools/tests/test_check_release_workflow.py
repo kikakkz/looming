@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for check_release_workflow.py (#159)."""
+"""Unit tests for check_release_workflow.py (#159, R3 bundle contract #161)."""
 
 import shutil
 import sys
@@ -37,9 +37,13 @@ name: release
 on:
   push:
     tags:
+      # the two release families stay disjoint: a tag filter's "*"
+      # never crosses a "/", so the bare vX.Y.Z cannot fire the
+      # component jobs and component tags cannot fire the bundle job.
       - "gateway/v*.*.*"
       - "identity/v*.*.*"
       - "topology/v*.*.*"
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       component:
@@ -58,6 +62,7 @@ permissions:
 
 jobs:
   resolve:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.ref_name, '/') }}
     outputs:
       git_ref: ${{ steps.parse.outputs.git_ref }}
     steps:
@@ -80,6 +85,60 @@ jobs:
           persist-credentials: false
 __PRECHECK__      - name: Build and push multi-arch image
         run: docker buildx build --tag ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway
+  bundle:
+    if: ${{ github.event_name == 'push' && !contains(github.ref_name, '/') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve bundle version
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [[ "$REF_NAME" == */* ]]; then
+            echo "::error::component-shaped tag"
+            exit 1
+          fi
+          if [[ ! "$REF_NAME" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
+            echo "::error::not vX.Y.Z"
+            exit 1
+          fi
+          echo "git_ref=refs/tags/$REF_NAME" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.resolve.outputs.git_ref }}
+          persist-credentials: false
+      - name: Pinned-image smoke gate
+        run: |
+          set -euo pipefail
+          docker pull "$image"
+          docker exec smoke-pg pg_isready -U postgres
+          probe_identity() { curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18081/v1/self/login -d '{'; }
+          probe_topology() { curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18082/v1/internal/guide; }
+          probe_gateway() { curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/; }
+          expect "identityd (pinned)" 400 probe_identity
+          expect "topologyd (pinned)" 401 probe_topology
+          expect "gateway (pinned)" 404 probe_gateway
+          echo "::error::smoke gate: $desc never answered HTTP $want"
+          exit 1
+          docker ps -a --filter network=smoke-net --format '{{.Names}}' | grep -v '^smoke-pg$'
+          docker inspect -f '{{.State.Running}}' smoke-identity
+      - name: Cross-compile CLI
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o looming-linux-amd64 ./cmd/looming
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o looming-linux-arm64 ./cmd/looming
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          git log --pretty=%s "$prev..HEAD" | grep -E '^feat' | sed 's/^/- /' || true
+          cp bundle/manifest.yaml bundle-manifest.yaml
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # R4 (#151): install.sh joins this asset set.
+          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml
 """.replace("__PRECHECK__", PRECHECK)
 
 
@@ -218,7 +277,7 @@ class GitRefTests(unittest.TestCase):
     def test_git_ref_without_output_redirect_fails(self):
         text = VALID.replace(
             ' >> "$GITHUB_OUTPUT"',
-            '')
+            '', 1)  # the R1 resolve line only; the bundle line stays
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
         self.assertIn("git_ref", problems[0])
@@ -246,6 +305,269 @@ class GitRefTests(unittest.TestCase):
         self.assertIn("checkout does not pin", problems[0])
 
 
+class BundleTriggerTests(unittest.TestCase):
+    def test_missing_bundle_tag_pattern(self):
+        text = VALID.replace('      - "v*.*.*"\n', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("'v*.*.*'", problems[0])
+
+    def test_bundle_pattern_only_in_comment_is_not_a_trigger(self):
+        text = VALID.replace('      - "v*.*.*"\n', "")
+        text = text.replace("permissions:\n",
+                            '# "v*.*.*"\npermissions:\n')
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("'v*.*.*'", problems[0])
+
+    def test_disjointness_note_required(self):
+        # the v*.*.* filter only excludes component tags because the
+        # glob "*" does not cross "/"; the note pinning that semantic
+        # must survive refactors of the trigger block
+        text = VALID.replace('never crosses a "/"', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("disjoint", problems[0])
+
+
+class BundleGuardTests(unittest.TestCase):
+    def test_missing_component_guard(self):
+        text = VALID.replace(
+            "if: ${{ github.event_name == 'workflow_dispatch' || contains(github.ref_name, '/') }}\n",
+            "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("component jobs", problems[0])
+
+    def test_missing_bundle_guard(self):
+        text = VALID.replace(
+            "if: ${{ github.event_name == 'push' && !contains(github.ref_name, '/') }}\n",
+            "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("bundle job", problems[0])
+
+    def test_bundle_guard_not_first_property_fails(self):
+        # a guard below another property (or off the job) does not
+        # unambiguously belong to the bundle job
+        guard = ("if: ${{ github.event_name == 'push' "
+                 "&& !contains(github.ref_name, '/') }}\n")
+        text = VALID.replace(guard, "")
+        text = text.replace("  bundle:\n",
+                            "  bundle:\n    runs-on: ubuntu-latest\n")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("bundle job", problems[0])
+
+
+class ContentsWriteTests(unittest.TestCase):
+    def test_missing_contents_write(self):
+        text = VALID.replace("      contents: write\n", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("contents: write", problems[0])
+
+    def test_contents_write_outside_the_bundle_job_fails(self):
+        # the publish job must stay packages-scoped; only the bundle
+        # job earns contents write
+        text = VALID.replace("      packages: write\n",
+                             "      contents: read\n      packages: write\n"
+                             "      contents: write\n")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("outside the bundle job", problems[0])
+
+
+class BundleResolveTests(unittest.TestCase):
+    def test_renamed_resolve_step_fails(self):
+        text = VALID.replace("- name: Resolve bundle version",
+                             "- name: Resolve version")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("bundle version resolve step absent", problems[0])
+
+    def test_missing_slash_rejection_fails(self):
+        text = VALID.replace('if [[ "$REF_NAME" == */* ]]; then\n', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("component-shaped", problems[0])
+
+    def test_missing_vxyz_validation_fails(self):
+        text = VALID.replace(
+            'if [[ ! "$REF_NAME" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then\n',
+            "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("vX.Y.Z", problems[0])
+
+    def test_missing_git_ref_write_fails(self):
+        text = VALID.replace('echo "git_ref=refs/tags/$REF_NAME" >> "$GITHUB_OUTPUT"\n',
+                             "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("git_ref", problems[0])
+
+    def test_checkout_without_pinned_ref_fails(self):
+        text = VALID.replace(
+            "          ref: ${{ steps.resolve.outputs.git_ref }}\n", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("checkout does not pin", problems[0])
+
+
+class SmokeGateTests(unittest.TestCase):
+    def test_renamed_gate_step_fails(self):
+        text = VALID.replace("- name: Pinned-image smoke gate",
+                             "- name: Smoke test")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("smoke gate step absent", problems[0])
+
+    def test_missing_pull_fails(self):
+        text = VALID.replace('docker pull "$image"\n', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("pull", problems[0])
+
+    def test_missing_postgres_fixture_fails(self):
+        text = VALID.replace("docker exec smoke-pg pg_isready -U postgres\n",
+                             "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("postgres", problems[0])
+
+    def test_missing_identity_probe_fails(self):
+        text = VALID.replace('expect "identityd (pinned)" 400 probe_identity\n',
+                             "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("identityd probe", problems[0])
+
+    def test_identity_probe_without_login_route_fails(self):
+        text = VALID.replace("http://127.0.0.1:18081/v1/self/login", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("identityd probe", problems[0])
+
+    def test_missing_topology_probe_fails(self):
+        text = VALID.replace('expect "topologyd (pinned)" 401 probe_topology\n',
+                             "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("topologyd probe", problems[0])
+
+    def test_missing_gateway_probe_fails(self):
+        text = VALID.replace('expect "gateway (pinned)" 404 probe_gateway\n',
+                             "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("gateway probe", problems[0])
+
+    def test_missing_liveness_recheck_fails(self):
+        text = VALID.replace(
+            "          docker inspect -f '{{.State.Running}}' smoke-identity\n",
+            "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("liveness", problems[0])
+
+    def test_plain_docker_ps_cannot_see_exited_containers(self):
+        # CodeRabbit review on PR #164: `docker ps` lists running
+        # containers only — a container that crashed after a lucky
+        # probe would vanish from the recheck and the gate would
+        # false-green; the recheck must use `docker ps -a`
+        text = VALID.replace("docker ps -a --filter network=smoke-net",
+                             "docker ps --filter network=smoke-net")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("docker ps -a", problems[0])
+
+    def test_probe_miss_without_fail_closed_fails(self):
+        text = VALID.replace(
+            'echo "::error::smoke gate: $desc never answered HTTP $want"\n',
+            "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("fail closed", problems[0])
+
+
+class CrossCompileTests(unittest.TestCase):
+    def test_renamed_step_fails(self):
+        text = VALID.replace("- name: Cross-compile CLI", "- name: Build CLI")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("cross-compile step absent", problems[0])
+
+    def test_cgo_enabled_required(self):
+        text = VALID.replace("CGO_ENABLED=0 ", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("CGO_ENABLED=0", problems[0])
+
+    def test_both_arches_required(self):
+        text = VALID.replace("GOARCH=arm64", "GOARCH=amd64")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("amd64 + linux/arm64", problems[0])
+
+
+class ReleaseAssetTests(unittest.TestCase):
+    def test_renamed_release_step_fails(self):
+        text = VALID.replace("- name: Create GitHub Release",
+                             "- name: Publish release")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("release step absent", problems[0])
+
+    def test_missing_gh_release_create_fails(self):
+        text = VALID.replace("gh release create", "gh release upload")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("gh release create", problems[0])
+
+    def test_missing_asset_fails(self):
+        text = VALID.replace(" bundle-manifest.yaml", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("bundle-manifest.yaml", problems[0])
+
+    def test_install_sh_outside_a_comment_fails(self):
+        # R4 (#151) ships the installer; until it lands, install.sh may
+        # appear only in the placeholder comment
+        text = VALID.replace(
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml",
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("install.sh", problems[0])
+
+    def test_missing_r4_placeholder_fails(self):
+        text = VALID.replace("# R4 (#151): install.sh joins this asset set.\n",
+                             "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("R4 (#151)", problems[0])
+
+    def test_missing_notes_generation_fails(self):
+        text = VALID.replace('git log --pretty=%s "$prev..HEAD"', "echo notes")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("conventional commits", problems[0])
+
+    def test_missing_notes_file_fails(self):
+        text = VALID.replace("--notes-file release-notes.md", "--draft")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("notes", problems[0])
+
+    def test_missing_gh_token_fails(self):
+        text = VALID.replace(
+            "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("GH_TOKEN", problems[0])
+
+
 class OtherContractTests(unittest.TestCase):
     def test_missing_registry_prefix(self):
         text = VALID.replace("ghcr.io/kikakkz/looming/", "ghcr.io/other/ns/")
@@ -260,8 +582,9 @@ class OtherContractTests(unittest.TestCase):
         self.assertIn("verify_only", problems[0])
 
     def test_empty_workflow_reports_every_piece(self):
-        # three tag patterns, each reported on its own line
-        self.assertEqual(len(crw.problems("")), 11)
+        # three component tag patterns + the bundle pattern, each
+        # reported on its own line, plus the R3 contract pieces
+        self.assertEqual(len(crw.problems("")), 23)
 
 
 class CliTests(unittest.TestCase):
