@@ -45,6 +45,13 @@ A bundle release ships exactly these artifacts:
 | `bundle-manifest.yaml` | GH Release asset + `bundle/manifest.yaml` in the repo | apply resolves component pins at render time |
 | `install.sh` | raw.githubusercontent.com (pinned by ref) + release asset | the operator's one command |
 
+This table is the skill's "single bundle artifact (all components,
+one download)" made concrete for a containerized product: the
+operator downloads the release assets; the pinned image layers arrive
+via registry pull at install time. One release, one installable
+combination — never per-component downloads, and component tags stay
+an internal CI mechanism (the skill's rule of thumb, kept verbatim).
+
 The CLI is a **host binary, never a container**: apply orchestrates
 the host's Docker, join collects the joining host's machine facts and
 lands a 0600 credential, day-2 operations edit the host's
@@ -124,11 +131,15 @@ Three surfaces, three semantics — kept strictly separate:
    fails closed otherwise. The topology file stays the desired-state
    source (AD-36 semantics unchanged).
 6. **Bundle release CI**, on `vX.Y.Z`: verify every manifest pin is
-   pullable → cross-compile the CLI (`CGO_ENABLED=0`, linux/amd64 +
-   linux/arm64) → create the GitHub Release with notes generated from
-   conventional commits and the asset set from §2. Ordering rule:
-   component tags at or before the bundle tag; the bundle workflow
-   fails if a pin is missing.
+   pullable → pull the pinned images and run the integration suite
+   against them (the skill's "ensure integration tests pass for the
+   current manifest pins" — pullability does not prove compatibility,
+   so publication gates on this) → cross-compile the CLI
+   (`CGO_ENABLED=0`, linux/amd64 + linux/arm64) → create the GitHub
+   Release with notes generated from conventional commits and the
+   asset set from §2. Ordering rule: component tags at or before the
+   bundle tag; the bundle workflow fails if a pin is missing or the
+   pinned-image integration run is red.
 7. **Installer flow (#151, slice R4).** `install.sh`:
    resolve the release (default latest; `--version vX.Y.Z` pins) →
    download the CLI binary (host OS/arch) and `bundle-manifest.yaml`
@@ -177,10 +188,12 @@ Filed as issues after this design lands (the #107 pattern).
   section. Acceptance: apply with a manifest renders `image:` refs and
   never builds; the unpinned source path is byte-identical in behavior
   (e2e proof); unit + integration + e2e green.
-- **R3 — bundle release CI.** The `vX.Y.Z` job: pin verification, CLI
+- **R3 — bundle release CI.** The `vX.Y.Z` job: pin verification, the
+  pinned-image integration run (pull the manifest's images, run the
+  integration suite against them — publication gates on green), CLI
   cross-compile, GH Release with notes + assets. Acceptance: tagging
   `v0.1.0` produces a release whose assets install-verify in R4's
-  harness.
+  harness; a red pinned-image integration run blocks the release.
 - **R4 — artifact-only installer (#151, revised).** The §3.7 flow.
   e2e verification: the suite publishes its built images to a local
   registry fixture, assembles a release-shaped download fixture, and

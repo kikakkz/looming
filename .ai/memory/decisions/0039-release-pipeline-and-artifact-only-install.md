@@ -28,8 +28,8 @@ an install path.
 
 ## Decision
 
-The release skill's policy becomes mechanical (full mechanics in
-`docs/architecture/release-l1.md`):
+The release skill's policy becomes mechanical (full mechanics in the
+release L1 design, #153):
 
 1. **Registry** — ghcr.io under the repository, immutable semver tags
    only (`ghcr.io/kikakkz/looming/<component>:vX.Y.Z`); CI pushes with
@@ -46,10 +46,14 @@ The release skill's policy becomes mechanical (full mechanics in
 3. **Bundle manifest** — `bundle/manifest.yaml` in the repo pins each
    component's exact version; a component release is followed by a
    pin-bump PR; the bundle tag snapshots it.
-4. **Artifact set** — component images (ghcr), the `looming` CLI as
-   GH Release binaries per OS/arch (linux/amd64 + arm64 first), the
-   manifest as a release asset, and `install.sh`. The CLI is a host
-   binary and never ships as a container image.
+4. **Artifact set** — the skill's "single bundle artifact (all
+   components, one download)" is realized as the GH Release asset set:
+   the `looming` CLI per OS/arch (linux/amd64 + arm64 first), the
+   manifest, and `install.sh`, with the pinned component images pulled
+   from the registry at install time — one release, one installable
+   combination, never per-component downloads. Component tags stay an
+   internal CI mechanism. The CLI is a host binary and never ships as
+   a container image.
 5. **Render contract** — the render contract gains an optional image
    pin: pinned components render `image:` with no `build:`, and apply
    pulls — it never builds a pinned image. The unpinned source path
@@ -70,8 +74,8 @@ Hotfixes and security rebuild waves keep the skill's exception flow.
   artifact installer) are filed from #153 after the design PR lands;
   the first release is the three components at v0.1.0 then bundle
   v0.1.0.
-- `platform/go/render` changes are additive; cli and the e2e suite
-  keep today's unpinned behavior.
+- The render-contract change is additive; cli and the e2e suite keep
+  today's unpinned behavior.
 - #151 is re-scoped to the artifact-only installer (blocked by this
   flow); the parked source-based prototype contributes only its
   config-generation and invite-handling logic.

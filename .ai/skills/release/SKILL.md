@@ -25,7 +25,10 @@ Two-level versioning:
 1. Ensure integration tests pass for the current manifest pins.
 2. Bump the pins of every component that changed since the last bundle.
 3. Tag `vX.Y.Z`; write release notes from conventional commits.
-4. Publish the single bundle artifact (all components, one download).
+4. Publish the bundle release: the GH Release asset set (CLI binaries,
+   manifest, installer) with component images pulled from the registry
+   at install time — one release, one installable combination, never
+   per-component downloads (mechanics: docs/architecture/release-l1.md).
 
 ## Exceptions
 
