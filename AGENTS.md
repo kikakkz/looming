@@ -43,8 +43,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 
 ## Commands
 
-- `make ci-gate` — run the full local gate (branch name, locks, tool tests,
-  trailer checks, ADR check, shell lint, semgrep rules, PR-body lint).
+- `make ci-gate` — run the full local gate (branch name, locks, tool tests, trailer checks, ADR check, shell lint, semgrep rules, PR-body lint).
 - `make lint-pr-body` — PR-body lint (AD-30 prevention, #92): every `Refs #N`
   must state on the same line why the issue stays open; `Closes`/`Fixes` need
   no reason. Skips without a PR body — CI feeds it via `PR_BODY`; locally pass
@@ -56,6 +55,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make test-tools` — unit tests for `.ai/tools/`.
 - `make check-trailers` — validate commit-message trailers on `HEAD`.
 - `make check-adr` — validate decision-record links and index freshness.
+- `make check-release` — static R1 contract check for `.github/workflows/release.yml` (release-l1 §3.1/§5, #159): tag patterns, `packages: write`, per-tag concurrency, ghcr prefix, `verify_only` input, immutable pre-check.
 - `make check-docs` — doc-repo consistency: documented make targets exist, ci-gate prerequisites are named here, skill counts and memory wikilinks resolve.
 - `make lint-sh` — shellcheck over the repo scripts.
 - `make check-skills` — validate every `.ai/skills/*/SKILL.md` against the Agent Skills frontmatter contract.

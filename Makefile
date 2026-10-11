@@ -1,10 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage test-e2e
+.PHONY: ci-gate check-branch validate-locks test-tools check-trailers check-adr check-release check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage test-e2e
 
 # The CI-first rule: every code change lands together with its CI in the
 # same PR. This target is that CI, runnable locally.
-ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage
+ci-gate: check-branch validate-locks test-tools check-trailers check-adr check-release check-skills check-index check-docs lint-sh lint-semgrep lint-go lint-arch lint-pr-body test-unit test-integration test-coverage
 
 check-skills:
 	python3 .ai/tools/check_skills.py
@@ -31,6 +31,15 @@ check-trailers:
 
 check-adr:
 	python3 .ai/tools/adr_manager.py check
+
+# R1 release-CI contract (release-l1 §3.1/§5, #159): the component
+# publish workflow's promises are checked statically in text — tag
+# patterns, packages: write, the per-tag concurrency group, the ghcr
+# registry prefix, the verify_only recovery input, and the immutable
+# pre-check. A real tag push against ghcr is the workflow's only honest
+# harness; this is the deterministic half runnable on every change.
+check-release:
+	python3 .ai/tools/check_release_workflow.py
 
 lint-sh:
 	@if command -v shellcheck >/dev/null 2>&1; then \

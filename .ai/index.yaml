@@ -72,6 +72,8 @@
 # map cli/ line names the facts pull, platform/go/ + topology/ lines
 # name the join-carried host capabilities and the hosts read; all
 # read_order anchors resolve.
+# 2026-10-11 R1 release CI (#159) re-validated: AGENTS.md Commands gains
+# make check-release; all read_order anchors resolve.
 # 2026-10-11 release L1 (#153) re-validated: AD-39 lands (regenerated
 # decisions/README.md), AGENTS.md's release pointer gains release-l1 and
 # the release skill's bundle step names the asset set; all read_order

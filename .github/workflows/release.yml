@@ -1,0 +1,260 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Component release CI (release-l1 §3.1/§5 R1, #159): pushing a
+# <component>/vX.Y.Z tag builds that component's image once — QEMU-backed
+# buildx, linux/amd64 + linux/arm64 — and pushes it to ghcr under an
+# immutable semver tag. GHCR defaults fight both release promises, so the
+# job enforces them instead of assuming them (release-l1 §3.1): the
+# semver tag fails closed when it already exists, and publication is
+# followed by an anonymous-pull verification that points at the one-time
+# owner action when the new package is still private. `workflow_dispatch`
+# with verify_only re-runs just that verification — the recovery path
+# after the owner flips visibility; it never builds and never pushes.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "gateway/v*.*.*"
+      - "identity/v*.*.*"
+      - "topology/v*.*.*"
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Component in the release allowlist: gateway | identity | topology"
+        required: true
+        type: string
+      version:
+        description: "Semver tag without the component prefix, e.g. v0.1.0"
+        required: true
+        type: string
+      verify_only:
+        description: "Re-run post-publish verification only (no build, no push)"
+        required: false
+        type: boolean
+        default: false
+
+# Minimal at the workflow level: only the publish job earns packages
+# write (job-level grant below) — the resolve job only parses inputs.
+# R3's bundle job follows the same per-job least-privilege pattern.
+permissions:
+  contents: read
+
+jobs:
+  # Parse and validate the trigger before anything touches the registry:
+  # the allowlist and the vX.Y.Z shape are rejected here, so the publish
+  # job downstream only ever sees a legal (component, version) pair.
+  # git_ref pins every build to the named tag's sources — a dispatch
+  # from an arbitrary branch publishes the tag's code, never the
+  # branch's (see the checkout step below).
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      component: ${{ steps.parse.outputs.component }}
+      version: ${{ steps.parse.outputs.version }}
+      verify_only: ${{ steps.parse.outputs.verify_only }}
+      image: ${{ steps.parse.outputs.image }}
+      git_ref: ${{ steps.parse.outputs.git_ref }}
+    steps:
+      - name: Resolve component and version
+        id: parse
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_COMPONENT: ${{ inputs.component }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_VERIFY_ONLY: ${{ inputs.verify_only }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            component="$INPUT_COMPONENT"
+            version="$INPUT_VERSION"
+            verify_only="${INPUT_VERIFY_ONLY,,}"
+          else
+            component="${REF_NAME%%/*}"
+            version="${REF_NAME#*/}"
+            verify_only="false"
+          fi
+          case "$component" in
+            gateway|identity|topology) ;;
+            *)
+              echo "::error::component '$component' is outside the release allowlist (gateway | identity | topology)"
+              exit 1
+              ;;
+          esac
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version '$version' does not match vX.Y.Z"
+            exit 1
+          fi
+          echo "component=$component" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "verify_only=$verify_only" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/kikakkz/looming/$component:$version" >> "$GITHUB_OUTPUT"
+          echo "git_ref=refs/tags/$component/$version" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Job-level grant, not workflow-level: publishing needs packages
+    # write; nothing else in this workflow does. Job permissions replace
+    # the workflow grant outright, so contents: read is restated here
+    # for the checkout.
+    permissions:
+      contents: read
+      packages: write
+    # Per-tag serialization of the whole inspect-and-push sequence
+    # (release-l1 §3.1(b)): two runs racing at one tag collapse to one —
+    # the second waits, then fails the immutable pre-check below instead
+    # of repointing a published tag (TOCTOU guard).
+    concurrency:
+      group: release-${{ needs.resolve.outputs.component }}-${{ needs.resolve.outputs.version }}
+      cancel-in-progress: false
+    env:
+      COMPONENT: ${{ needs.resolve.outputs.component }}
+      IMAGE: ${{ needs.resolve.outputs.image }}
+    steps:
+      # Actions pin full commit SHAs (supply-chain hardening for a job
+      # whose token can write packages); the trailing comment names the
+      # rolling tag the SHA was taken from, for future updates.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # Build exactly the named tag's sources — for push triggers and
+        # dispatches alike. Without this, a workflow_dispatch fired from
+        # an arbitrary branch would publish that branch's code under the
+        # requested <component>/<version> tag.
+        with:
+          ref: ${{ needs.resolve.outputs.git_ref }}
+          # The verification step must be anonymous; nothing downstream
+          # needs the persisted token either.
+          persist-credentials: false
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        if: needs.resolve.outputs.verify_only == 'false'
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: needs.resolve.outputs.verify_only == 'false'
+
+      - name: Log in to ghcr.io
+        if: needs.resolve.outputs.verify_only == 'false'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Immutable-tag pre-check (release-l1 §3.1(b)): GHCR does not
+      # enforce tag immutability and manifests pin tags, not digests, so
+      # an overwritten tag would silently repoint a released bundle. The
+      # logged-in inspect also covers still-private packages — anonymous
+      # inspect would 401 and wrongly read as "free". The check fails
+      # closed: only the registry's explicit not-found verdict means the
+      # tag is absent; any other inspect failure (network, 5xx, rate
+      # limit, token) aborts — reading it as "free" would let the push
+      # overwrite an existing tag.
+      - name: Immutable pre-check
+        if: needs.resolve.outputs.verify_only == 'false'
+        run: |
+          set -euo pipefail
+          if out=$(docker manifest inspect "$IMAGE" 2>&1); then
+            echo "::error::$IMAGE already exists — refusing to repoint an immutable semver tag (release-l1 §3.1(b))"
+            exit 1
+          fi
+          # Error-text matching is a deliberate trade: docker wraps the
+          # registry's verdict as "no such manifest", OCI/distribution
+          # spell it "manifest unknown" / "not found" / NAME_UNKNOWN,
+          # and ghcr answers missing repositories with NAME_UNKNOWN. The
+          # union covers docker + ghcr; anything else fails closed above.
+          case "$out" in
+            *"no such manifest"*|*"manifest unknown"*|*"not found"*|*"NAME_UNKNOWN"*)
+              echo "tag absent — proceeding with the immutable publish"
+              ;;
+            *)
+              echo "::error::immutable pre-check failed closed (not a clean not-found): $out"
+              exit 1
+              ;;
+          esac
+
+      - name: Build and push multi-arch image
+        if: needs.resolve.outputs.verify_only == 'false'
+        env:
+          # Name-only build-arg passthrough, the same contract as
+          # platform/go/render (buildMap): the invoking environment
+          # supplies GOPROXY so a mirrored/offline build environment
+          # overrides the module proxy without editing the Dockerfile;
+          # the repo variable is the CI knob, the Go default the
+          # fallback.
+          GOPROXY: ${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+        run: |
+          set -euo pipefail
+          case "$COMPONENT" in
+            # topologyd builds from the bundle root with an explicit
+            # dockerfile: its go.mod replace-directive pins platform/go
+            # to the sibling directory (render contract).
+            topology)
+              context="."
+              dockerfile="topology/Dockerfile"
+              ;;
+            *)
+              context="$COMPONENT"
+              dockerfile="$COMPONENT/Dockerfile"
+              ;;
+          esac
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg GOPROXY \
+            --file "$dockerfile" \
+            --tag "$IMAGE" \
+            --push \
+            "$context"
+
+      # Post-publish verification (release-l1 §3.1(a)): the installer
+      # pulls anonymously, so publication is only real when the
+      # unauthenticated view works. The checks run against a scratch
+      # docker config — no credentials can ride along — and must prove
+      # both the manifest list and one pull per platform.
+      - name: Verify anonymous publication
+        run: |
+          set -euo pipefail
+          anon_config="$(mktemp -d)"
+          export DOCKER_CONFIG="$anon_config"
+
+          if ! manifest="$(docker manifest inspect "$IMAGE" 2> verify.err)"; then
+            cat verify.err >&2
+            fail="inspect"
+          elif [ "$(printf '%s' "$manifest" | jq '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length')" -ne 1 ] \
+            || [ "$(printf '%s' "$manifest" | jq '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length')" -ne 1 ]; then
+            echo "::error::$IMAGE is not a manifest list carrying linux/amd64 + linux/arm64"
+            fail="platforms"
+          elif ! docker pull --platform linux/amd64 "$IMAGE" > /dev/null 2>> verify.err; then
+            fail="pull-amd64"
+          elif ! docker pull --platform linux/arm64 "$IMAGE" > /dev/null 2>> verify.err; then
+            fail="pull-arm64"
+          else
+            fail=""
+          fi
+
+          if [ -n "$fail" ]; then
+            echo "::error::anonymous verification failed ($fail) for $IMAGE"
+            cat >&2 <<'EOF'
+
+            The package is not anonymously pullable. New GHCR packages
+            default to private, and CI never flips visibility — GitHub
+            documents no supported API (release-l1 §3.1(a)).
+
+            Owner action (one-time): open the package's settings page and
+            change its visibility to public, then re-run verification
+            only:
+
+              gh workflow run release.yml -f component=<component> \
+                  -f version=<version> -f verify_only=true
+
+            Package settings: https://github.com/users/kikakkz/packages
+          EOF
+          exit 1
+          fi
+          echo "$IMAGE verified: anonymous manifest inspect + per-platform pulls (linux/amd64, linux/arm64)"
+
+  # R3 (#153 slice 3) extends this file here with the bundle-release job
+  # on the bare vX.Y.Z tag: manifest pin verification, the pinned-image
+  # integration run, CLI cross-compile, and the GH Release asset set
+  # (release-l1 §3.6). Component and bundle jobs stay in this one file.
