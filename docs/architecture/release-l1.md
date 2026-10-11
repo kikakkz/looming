@@ -1,7 +1,7 @@
 # Release L1 — module design
 
 Derived in #153. Authority: the release skill
-([.ai/skills/release/SKILL.md](../../../.ai/skills/release/SKILL.md)) —
+([.ai/skills/release/SKILL.md](../../.ai/skills/release/SKILL.md)) —
 this design makes its policy mechanical; AD-39 records the decisions.
 Vocabulary: [glossary](glossary.md).
 
@@ -81,7 +81,11 @@ Three surfaces, three semantics — kept strictly separate:
    so CI does not automate it — instead the job verifies an
    unauthenticated pull after first publication and fails, pointing
    at the one-time owner action (the package's settings page → make
-   public), until the package is public; (b) *tag immutability* — GHCR has no native
+   public), until the package is public — recovery is a job re-run
+   after the owner action (a `workflow_dispatch` verify mode
+   re-executes the anonymous-pull check; the tag pre-check is
+   unchanged, so a re-run can never repoint a published tag);
+   (b) *tag immutability* — GHCR has no native
    enforcement and manifests pin tags, not digests, so an overwritten
    tag would silently repoint a released bundle; the job fails closed
    when the semver tag already exists (a pre-push `docker manifest
@@ -183,7 +187,10 @@ Filed as issues after this design lands (the #107 pattern).
   (unauthenticated pull verified after first publication); the
   double-push test — two pushes to the same semver tag in a
   disposable package — rejects the second; the concurrent-publisher
-  test — two parallel publishes racing at one tag — lands exactly one.
+  test — two parallel publishes racing at one tag — lands exactly one;
+  and the visibility recovery path — publish against a private package,
+  flip visibility via the owner action, re-run the verify mode, and the
+  anonymous pull passes without touching the tag.
 - **R2 — manifest + render pin.** `bundle/manifest.yaml`; the render
   contract's image pin; apply validation; the `bundle:` topology
   section. Acceptance: apply with a manifest renders `image:` refs and
