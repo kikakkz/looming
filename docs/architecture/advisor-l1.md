@@ -159,7 +159,7 @@ and depends on `platform/go/advisor`; the dependency never reverses.
   platform/go/advisor; the CLI owns the lifecycle state at
   `~/.looming/advisor/genesis.json` (the 0600 class, secrets never in
   it) and the `looming genesis set|sync|status` surface. Slice 1.1
-  shipped no model call; slice 1.2-B puts the seam to work.
+  shipped no model call; slice 1.2-B put the seam to work.
 - **Session record.** `~/.looming/advisor/sessions/<ts>.jsonl`,
   append-only: facts snapshot, profile-set hash, raw model output with
   reasoning, decision, rendered diff. This is the sediment the later
@@ -172,7 +172,7 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 - **Test pyramid.** Evaluator: full violation-matrix unit tests.
   Table mode: golden-render tests. Journey: diff/confirm/abort flow
   against a fixture topology file in integration tests. No model call
-  is testable in CI — 1.2 ships the model boundary behind an
+  is testable in CI — 1.2 shipped the model boundary behind an
   interface with a recorded-response fake.
 
 ## 7. Deferred (named triggers)
@@ -181,7 +181,7 @@ and depends on `platform/go/advisor`; the dependency never reverses.
   (non-blocking, not rejected); the shape is predetermined (AD-38
   rule 9) when a real automation consumer exists.
 - **Plan-level composition** (whole-cluster assignment search beyond
-  pair feasibility) — arrives with model ranking in 1.2; no
+  pair feasibility) — arrived with model ranking in 1.2; no
   deterministic plan solver is built before a consumer asks.
 - **Profile migration to Registry (#8)** — when the Registry context lands.
 
@@ -191,7 +191,7 @@ and depends on `platform/go/advisor`; the dependency never reverses.
   `Host.capabilities` fields, evaluator, `advise` table mode.
   Valuable and fully testable without any model. Landed as slice 1.1
   (#147): `looming topology advise` renders the deterministic feasibility
-  table; slices 1.2/1.3 remain.
+  table.
 - **1.2 model reasoning** — landed in two parts. 1.2-A (#148) the
   genesis channel: the LLMClient seam, the lifecycle state machine, the
   service identity, the erasure — closes #143. 1.2-B the reasoned

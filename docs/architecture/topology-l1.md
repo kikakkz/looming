@@ -27,8 +27,9 @@ Topology (aggregate root; desired state snapshot)
 **Supervision shape.** Every component runs as a container on Docker —
 the single runtime plane (the sandbox plane already reserves Docker;
 one plane for everything). Per-host compose files are the unit of
-deployment; `restart: unless-stopped` is the liveness floor;
-`looming-ctl status/restart/tail` wraps docker commands. NO
+deployment; `restart: unless-stopped` is the liveness floor; host
+supervision is the host's own docker compose (`ps`/`restart`/`logs` —
+wrapper commands stay out of the `looming` admin face, cli-l1 §4). NO
 systemd-unit rendering, NO embedded supervisor (runit/s6) — the
 earlier VM-native systemd variant was explicitly rejected by the
 maintainer.
@@ -44,17 +45,18 @@ that is Postgres-ecosystem internals, not an architecture decision.
 ## 3. Journeys
 
 **Admin bootstrap**: install the bundle on the first host → write
-`/etc/looming/topology.yaml` → `looming-ctl apply` (converge:
+`/etc/looming/topology.yaml` → `looming apply` (converge:
 validate invariants → bring up the state plane: start and initialize
 the bundle-owned Postgres, creating the `topology` database — on
 first boot it is started before any write → persist the topology →
 render per-host compose files → `docker compose up -d` on each
-declared host — restart only what changed; prints the invite link
-plus the join hint).
+declared host — restart only what changed; prints the one-time
+bootstrap invite (the raw token plus a register `curl`) plus the join
+hint).
 
-**Adding a host**: `looming-ctl token create --role engine --ttl 24h`
+**Adding a host**: `looming token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →
-`looming-ctl join http://<first-host>:<port> --token <t>` → the host
+`looming join http://<first-host>:<port> --token <t>` → the host
 registers itself (pull; no SSH) and its persistent credential lands at
 `/etc/looming/host.cred` (0600; the plaintext was shown exactly once
 at join). Re-join / address-or-label refresh presents that credential:
@@ -73,7 +75,7 @@ phase-1.
 
 ## 4. First-admin mechanism
 
-Bootstrap config declares `bootstrap.admin_email`; `looming-ctl apply`
+Bootstrap config declares `bootstrap.admin_email`; `looming apply`
 mints a ONE-TIME invite token for that email (reusing identity's
 existing invite mechanism — identity-l1 §5) and prints the invite
 link to the terminal; the operator copy-pastes it to the mailbox.
@@ -109,12 +111,18 @@ secret.
 
 ## 7. API surface (v1)
 
-`looming-ctl` admin commands: `apply` (with `--print-invite` to force
-the bootstrap-invite request), `token create|list|revoke` (admin side,
+`looming` admin-face commands (the `looming` CLI owns the admin-side
+command contract; CLI-1 retired the old `looming-ctl` binary —
+topologyd is this component's only binary): `apply` (with
+`--print-invite` to force the bootstrap-invite request; `--dry-run`
+stops after the render), `token create|list|revoke` (admin side,
 direct to the topology DB), `join <first-host-url> --token <t>` (the
-pulling host), `status`, `render` (dry-run compose output),
-`guide show`. The CLI binary's own component placement is #108's
-design surface — this doc only fixes the admin-side command contract.
+pulling host), `topology advise` (placement feasibility over declared
+and observed host facts), `topology facts pull` (merges join-observed
+machine facts into the topology file — the consumer of this section's
+hosts read), `guide show`. The CLI binary's own component placement
+is #108's design surface — this doc only fixes the admin-side command
+contract.
 
 The join/rejoin endpoints are served by **topologyd**, the topology
 component's long-running service binary (house naming: gateway →

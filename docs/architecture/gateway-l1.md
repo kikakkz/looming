@@ -67,8 +67,11 @@ IdentityAuthenticator authorizes off the cache and falls back to
 identity's validate endpoint on a miss, confirming positives for a
 30s TTL — the data plane never calls identity per request, and
 revocation is 401 immediately-ish (watch latency + TTL bound).
-ModelAllowlistCache remains the unwired slice-D seam for the model
-permission check.
+ModelAllowlistCache was the unwired slice-D seam for the model
+permission check; slice D has since landed — the feed's principal
+entries carry the effective permission union (identity-l1 §6) and the
+front layer enforces it with `ModelAllowed` (front/domain/authz.go),
+fail closed.
 
 Slice C consumes the feed's per-key `engine_credential` (identity
 PR #125/#126): the KeyCache projection carries it per row, the

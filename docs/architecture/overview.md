@@ -185,7 +185,7 @@ inside the worker sandbox).
 
 ## Reading order
 
-1. [context-map.md](context-map.md) — the eleven bounded contexts
+1. [context-map.md](context-map.md) — the twelve bounded contexts
 2. [glossary.md](glossary.md) — normative terms
 3. [../component-patterns.md](../component-patterns.md) — the four binding engineering patterns
 4. The AD records — why each shape is what it is
