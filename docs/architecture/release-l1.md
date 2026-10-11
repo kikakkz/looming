@@ -77,10 +77,13 @@ Three surfaces, three semantics — kept strictly separate:
    enforcement and manifests pin tags, not digests, so an overwritten
    tag would silently repoint a released bundle; the job fails closed
    when the semver tag already exists (a pre-push `docker manifest
-   inspect` check), and R1's acceptance test proves it by pushing
-   twice to the same semver tag in a disposable package and requiring
-   rejection. (Digest-pinned manifests remain the later hardening —
-   §4.)
+   inspect` check), a per-tag concurrency group serializes the
+   inspect-and-push sequence so two simultaneous same-tag releases
+   collapse to one (the second then fails the check), and R1's
+   acceptance proves both: a double push to the same semver tag in a
+   disposable package must reject, and two parallel publishers racing
+   at one tag must land exactly one. (Digest-pinned manifests remain
+   the later hardening — §4.)
 2. **Tag conventions are the release trigger.** Component release:
    push `<component>/vX.Y.Z` (e.g. `gateway/v0.1.0`). Bundle release:
    push `vX.Y.Z`. The release workflows match on these tag shapes;
@@ -167,7 +170,8 @@ Filed as issues after this design lands (the #107 pattern).
   one tag builds one component; each published package is public
   (unauthenticated pull verified after first publication); the
   double-push test — two pushes to the same semver tag in a
-  disposable package — rejects the second.
+  disposable package — rejects the second; the concurrent-publisher
+  test — two parallel publishes racing at one tag — lands exactly one.
 - **R2 — manifest + render pin.** `bundle/manifest.yaml`; the render
   contract's image pin; apply validation; the `bundle:` topology
   section. Acceptance: apply with a manifest renders `image:` refs and

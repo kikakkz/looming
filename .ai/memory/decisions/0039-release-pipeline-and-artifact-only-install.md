@@ -37,8 +37,9 @@ The release skill's policy becomes mechanical (full mechanics in
    job enforces the two promises GHCR defaults would break: published
    packages are set public (verified by an unauthenticated pull after
    first publication), and an existing semver tag fails the job
-   closed (pre-push manifest-inspect check; a disposable-package
-   double-push test proves rejection).
+   closed (pre-push manifest-inspect check, plus a per-tag concurrency
+   group serializing inspect-and-push so concurrent same-tag releases
+   collapse to one; both behaviors carry acceptance tests in R1).
 2. **Tag-triggered releases** — component: `<component>/vX.Y.Z`; bundle:
    `vX.Y.Z`. One tag names one component; unchanged components are
    never rebuilt.
