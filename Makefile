@@ -32,12 +32,15 @@ check-trailers:
 check-adr:
 	python3 .ai/tools/adr_manager.py check
 
-# R1 release-CI contract (release-l1 §3.1/§5, #159): the component
-# publish workflow's promises are checked statically in text — tag
-# patterns, packages: write, the per-tag concurrency group, the ghcr
-# registry prefix, the verify_only recovery input, and the immutable
-# pre-check. A real tag push against ghcr is the workflow's only honest
-# harness; this is the deterministic half runnable on every change.
+# Release-CI contract (release-l1 §3.1/§3.6, #159/#161): the component
+# and bundle release workflows' promises are checked statically in
+# text — tag patterns (component + bare bundle, disjoint by the no-/ glob),
+# job-scoped permissions (packages write, contents write in the bundle
+# job only), the per-tag concurrency groups, the ghcr registry prefix,
+# the verify_only recovery input, the immutable pre-check, the bundle
+# version guard, the pinned-image smoke gate, CLI cross-compile, and the
+# release asset set. A real tag push against ghcr is the workflow's only
+# honest harness; this is the deterministic half runnable on every change.
 check-release:
 	python3 .ai/tools/check_release_workflow.py
 

@@ -1,24 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
 
-# Component release CI (release-l1 §3.1/§5 R1, #159): pushing a
-# <component>/vX.Y.Z tag builds that component's image once — QEMU-backed
-# buildx, linux/amd64 + linux/arm64 — and pushes it to ghcr under an
-# immutable semver tag. GHCR defaults fight both release promises, so the
-# job enforces them instead of assuming them (release-l1 §3.1): the
-# semver tag fails closed when it already exists, and publication is
-# followed by an anonymous-pull verification that points at the one-time
-# owner action when the new package is still private. `workflow_dispatch`
+# Release CI (release-l1, #153): the R1 component flow (#159) builds one
+# component's image on its <component>/vX.Y.Z tag — QEMU-backed buildx,
+# linux/amd64 + linux/arm64 — and pushes it to ghcr under an immutable
+# semver tag. GHCR defaults fight both release promises, so the job
+# enforces them instead of assuming them (release-l1 §3.1): the semver
+# tag fails closed when it already exists, and publication is followed
+# by an anonymous-pull verification that points at the one-time owner
+# action when the new package is still private. `workflow_dispatch`
 # with verify_only re-runs just that verification — the recovery path
 # after the owner flips visibility; it never builds and never pushes.
+# The R3 bundle flow (#161) adds the `bundle` job below for the bare
+# vX.Y.Z tag: manifest-pin verification, the pinned-image smoke gate,
+# CLI cross-compile, and the GH Release asset set (release-l1 §3.6).
 
 name: release
 
 on:
   push:
     tags:
+      # The two release families stay disjoint: a tag filter's "*"
+      # never crosses a "/", so "v*.*.*" matches only the bare bundle
+      # tag and the three component patterns never match a bare
+      # v-tag — component tags cannot fire the bundle job and the
+      # bundle tag cannot fire the component jobs.
       - "gateway/v*.*.*"
       - "identity/v*.*.*"
       - "topology/v*.*.*"
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       component:
@@ -36,8 +45,8 @@ on:
         default: false
 
 # Minimal at the workflow level: only the publish job earns packages
-# write (job-level grant below) — the resolve job only parses inputs.
-# R3's bundle job follows the same per-job least-privilege pattern.
+# write and only the bundle job earns contents write (job-level grants
+# below) — everything else reads.
 permissions:
   contents: read
 
@@ -49,6 +58,10 @@ jobs:
   # from an arbitrary branch publishes the tag's code, never the
   # branch's (see the checkout step below).
   resolve:
+    # Component jobs only: a dispatch, or a component-shaped tag (the
+    # tag filters above are disjoint from the bare bundle tag; this
+    # guard is the defense in depth — the bundle job owns vX.Y.Z).
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.ref_name, '/') }}
     runs-on: ubuntu-latest
     outputs:
       component: ${{ steps.parse.outputs.component }}
@@ -254,7 +267,265 @@ jobs:
           fi
           echo "$IMAGE verified: anonymous manifest inspect + per-platform pulls (linux/amd64, linux/arm64)"
 
-  # R3 (#153 slice 3) extends this file here with the bundle-release job
-  # on the bare vX.Y.Z tag: manifest pin verification, the pinned-image
-  # integration run, CLI cross-compile, and the GH Release asset set
-  # (release-l1 §3.6). Component and bundle jobs stay in this one file.
+  # R3 (#161): the bundle-release job (release-l1 §3.6/§5). Runs for
+  # the bare vX.Y.Z tag only — verify every manifest pin is pullable,
+  # gate publication on the pinned images booting (the smoke gate),
+  # cross-compile the CLI, and create the GH Release with notes +
+  # assets. A red gate fails the job, so no Release is created.
+  bundle:
+    if: ${{ github.event_name == 'push' && !contains(github.ref_name, '/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Job-level grant, not workflow-level: creating the GH Release
+    # needs contents write (which also covers the checkout's read);
+    # nothing else in this workflow earns it.
+    permissions:
+      contents: write
+    # Serialize same-tag runs: a re-pushed bundle tag waits for the
+    # first run instead of racing the Release-asset upload.
+    concurrency:
+      group: release-bundle-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      # Parse and validate the trigger before anything else: only the
+      # bare vX.Y.Z reaches this job (the tag filter plus the job guard
+      # above), and the shape check below refuses anything else that
+      # somehow slipped through — a component tag must never release.
+      - name: Resolve bundle version
+        id: resolve
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF_NAME" == */* ]]; then
+            echo "::error::'$REF_NAME' is a component-shaped tag; the bundle job releases the bare vX.Y.Z only"
+            exit 1
+          fi
+          if [[ ! "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::bundle tag '$REF_NAME' does not match vX.Y.Z"
+            exit 1
+          fi
+          echo "version=$REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "git_ref=refs/tags/$REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # Build the named tag's sources — and fetch every tag: the
+        # release notes diff this tag against the previous bundle tag.
+        with:
+          ref: ${{ steps.resolve.outputs.git_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Pin verification (release-l1 §3.6, the ordering rule): every
+      # manifest pin must already be published — component tags at or
+      # before the bundle tag — or the bundle fails here. The manifest
+      # is scanned strictly (a line that is not a pin is an error, not
+      # a skip) and inspected ANONYMOUSLY: the installer pulls without
+      # credentials, so the anonymous view is the only pullability that
+      # counts (R1's post-publish verification makes it pass).
+      - name: Verify manifest pins pull
+        run: |
+          set -euo pipefail
+          : > pins.tsv
+          images=()
+          while IFS= read -r line; do
+            case "$line" in
+              ''|'#'*|components:) continue ;;
+            esac
+            if [[ "$line" =~ ^[[:space:]]{2}([a-z]+):[[:space:]]+(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              component="${BASH_REMATCH[1]}"
+              version="${BASH_REMATCH[2]}"
+              image="ghcr.io/kikakkz/looming/$component:$version"
+              images+=("$image")
+              printf '%s\t%s\n' "$component" "$image" >> pins.tsv
+            else
+              echo "::error::bundle/manifest.yaml: not a strict pin line: $line"
+              exit 1
+            fi
+          done < bundle/manifest.yaml
+          if [ "${#images[@]}" -eq 0 ]; then
+            echo "::error::bundle/manifest.yaml pins no components"
+            exit 1
+          fi
+          for image in "${images[@]}"; do
+            if ! docker manifest inspect "$image" >/dev/null 2> inspect.err; then
+              cat inspect.err >&2
+              echo "::error::pin $image is not anonymously pullable — component tags must be published at or before the bundle tag (release-l1 §3.6); for a still-private package run R1's verify_only visibility recovery"
+              exit 1
+            fi
+            echo "pin pullable: $image"
+          done
+
+      # Pinned-image integration gate (release-l1 §3.6): pullability
+      # does not prove compatibility, so publication gates on the
+      # pinned images actually booting. The integration-tagged suites
+      # are component-level and source-built, and the e2e suite builds
+      # from source — a pinned-topology run is their follow-up issue —
+      # so this gate is the per-image smoke: each pinned image boots
+      # against a throwaway postgres fixture and answers the same
+      # liveness surfaces the e2e suite probes (identityd's login
+      # 400-not-401, topologyd's guide 401, the gateway's 404 stub).
+      # A red gate fails the job: no Release is created.
+      - name: Pinned-image smoke gate
+        run: |
+          set -euo pipefail
+
+          expect() { # $1 description, $2 wanted code, $3 probe fn, $4 container
+            local desc="$1" want="$2" probe_fn="$3" container="$4" i code
+            code=000
+            for i in $(seq 1 45); do
+              code="$("$probe_fn" 2>/dev/null || echo 000)"
+              if [ "$code" = "$want" ]; then
+                echo "$desc: HTTP $code"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::smoke gate: $desc never answered HTTP $want (last: $code)"
+            docker logs "$container" >&2 || true
+            return 1
+          }
+          probe_identity() {
+            curl -s -o /dev/null -w '%{http_code}' -X POST \
+              http://127.0.0.1:18081/v1/self/login \
+              -H 'Content-Type: application/json' -d '{'
+          }
+          probe_topology() {
+            curl -s -o /dev/null -w '%{http_code}' \
+              http://127.0.0.1:18082/v1/internal/guide
+          }
+          probe_gateway() {
+            curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/
+          }
+
+          docker network create smoke-net >/dev/null
+          docker run -d --name smoke-pg --network smoke-net \
+            -e POSTGRES_PASSWORD=smoke postgres:16-alpine >/dev/null
+          for i in $(seq 1 30); do
+            if docker exec smoke-pg pg_isready -U postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec smoke-pg psql -U postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE identity_smoke' \
+            -c 'CREATE DATABASE topology_smoke'
+
+          while IFS=$'\t' read -r component image; do
+            echo "smoke gate: pulling $image"
+            docker pull "$image"
+            case "$component" in
+              identity)
+                docker run -d --name smoke-identity --network smoke-net \
+                  -p 127.0.0.1:18081:8080 \
+                  -e IDENTITY_LISTEN=:8080 \
+                  -e "IDENTITY_DATABASE_URL=postgres://postgres:smoke@smoke-pg:5432/identity_smoke?sslmode=disable" \
+                  -e IDENTITY_GATEWAY_TOKEN=smoke \
+                  -e "IDENTITY_KEY_MASTER_KEY=$(openssl rand -base64 32)" \
+                  "$image" >/dev/null
+                expect "identityd (pinned)" 400 probe_identity smoke-identity
+                ;;
+              topology)
+                docker run -d --name smoke-topology --network smoke-net \
+                  -p 127.0.0.1:18082:8081 \
+                  -e TOPOLOGY_LISTEN=:8081 \
+                  -e "TOPOLOGY_DATABASE_URL=postgres://postgres:smoke@smoke-pg:5432/topology_smoke?sslmode=disable" \
+                  -e TOPOLOGY_SERVICE_TOKEN=smoke \
+                  "$image" >/dev/null
+                expect "topologyd (pinned)" 401 probe_topology smoke-topology
+                ;;
+              gateway)
+                docker run -d --name smoke-gateway --network smoke-net \
+                  -p 127.0.0.1:18080:8080 \
+                  -e GATEWAY_LISTEN=:8080 \
+                  -e GATEWAY_UPSTREAM=https://10.255.255.1/upstream \
+                  -e GATEWAY_IDENTITY_URL=http://smoke-identity:8080 \
+                  -e GATEWAY_IDENTITY_INSECURE=1 \
+                  -e GATEWAY_IDENTITY_TOKEN=smoke \
+                  "$image" >/dev/null
+                expect "gateway (pinned)" 404 probe_gateway smoke-gateway
+                ;;
+              *)
+                echo "::error::smoke gate: unknown component '$component' in pins.tsv"
+                exit 1
+                ;;
+            esac
+          done < pins.tsv
+
+          # A crash right after a lucky first probe is still red: every
+          # smoke container must be running at the end.
+          failed=0
+          for name in $(docker ps --filter network=smoke-net --format '{{.Names}}' | grep -v '^smoke-pg$'); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != "true" ]; then
+              echo "::error::smoke gate: $name exited during the gate"
+              docker logs "$name" >&2 || true
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "pinned-image smoke gate: green"
+
+      # The CLI is a host binary (release-l1 §2): cross-compile the two
+      # phase-1 platforms from the tagged sources, CGO off, workspace
+      # off (cli/go.mod's replace pins platform/go — the same hermetic
+      # shape as the component Dockerfiles).
+      - name: Cross-compile CLI
+        env:
+          GOPROXY: ${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+        run: |
+          set -euo pipefail
+          cd cli
+          CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH=amd64 \
+            go build -trimpath -o "$GITHUB_WORKSPACE/looming-linux-amd64" ./cmd/looming
+          CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH=arm64 \
+            go build -trimpath -o "$GITHUB_WORKSPACE/looming-linux-arm64" ./cmd/looming
+          ls -l "$GITHUB_WORKSPACE"/looming-linux-*
+
+      # Notes from conventional commits: the pinned-combination table
+      # from pins.tsv, then the squash-merged conventional subjects
+      # since the previous bundle tag (glob matches bare v-tags only —
+      # component tags carry a prefix). The first bundle tag has no
+      # predecessor and says so.
+      - name: Write release notes
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          prev="$(git describe --tags --abbrev=0 --match='v[0-9]*.[0-9]*.[0-9]*' HEAD^ 2>/dev/null || true)"
+          {
+            echo "Bundle release $VERSION — the tested combination:"
+            echo
+            echo '| component | image |'
+            echo '|---|---|'
+            while IFS=$'\t' read -r component image; do
+              echo "| $component | $image |"
+            done < pins.tsv
+            echo
+            echo '## Changes'
+            echo
+            if [ -n "$prev" ]; then
+              git log --pretty=%s "$prev..HEAD" \
+                | grep -E '^[a-z]+(\([a-z0-9-]+\))?!?: ' \
+                | sed 's/^/- /' || true
+            else
+              echo '_First bundle release._'
+            fi
+          } > release-notes.md
+          cp bundle/manifest.yaml bundle-manifest.yaml
+          cat release-notes.md
+
+      # R4 (#151): install.sh joins this asset set — the artifact-only
+      # installer lands in the next slice, so the first bundle releases
+      # ship the CLI binaries + manifest only.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" \
+            --title "looming bundle $VERSION" \
+            --notes-file release-notes.md \
+            looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml
