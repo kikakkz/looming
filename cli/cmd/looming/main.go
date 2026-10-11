@@ -19,6 +19,7 @@ import (
 	"github.com/kikakkz/looming/cli/internal/admin/applycmd"
 	"github.com/kikakkz/looming/cli/internal/admin/dbcmd"
 	"github.com/kikakkz/looming/cli/internal/admin/joincmd"
+	"github.com/kikakkz/looming/cli/internal/advisor"
 	"github.com/kikakkz/looming/cli/internal/agentcfg"
 	"github.com/kikakkz/looming/cli/internal/identityclient"
 	"github.com/kikakkz/looming/cli/internal/onboard"
@@ -43,16 +44,22 @@ func root() *cobra.Command {
 }
 
 // adminCmd assembles the admin face (cli-l1 §4): apply converges the
-// deployment, token/guide talk to the topology database directly, and
-// join is the pulling host's self-registration. Every command is a
-// thin wrapper over the platform/go kit (#108's extraction).
+// deployment (its post-converge hook carries the genesis lifecycle's
+// gateway-ready signal, #143), token/guide talk to the topology
+// database directly, join is the pulling host's self-registration,
+// advise derives placement feasibility from the declared host facts
+// (AD-38), and genesis manages the model channel's bootstrap lifecycle
+// (#143). Every command is a thin wrapper over the platform/go kit
+// (#108's extraction).
 func adminCmd(stdout, stderr io.Writer) []*cobra.Command {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	return []*cobra.Command{
-		applycmd.New(stdout, log),
+		applycmd.New(stdout, log, advisor.NotifyApplyConverged),
 		dbcmd.NewToken(stdout),
 		dbcmd.NewGuide(stdout),
 		joincmd.New(stdout),
+		advisor.New(stdout, stderr),
+		advisor.NewGenesis(stdout, stderr),
 	}
 }
 

@@ -686,3 +686,75 @@ placements:
 	assert.ErrorIs(t, err, config.ErrInvalidPlacement)
 	assert.Contains(t, err.Error(), "place gateway-front on host")
 }
+
+// TestGenesisSection: the model-channel bootstrap section parses with
+// its endpoint and optional model (#143); the strict decoder rejects an
+// api_key key in the operator-edited file rather than ignoring it — a
+// plaintext secret in topology.yaml is a loud error, not a silent leak.
+func TestGenesisSection(t *testing.T) {
+	cfg, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+genesis: {endpoint: "https://genesis.example.com/v1", model: "kimi-for-coding"}
+`)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Genesis)
+	assert.Equal(t, "https://genesis.example.com/v1", cfg.Genesis.Endpoint)
+	assert.Equal(t, "kimi-for-coding", cfg.Genesis.Model)
+}
+
+func TestGenesisSectionAbsent(t *testing.T) {
+	cfg, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`)
+	require.NoError(t, err)
+	assert.Nil(t, cfg.Genesis)
+}
+
+func TestGenesisValidation(t *testing.T) {
+	cases := []struct {
+		name     string
+		genesis  string
+		contains string
+	}{
+		{"missing endpoint", `genesis: {model: "m"}`, "genesis.endpoint is required"},
+		{"endpoint not a url", `genesis: {endpoint: "genesis.example.com"}`, "must be an absolute http(s) URL"},
+		{"endpoint not absolute", `genesis: {endpoint: "/v1"}`, "must be an absolute http(s) URL"},
+		{"endpoint embeds credentials", `genesis: {endpoint: "https://user:secret@genesis.example.com/v1"}`, "must not embed credentials"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+`+tc.genesis+"\n")
+			require.Error(t, err)
+			assert.ErrorIs(t, err, config.ErrInvalidGenesis)
+			assert.Contains(t, err.Error(), tc.contains)
+		})
+	}
+}
+
+// TestGenesisPlaintextAPIKeyRejectedAtDecode: the strict decoder has no
+// api_key field under genesis:, so a key pasted into topology.yaml
+// fails at decode time — before any validation — with the unknown-key
+// error. The secret never parses as configuration.
+func TestGenesisPlaintextAPIKeyRejectedAtDecode(t *testing.T) {
+	_, err := load(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.1}]
+placements: [{component: gateway-front, host: only, ports: {http: 8080}}]
+genesis: {endpoint: "https://genesis.example.com/v1", api_key: sk-test}
+`)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, config.ErrInvalidYAML)
+	assert.Contains(t, err.Error(), "field api_key not found")
+}

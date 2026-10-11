@@ -5,10 +5,17 @@
 # CLI-1 (#108) migrated the admin face in from the retired topology
 # admin binary: applycmd converges via platform/go's apply pipeline,
 # dbcmd is the database-direct group (token create|list|revoke + guide
-# show), joincmd is the pulling host's self-registration. The admin
-# packages consume the platform/go kit as vendor imports (allowed by
-# depOnAnyVendor, pinned in go.mod) and stay independent of each other
-# and of the user-face capabilities.
+# show), joincmd is the pulling host's self-registration, advisecmd
+# (AD-38) renders the advisor's placement surfaces — the deterministic
+# table (slice 1.1), the genesis model-channel lifecycle (#143, slice
+# 1.2-A: the secret store, the identity service key, and the apply
+# converge-signal hook — the last arrives through cmd's wiring so the
+# capabilities stay independent), and the model reasoning interaction
+# (slice 1.2-B). The admin packages consume the platform/go kit as
+# vendor imports (allowed by depOnAnyVendor, pinned in go.mod) and stay
+# independent of each other and of the user-face capabilities except
+# where declared: advisecmd reads the client-side secret store and the
+# identity client (both cli-l1 §4 surfaces).
 version: 3
 
 allow:
@@ -26,10 +33,13 @@ components:
   applycmd:       { in: internal/admin/applycmd }
   dbcmd:          { in: internal/admin/dbcmd }
   joincmd:        { in: internal/admin/joincmd }
+  advisecmd:      { in: internal/advisor }
   cmd:            { in: cmd/looming }
 
 deps:
   onboard:
     mayDependOn: [profile, identityclient]
+  advisecmd:
+    mayDependOn: [profile, identityclient]
   cmd:
-    mayDependOn: [profile, identityclient, agentcfg, onboard, applycmd, dbcmd, joincmd]
+    mayDependOn: [profile, identityclient, agentcfg, onboard, applycmd, dbcmd, joincmd, advisecmd]
