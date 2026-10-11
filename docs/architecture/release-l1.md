@@ -77,10 +77,11 @@ Three surfaces, three semantics — kept strictly separate:
    mechanics the publish job (R1) enforces, because GHCR defaults
    fight both promises: (a) *package visibility* — new packages
    default to private, which would break the installer's anonymous
-   pulls; the job sets each published package public (`PATCH
-   /user/packages/container/looming%2F<component>` with
-   `visibility=public`) and verifies an unauthenticated pull after
-   first publication; (b) *tag immutability* — GHCR has no native
+   pulls; GitHub documents no supported API for flipping visibility,
+   so CI does not automate it — instead the job verifies an
+   unauthenticated pull after first publication and fails, pointing
+   at the one-time owner action (the package's settings page → make
+   public), until the package is public; (b) *tag immutability* — GHCR has no native
    enforcement and manifests pin tags, not digests, so an overwritten
    tag would silently repoint a released bundle; the job fails closed
    when the semver tag already exists (a pre-push `docker manifest

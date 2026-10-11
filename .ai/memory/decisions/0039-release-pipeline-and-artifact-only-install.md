@@ -35,8 +35,10 @@ release L1 design, #153):
    only (`ghcr.io/kikakkz/looming/<component>:vX.Y.Z`); CI pushes with
    `GITHUB_TOKEN`, pulls are anonymous. No mutable tags. The publish
    job enforces the two promises GHCR defaults would break: published
-   packages are set public (verified by an unauthenticated pull after
-   first publication), and an existing semver tag fails the job
+   packages are public — the job verifies with an unauthenticated pull
+   and fails pointing at the one-time owner action (package settings;
+   GitHub documents no supported visibility endpoint, so CI verifies
+   rather than flips); and an existing semver tag fails the job
    closed (pre-push manifest-inspect check, plus a per-tag concurrency
    group serializing inspect-and-push so concurrent same-tag releases
    collapse to one; both behaviors carry acceptance tests in R1).
