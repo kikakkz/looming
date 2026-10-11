@@ -22,6 +22,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/kikakkz/looming/platform/go/bundle"
 	"github.com/kikakkz/looming/platform/go/render"
 	domain "github.com/kikakkz/looming/platform/go/topologydomain"
 )
@@ -55,6 +56,7 @@ var (
 	ErrInvalidPlacement     = errors.New("config: invalid placement")
 	ErrInvalidBootstrap     = errors.New("config: invalid bootstrap section")
 	ErrInvalidGenesis       = errors.New("config: invalid genesis section")
+	ErrInvalidBundle        = errors.New("config: invalid bundle section")
 )
 
 // Error is one config failure with file context: what failed, in which
@@ -83,9 +85,10 @@ func (e *Error) Unwrap() error { return e.Err }
 // Config is the validated desired-state file: the access section, the
 // cluster identity the guide page renders, the state plane (bundle
 // Postgres on the first host), the declared hosts, the component
-// placements, and the optional bootstrap section (the first-admin
-// invite apply prints after a successful converge, plus the guide's
-// CLI download URL).
+// placements, the optional bootstrap section (the first-admin invite
+// apply prints after a successful converge, plus the guide's CLI
+// download URL), and the optional installer-owned bundle section (the
+// released combination's manifest; release-l1 §3.5).
 type Config struct {
 	Version        int
 	Access         Access
@@ -96,6 +99,7 @@ type Config struct {
 	Placements     []Placement
 	Bootstrap      *Bootstrap
 	Genesis        *Genesis
+	Bundle         *Bundle
 
 	source string // file path, for error context
 }
@@ -229,6 +233,17 @@ type Genesis struct {
 	Model string
 }
 
+// Bundle is the optional release-bundle section (release-l1 §3.5, R2):
+// the installer-owned block selecting the released combination this
+// topology converges from — the bundle version the file was installed
+// at, and the manifest pinning every component's image. Apply loads
+// the manifest and renders image: pins from it; the operator never
+// edits this block by hand (the installer owns it across upgrades).
+type Bundle struct {
+	Version  string
+	Manifest string
+}
+
 // raw mirrors the YAML shape for strict decoding: unknown keys are
 // rejected (a typo'd field is a config error, not a silent default).
 type rawConfig struct {
@@ -240,6 +255,7 @@ type rawConfig struct {
 	Placements []rawPlacement `yaml:"placements"`
 	Bootstrap  *rawBootstrap  `yaml:"bootstrap"`
 	Genesis    *rawGenesis    `yaml:"genesis"`
+	Bundle     *rawBundle     `yaml:"bundle"`
 }
 
 type rawCluster struct {
@@ -335,6 +351,13 @@ type rawGenesis struct {
 	Model    string `yaml:"model"`
 }
 
+// rawBundle mirrors the installer-owned bundle: section (release-l1
+// §3.5): the released combination selection plus the manifest path.
+type rawBundle struct {
+	Version  string `yaml:"version"`
+	Manifest string `yaml:"manifest"`
+}
+
 // portNamePattern and hostIDPattern constrain the vocabulary other
 // planes consume: port names become env/docker references, host ids
 // become artifact keys and CLI output.
@@ -396,6 +419,9 @@ func Load(path string) (*Config, error) {
 	}
 	if raw.Genesis != nil {
 		cfg.Genesis = &Genesis{Endpoint: raw.Genesis.Endpoint, Model: raw.Genesis.Model}
+	}
+	if raw.Bundle != nil {
+		cfg.Bundle = &Bundle{Version: raw.Bundle.Version, Manifest: raw.Bundle.Manifest}
 	}
 	for _, h := range raw.Hosts {
 		cfg.Hosts = append(cfg.Hosts, convertHost(h))
@@ -539,6 +565,9 @@ func (c *Config) validate(doc *yaml.Node) error {
 		return err
 	}
 	if err := c.validateGenesis(doc); err != nil {
+		return err
+	}
+	if err := c.validateBundle(doc); err != nil {
 		return err
 	}
 	return nil
@@ -898,6 +927,38 @@ func (c *Config) validateGenesis(doc *yaml.Node) error {
 	}
 	c.Genesis.Endpoint = endpoint
 	c.Genesis.Model = strings.TrimSpace(c.Genesis.Model)
+	return nil
+}
+
+// validateBundle checks the optional installer-owned section
+// (release-l1 §3.5): present means the version carries the manifest's
+// vX.Y.Z tag shape (the bundle.ValidVersion the manifest loader
+// shares — a typo fails here, not in a report) and the manifest path
+// is absolute — an env_file precedent: a relative path would
+// silently re-anchor to whatever directory apply happens to run
+// from. Whether the manifest file itself exists and parses is apply's
+// fail-closed check (the state plane must not come up first).
+func (c *Config) validateBundle(doc *yaml.Node) error {
+	if c.Bundle == nil {
+		return nil
+	}
+	line := sectionLine(doc, "bundle")
+	switch version := strings.TrimSpace(c.Bundle.Version); {
+	case version == "":
+		return c.fail(line, ErrInvalidBundle, "bundle.version is required when the bundle section is present")
+	case !bundle.ValidVersion(version):
+		return c.fail(line, ErrInvalidBundle, "bundle.version %q must be a v-prefixed semver tag (vX.Y.Z)", c.Bundle.Version)
+	default:
+		c.Bundle.Version = version
+	}
+	manifest := strings.TrimSpace(c.Bundle.Manifest)
+	switch {
+	case manifest == "":
+		return c.fail(line, ErrInvalidBundle, "bundle.manifest is required when the bundle section is present")
+	case !filepath.IsAbs(manifest):
+		return c.fail(line, ErrInvalidBundle, "bundle.manifest %q must be an absolute path", c.Bundle.Manifest)
+	}
+	c.Bundle.Manifest = manifest
 	return nil
 }
 

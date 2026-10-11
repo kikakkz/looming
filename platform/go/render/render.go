@@ -52,6 +52,20 @@ const HostGatewayAlias = "host.docker.internal"
 // HostGatewayAlias to the docker host from inside a container.
 const HostGatewayMapping = HostGatewayAlias + ":host-gateway"
 
+// ImageRegistry is the release registry every bundle pin resolves
+// against (release-l1 §3.1): the ghcr organization release CI
+// publishes component images under (.github/workflows/release.yml) —
+// the manifest's version tags name images below this prefix, nothing
+// else.
+const ImageRegistry = "ghcr.io/kikakkz/looming"
+
+// ImageRef resolves a release name (the bundle manifest's components
+// key — the contract's ReleaseName) and a version tag into the full
+// pinned image ref the renderer's `image:` entry carries.
+func ImageRef(release, version string) string {
+	return ImageRegistry + "/" + release + ":" + version
+}
+
 // IsLoopbackAddress reports whether addr names this very machine's
 // loopback (the phase-1 single-host degenerate case): the single-host
 // deployment is where containers need HostGatewayAlias to reach
@@ -92,17 +106,42 @@ type Contract struct {
 	// whose file contents the image build actually reads. Empty
 	// defaults to [BuildDir].
 	DigestDirs []string
+	// ReleaseName is the component's release identity (release-l1
+	// §3.2/§3.4): the image name under ImageRegistry the bundle
+	// manifest pins — gateway-front releases as "gateway", identityd
+	// as "identity", topologyd as "topology" (the names release CI
+	// publishes under). Empty would mean the component is not
+	// releasable; every phase-1 contract carries one.
+	ReleaseName string
+	// Image is the optional release pin (release-l1 §3.5, R2): when
+	// non-empty, the placement renders `image: <ref>` and NO build
+	// block — apply pulls and converges a pinned image, never building
+	// it. Empty keeps the source-build path (build: + GOPROXY arg).
+	// Render fills it from Input.Images; operators never write it.
+	Image      string
 	ListenPort string
 	ListenEnv  string
 	Entrypoint string
+}
+
+// ReleaseNames returns the phase-1 components' release identities
+// (the contracts' ReleaseName values), sorted — the vocabulary the
+// bundle manifest's components keys draw from (release-l1 §3.4).
+func ReleaseNames() []string {
+	names := make([]string, 0, len(contracts))
+	for _, c := range contracts {
+		names = append(names, c.ReleaseName)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // contracts is the phase-1 allowlist: placements naming any other
 // component are rejected at validate time. The map is the single
 // source for both the check and the render.
 var contracts = map[string]Contract{
-	domain.ComponentGatewayFront: {EnvPrefix: "GATEWAY", BuildDir: "gateway", ListenPort: "http", ListenEnv: "GATEWAY_LISTEN"},
-	domain.ComponentIdentityd:    {EnvPrefix: "IDENTITY", BuildDir: "identity", ListenPort: "http", ListenEnv: "IDENTITY_LISTEN"},
+	domain.ComponentGatewayFront: {EnvPrefix: "GATEWAY", BuildDir: "gateway", ReleaseName: "gateway", ListenPort: "http", ListenEnv: "GATEWAY_LISTEN"},
+	domain.ComponentIdentityd:    {EnvPrefix: "IDENTITY", BuildDir: "identity", ReleaseName: "identity", ListenPort: "http", ListenEnv: "IDENTITY_LISTEN"},
 	// topologyd serves the join/rejoin API. CLI-1 (#108) moved its
 	// module's dependencies into platform/go, so its image builds from
 	// the bundle root (context "." + explicit dockerfile) and the
@@ -110,7 +149,7 @@ var contracts = map[string]Contract{
 	// TOPOLOGY_DATABASE_URL rides the placement's config keys or
 	// env_file like any other secret material.
 	domain.ComponentTopologyd: {
-		EnvPrefix: "TOPOLOGY", BuildDir: ".", Dockerfile: "topology/Dockerfile",
+		EnvPrefix: "TOPOLOGY", BuildDir: ".", Dockerfile: "topology/Dockerfile", ReleaseName: "topology",
 		DigestDirs: []string{"platform/go", "topology"},
 		ListenPort: "http", ListenEnv: "TOPOLOGY_LISTEN", Entrypoint: "/usr/local/bin/topologyd",
 	},
@@ -171,6 +210,13 @@ type Input struct {
 	// Empty disables digesting (unit tests stay pure functions of
 	// the input).
 	BundleRoot string
+	// Images carries the optional release pins (release-l1 §3.5, R2):
+	// component name → full image ref (render.ImageRef over the bundle
+	// manifest's version). A placed component named here renders
+	// `image:` and no build block; components absent from the map keep
+	// today's source-build path. Nil renders exactly the unpinned
+	// output — the e2e/PR surface stays byte-identical.
+	Images map[string]string
 }
 
 // Artifact is one host's rendered compose file plus the content hash
@@ -232,9 +278,19 @@ func buildMap(c Contract) map[string]any {
 // out of the rendered artifact's inline environment). guideURL, when
 // non-empty, is the topologyd base URL injected as the gateway's
 // GATEWAY_TOPOLOGY_URL (T3): the renderer's derivation of the internal
-// link, never an operator config key.
+// link, never an operator config key. c.Image, when non-empty, is the
+// release pin: `image:` renders and the build block stays out
+// (release-l1 §3.5).
 func placementService(p domain.ComponentPlacement, c Contract, envFile, guideURL string) (map[string]any, error) {
 	svc := map[string]any{
+		"restart": "unless-stopped",
+	}
+	if c.Image != "" {
+		// The release pin (release-l1 §3.5): the service renders the
+		// pinned image ref and NO build block — apply pulls and
+		// converges published artifacts, never building a pinned image.
+		svc["image"] = c.Image
+	} else {
 		// GOPROXY rides the build-args passthrough so a mirrored or
 		// offline build environment overrides the module proxy without
 		// editing the Dockerfile: compose takes a name-only arg from
@@ -242,8 +298,7 @@ func placementService(p domain.ComponentPlacement, c Contract, envFile, guideURL
 		// operator's env, and CI uses the Go default). First real
 		// container build this suite runs — pinned here so the hazard
 		// stays visible (bundle e2e, #107).
-		"build":   buildMap(c),
-		"restart": "unless-stopped",
+		svc["build"] = buildMap(c)
 	}
 	if c.Entrypoint != "" {
 		svc["entrypoint"] = []string{c.Entrypoint}
@@ -556,6 +611,10 @@ func Render(in Input) ([]Artifact, error) {
 			if !ok {
 				return nil, fmt.Errorf("%w: %q (phase-1: %s)", ErrUnknownComponent, p.Component, strings.Join(Allowlist(), ", "))
 			}
+			// The release pin rides the contract copy (the allowlist
+			// table itself stays unpinned — one contract, per-render
+			// pins; release-l1 §3.5).
+			c.Image = in.Images[p.Component]
 			svc, err := placementService(p, c, in.EnvFiles[p.HostID+"\x00"+p.Component], guideURL)
 			if err != nil {
 				return nil, err

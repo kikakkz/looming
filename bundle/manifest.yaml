@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Released combination pins (release skill): the bundle tag snapshots
+# this manifest, and apply resolves every placed component's image pin
+# from it at render time (release-l1 §3.4/§3.5, #160). A component
+# release is followed by a PR bumping only that component's pin.
+components:
+  gateway: v0.1.0
+  identity: v0.1.0
+  topology: v0.1.0
