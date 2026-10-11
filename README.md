@@ -15,7 +15,7 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 <p align="center">
   <a href="https://github.com/kikakkz/looming/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/kikakkz/looming/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/status-bootstrap-orange?style=for-the-badge" alt="Project status: bootstrap">
+  <img src="https://img.shields.io/badge/status-early_development-orange?style=for-the-badge" alt="Project status: early development">
   <a href="#license"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg?style=for-the-badge" alt="Apache-2.0 License"></a>
 </p>
 
@@ -35,10 +35,10 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 ---
 
-> Bootstrap: repository conventions, CI gates, and the architecture record
-> are in place (see the [decision index](.ai/memory/decisions/)). Components
-> are built issue by issue; the model gateway is the first component and
-> starts with its own issue.
+> Early development: repository conventions, CI gates, and the
+> architecture record are in place (see the [decision index](.ai/memory/decisions/)),
+> and the first components have landed — gateway, identity, topology, the
+> `looming` CLI, and the platform/go kit — each built issue by issue.
 
 ---
 
@@ -77,9 +77,10 @@ already use:
 
 | Concern | What Looming provides |
 |---|---|
-| Model access | Stateless OpenAI-compatible gateway: faithful forwarding (streaming/retry semantics stay with the client), API keys (enterprise SSO later), per-user quota, append-only interaction log, pluggable risk interception |
+| Model access | Stateless OpenAI-compatible gateway: faithful forwarding (streaming/retry semantics stay with the client), API keys; OIDC enterprise SSO (identity slices), per-user quota, append-only interaction log, pluggable risk interception |
 | Agent runtime | Provider system with capability levels L0–L3; bundle a default or bring your own Codex, Kimi Code, goose, and others |
-| Knowledge | Unified memory (org/project/user scopes, review-gated writes) plus a unified registry for MCP servers, skills, and tools |
+| Memory | Unified memory (org/project/user scopes, review-gated writes) |
+| Registry | A curated, scanned registry for MCP servers, skills, and tools (review-gated admission) |
 | Execution | Elastic sandbox pool (Kubernetes + gVisor, warm pool): no production credentials, no egress except allowlist, disposable per run |
 | Workflows | Issue-driven development across GitHub and bundled GitLab CE: agents take issues, plans land in the issue thread, MRs pass the same CI gates as humans |
 | Quality | Verifier-first: CI guards known failures deterministically; the judge discovers new failures and promotes them into checks, memory, and tooling |
@@ -136,9 +137,9 @@ In place:
 
 - Repository operating contract ([AGENTS.md](AGENTS.md)) and CI gate
   (`make ci-gate`: branch and lockfile validation, tool tests, trailer
-  policy, ADR check, skill and index validation, semgrep rule pack, shell
-  lint; Go lint and tests join when the first Go component lands)
-- Issue-driven process: kind/area/status taxonomy (Kubernetes convention),
+  policy, ADR check, skill and index validation, semgrep rule pack,
+  shell lint, Go lint and tests)
+- Issue-driven process: kind/area taxonomy (Kubernetes convention),
   templates, DCO + AI attribution policy, CodeRabbit review loop owned by
   the repo's own pr-watch tooling
 - Agent asset directory (`.ai/`): sha-pinned external methodology skills,
@@ -146,18 +147,22 @@ In place:
 - Methodology stack: DDD structure, TDD with complexity budgets, the
   four-layer testing policy, and the two-plane rule (repository management
   vs product capabilities)
+- Landed components (Go, AD-34 layout): model gateway (slices through D,
+  #114) · identity (slices A–E, incl. OIDC enterprise authn) · topology
+  (T1–T3: apply/join/guide) · the `looming` CLI (CLI-0/1: user face +
+  admin face, incl. `genesis set|sync|status` and `topology facts pull`)
+  · the platform/go kit with the management-agent advisor (slices
+  1.1–1.3, #144)
 
 Decided, being built:
 
-- Model gateway (Go) — first component, issue-tracked
-- Runtime bake-off spike (opencode / OpenHands smoke, then full spike)
-- Event/session backbone — direction settled in the architecture
-  discussion (#66): Postgres as the record, Redis Streams for distribution
+- `looming` CLI slice CLI-2 — remaining agent adapters (codex, claude)
+  + the component `/healthz` status contract (#108)
 
 Planned slots (see [decisions](.ai/memory/decisions.md)):
 
 - ToolHive-based registry, sandbox pool operator, GitLab CE adapter,
-  decision-engine integration, bundle topology wizard
+  decision-engine integration
 
 ---
 

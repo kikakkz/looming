@@ -167,8 +167,8 @@ revocation propagates symmetrically to that key's credential only.
 - Bootstrap (first admin, topology-l1 §4): `POST /v1/bootstrap/invite`
   `{email}` → 201 `{token, expires_at, invite_url_path}` — mints the
   one-time invite for the deployment's pre-selected
-  `initial_admin_email`; `looming-ctl apply` prints the raw token once
-  (PR-B) and the operator carries it to the mailbox. Guarded by
+  `initial_admin_email`; `looming apply` prints the raw token once
+  and the operator carries it to the mailbox. Guarded by
   `Authorization: Bootstrap <IDENTITY_BOOTSTRAP_KEY>` (constant-time;
   unconfigured key → 503 `bootstrap_disabled`, wrong key → 401).
   One-shot window as domain rules: enabled only while no principal

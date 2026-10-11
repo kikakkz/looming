@@ -50,11 +50,12 @@ once into `credentials.yaml`; the default Profile is written) →
 agent CLI's config) → chat completions flow through the gateway →
 `looming usage`.
 
-**Admin bootstrap**: install the bundle on the first host →
-`looming bootstrap` (wizard: cluster name, host count, addresses,
-placements → renders `/etc/looming/topology.yaml`) → invokes `apply`
-(converge per topology-l1 §3; prints the invite link plus the join
-hint) → operator carries the invite to the first admin's mailbox.
+**Admin bootstrap**: install the bundle on the first host → write
+`/etc/looming/topology.yaml` (hosts, placements, and
+`bootstrap.admin_email`) → `looming apply` (converge per topology-l1
+§3; the first apply creates the component databases and prints the
+invite link plus the join hint — the e2e suite's step 1) → operator
+carries the invite to the first admin's mailbox.
 
 **Adding a host** (admin): `looming token create --role engine --ttl
 24h` → on the new host: install bundle → `looming join
@@ -78,27 +79,29 @@ topology-l1 §3 join journey, unchanged.
 - `looming usage` — the quota view, read from the identity self API
   (`GET /v1/self/quota`, identity-l1 §6). The first instance of
   AD-32's unified display; the meter record-plane joins it later —
-  one renderer, not two sources of truth.
-- `looming status` — component health. An extensible probe registry,
-  not a hardcoded list: new components register their probe (name,
-  endpoint, health shape) and `status` renders the table.
+  one renderer, not two sources of truth. The component-health
+  `status` surface lands with CLI-2's `/healthz` contract (§9).
 
 **Admin face** (local-root operations; `apply` is not a remote API in
 phase-1, per topology-l1 §8).
 
-- `looming bootstrap` — the wizard: asks cluster name, host count,
-  addresses, component placements → renders
-  `/etc/looming/topology.yaml` → invokes `apply`. Fully
-  non-interactive from flags for scripted installs.
 - `looming apply` — converge, per topology-l1 §3 (validate → state
   plane → persist → render → compose up; restart only what changed).
+  `--dry-run` stops after the render; `--print-invite` forces the
+  bootstrap-invite request.
 - `looming token create|list|revoke` — join-token admin, per
   topology-l1 §7 (direct to the topology DB side; `create` prints the
   raw token once).
+- `looming guide show` — print the public onboarding guide (rendering
+  on demand when stale), per topology-l1 §7.
 - `looming join <first-host-url> --token <t>` — the pulling host's
   self-registration (topology-l1 §7); the join payload carries the
   host's observed machine facts (advisor slice 1.3), collected locally
   and announced on stdout.
+- `looming topology advise [--reason]` — placement derivation
+  (advisor-l1): the deterministic feasibility table, and with
+  `--reason` model-ranked proposals with reasons and risks over the
+  feasible set (slices 1.1–1.3 landed).
 - `looming topology facts pull` — merge the observed facts topologyd
   holds (GET /v1/internal/hosts, service-token guarded) into the
   topology file's hosts[].capabilities: observed hardware/egress/
@@ -106,12 +109,15 @@ phase-1, per topology-l1 §8).
   operator-declared, the merged file re-validates through the config
   loader before it is written, and nothing applies — the operator
   reviews the diff and runs `looming apply` (advisor slice 1.3).
+- `looming genesis set|sync|status` — the genesis model-channel
+  lifecycle (#143, slice 1.2-A): set the endpoint/credential, sync
+  the channel through its three stages, inspect the channel status
+  (advisor-l1 §6).
 
-Naming boundary: user-face `looming status` is remote component health
-(§4 user face). Host-supervision wrappers (`status/restart/tail` as
+Naming boundary: host-supervision wrappers (`status/restart/tail` as
 docker command wraps, topology-l1 §2/§7) stay out of the admin face as
-decided; they live with the host tooling and are unaffected by this
-design.
+decided — host supervision is the host's own docker compose, and this
+design does not touch it.
 
 ## 5. AgentAdapter contract
 
@@ -159,8 +165,8 @@ own mechanism). Audit — none: a client tool, no authority. Metering —
 plane joins the same display later (AD-32). Revisions/idempotency —
 configure's managed-block merge is byte-idempotent; undo restores the
 pre-managed content of the managed region only — out-of-region edits
-survive; bootstrap's render and apply's converge reuse the
-topology chain's idempotency.
+survive; apply's converge (including its `--dry-run` render) reuses
+the topology chain's idempotency.
 
 ## 8. Deferred (named triggers)
 
