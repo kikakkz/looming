@@ -39,9 +39,10 @@ structure. Checks target behavior, not names:
   - R3: the CLI cross-compiles with CGO_ENABLED=0 for linux/amd64 +
     linux/arm64 from ./cmd/looming
   - R3: the release step runs ``gh release create --notes-file`` over
-    the three assets (CLI x2 + bundle-manifest.yaml), with GH_TOKEN
-    wired to secrets.GITHUB_TOKEN; install.sh appears only in the
-    R4 (#151) placeholder comment — never as an asset
+    the assets, with GH_TOKEN wired to secrets.GITHUB_TOKEN
+  - R4: the asset set includes install.sh — the artifact-only installer
+    (#151) ships in every bundle release, alongside the CLI binaries
+    and the manifest
 
 Usage: check_release_workflow.py [--workflow PATH]
 Exit 0 when the contract holds, 1 listing what is missing.
@@ -68,6 +69,7 @@ PRECHECK_STEP = "Immutable pre-check"
 NOT_FOUND_MARKERS = ("no such manifest", "manifest unknown", "not found",
                      "NAME_UNKNOWN")
 # R3 (#161): the bundle-release contract (release-l1 §3.6/§5).
+# R4 (#151): install.sh joins the release asset set.
 DISJOINT_MARKER = 'never crosses a "/"'
 COMPONENT_GUARD = ("if: ${{ github.event_name == 'workflow_dispatch' "
                    "|| contains(github.ref_name, '/') }}")
@@ -89,7 +91,7 @@ TOPOLOGY_ROUTE = "/v1/internal/guide"
 CROSS_STEP = "Cross-compile CLI"
 RELEASE_STEP = "Create GitHub Release"
 RELEASE_ASSETS = ("looming-linux-amd64", "looming-linux-arm64",
-                  "bundle-manifest.yaml")
+                  "bundle-manifest.yaml", "install.sh")
 GH_TOKEN_ENV = "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}"
 
 
@@ -271,8 +273,9 @@ def _cross_compile_problems(text: str) -> list[str]:
 
 def _release_step_problems(text: str) -> list[str]:
     """The release step must create the GH Release with generated notes
-    over the R3 asset set; install.sh stays an R4 (#151) comment-only
-    placeholder until the installer slice lands."""
+    over the full asset set: the two CLI binaries, the bundle manifest,
+    and install.sh — the artifact-only installer rides every bundle
+    release (release-l1 §2, R4 #151)."""
     bad = []
     script = _step_run(text, RELEASE_STEP)
     if script is None:
@@ -339,16 +342,6 @@ def _bundle_problems(text: str) -> list[str]:
     bad += _release_step_problems(text)
     if GH_TOKEN_ENV not in text:
         bad.append("GH_TOKEN is not wired to secrets.GITHUB_TOKEN")
-    if not any("R4 (#151)" in line and "install.sh" in line
-               for line in text.splitlines()):
-        bad.append("no R4 (#151) placeholder note declaring install.sh "
-                   "lands in a later slice")
-    for line in text.splitlines():
-        stripped = line.strip()
-        if "install.sh" in stripped and not stripped.startswith("#"):
-            bad.append("install.sh appears outside a comment — R4 (#151) "
-                       "has not landed")
-            break
     if "git log" not in text or "--pretty=%s" not in text:
         bad.append("release notes are not generated from conventional "
                    "commits (`git log --pretty=%s` missing)")

@@ -46,18 +46,19 @@ check-release:
 
 lint-sh:
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck .ai/tools/*.sh; \
+		shellcheck .ai/tools/*.sh scripts/*.sh; \
 		echo "shellcheck: OK"; \
 	else \
 		echo "shellcheck: not installed, skipped (CI installs it)"; \
 	fi
 
 # Custom semgrep rule pack (.ai/semgrep/rules): first validate the rule
-# fixtures, then scan the repository scripts the rules protect.
+# fixtures, then scan the repository scripts the rules protect —
+# .ai/tools and the bundle installer (scripts/).
 lint-semgrep:
 	@if command -v semgrep >/dev/null 2>&1; then \
 		semgrep --config .ai/semgrep/rules --metrics=off --test .ai/semgrep/rules && \
-		semgrep --config .ai/semgrep/rules --metrics=off --error .ai/tools && \
+		semgrep --config .ai/semgrep/rules --metrics=off --error .ai/tools scripts && \
 		echo "semgrep: OK"; \
 	else \
 		echo "semgrep: not installed, skipped (CI installs it)"; \

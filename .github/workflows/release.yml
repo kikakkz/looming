@@ -518,9 +518,9 @@ jobs:
           cp bundle/manifest.yaml bundle-manifest.yaml
           cat release-notes.md
 
-      # R4 (#151): install.sh joins this asset set — the artifact-only
-      # installer lands in the next slice, so the first bundle releases
-      # ship the CLI binaries + manifest only.
+      # R4 (#151): install.sh joins the asset set — the artifact-only
+      # installer is itself a release artifact (release-l1 §2), shipped
+      # alongside the CLI binaries and the pinned manifest.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -530,4 +530,4 @@ jobs:
           gh release create "$VERSION" \
             --title "looming bundle $VERSION" \
             --notes-file release-notes.md \
-            looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml
+            looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh

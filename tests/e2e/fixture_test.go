@@ -253,13 +253,26 @@ func randomHex(t *testing.T, n int) string {
 }
 
 // writeDockerConfig installs the empty client config the suite's
-// docker children point DOCKER_CONFIG at (see the dockerEnv field).
-// The user's cli-plugins (compose!) are symlinked in — plugin
-// discovery scans $DOCKER_CONFIG/cli-plugins, and a bare config would
-// silently lose the compose plugin.
+// docker children point DOCKER_CONFIG at (see the dockerEnv field)
+// through the shared cleanDockerEnv helper.
 func (f *fixture) writeDockerConfig(t *testing.T) {
 	t.Helper()
-	dir := filepath.Join(f.bundleRoot, "dockerconfig")
+	f.dockerEnv = cleanDockerEnv(t)
+}
+
+// cleanDockerEnv builds the child-process environment for docker and
+// CLI children: the ambient environment plus DOCKER_CONFIG pointed at
+// an empty client config with the user's cli-plugins symlinked in.
+// The ambient docker client config carries a proxy that is dead on some
+// build hosts; both BuildKit (build-time) and compose (run-time
+// containers) would inherit it and every outbound connection from a
+// container would die against it. The suite is self-contained — its
+// docker calls need no registry auth — so a clean config is strictly
+// safer. Both the bootstrap fixture and the installer test
+// (install_test.go) drive their children through it.
+func cleanDockerEnv(t *testing.T) []string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "dockerconfig")
 	plugins := filepath.Join(dir, "cli-plugins")
 	require.NoError(t, os.MkdirAll(plugins, 0o700))
 	candidates := []string{
@@ -281,7 +294,7 @@ func (f *fixture) writeDockerConfig(t *testing.T) {
 	}
 	require.True(t, found, "locate the docker cli-plugins directory (compose must be discoverable)")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}\n"), 0o600))
-	f.dockerEnv = append(os.Environ(), "DOCKER_CONFIG="+dir)
+	return append(os.Environ(), "DOCKER_CONFIG="+dir)
 }
 
 // writeEnvFiles lays down the operator-prepared secret files — the

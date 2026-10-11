@@ -137,8 +137,7 @@ __PRECHECK__      - name: Build and push multi-arch image
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # R4 (#151): install.sh joins this asset set.
-          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml
+          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh
 """.replace("__PRECHECK__", PRECHECK)
 
 
@@ -531,22 +530,15 @@ class ReleaseAssetTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("bundle-manifest.yaml", problems[0])
 
-    def test_install_sh_outside_a_comment_fails(self):
-        # R4 (#151) ships the installer; until it lands, install.sh may
-        # appear only in the placeholder comment
+    def test_install_sh_missing_from_assets_fails(self):
+        # R4 (#151) shipped the installer: install.sh must ride every
+        # bundle release's asset set, alongside the CLI + manifest.
         text = VALID.replace(
-            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml",
-            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh")
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh",
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml")
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
         self.assertIn("install.sh", problems[0])
-
-    def test_missing_r4_placeholder_fails(self):
-        text = VALID.replace("# R4 (#151): install.sh joins this asset set.\n",
-                             "")
-        problems = crw.problems(text)
-        self.assertEqual(len(problems), 1)
-        self.assertIn("R4 (#151)", problems[0])
 
     def test_missing_notes_generation_fails(self):
         text = VALID.replace('git log --pretty=%s "$prev..HEAD"', "echo notes")
@@ -584,7 +576,7 @@ class OtherContractTests(unittest.TestCase):
     def test_empty_workflow_reports_every_piece(self):
         # three component tag patterns + the bundle pattern, each
         # reported on its own line, plus the R3 contract pieces
-        self.assertEqual(len(crw.problems("")), 23)
+        self.assertEqual(len(crw.problems("")), 22)
 
 
 class CliTests(unittest.TestCase):

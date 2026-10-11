@@ -21,6 +21,7 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 <p align="center">
   <strong>
+    <a href="#install">Install</a> ·
     <a href="#why-looming">Why Looming</a> ·
     <a href="#architecture">Architecture</a> ·
     <a href="#status">Status</a> ·
@@ -42,8 +43,40 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 ---
 
+## Install
+
+One command on a Linux host with Docker, pointed at any
+OpenAI-compatible engine you run (Ollama, llama.cpp, vLLM, …):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh | bash -s -- \
+  --email admin@example.com \
+  --engine-url http://host.docker.internal:11434/v1
+```
+
+The installer consumes **published release artifacts only**: it
+downloads the released `looming` CLI and the bundle's pinned manifest,
+then converges the bundle with `looming apply`, which pulls the pinned
+component images. There is no source-build install path — developing
+from source is its own workflow (a checkout + the repo's dev tooling).
+
+- `--version vX.Y.Z` pins a release; the default resolves the latest
+  one.
+- Re-running is safe. The installer owns only the topology file's
+  `bundle:` block: a newer version rewrites just that block and the
+  manifest file (your edits — ports, engine config, placements —
+  survive), and the same version is a converge-only re-run.
+- Teardown: `docker compose -p looming down` (the Postgres data dir is
+  `/etc/looming/pgdata`).
+
+Full flags: `scripts/install.sh --help` (also shipped as a release
+asset, so `--version` can pin the installer itself).
+
+---
+
 ## Table of Contents
 
+- [Install](#install)
 - [Why Looming?](#why-looming)
 - [Architecture](#architecture)
 - [Status](#status)

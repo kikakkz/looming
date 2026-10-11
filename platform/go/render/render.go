@@ -59,11 +59,24 @@ const HostGatewayMapping = HostGatewayAlias + ":host-gateway"
 // else.
 const ImageRegistry = "ghcr.io/kikakkz/looming"
 
+// imageRegistryEnv is the test-only seam the bundle e2e layer drives
+// the artifact-only installer through (release-l1 §5 R4): the suite
+// publishes its built images to a local registry fixture and redirects
+// pinned refs at it, so the real install.sh runs end to end without
+// touching ghcr. Production resolution is always the constant —
+// registry mirrors stay a non-goal (release-l1 §4).
+const imageRegistryEnv = "LOOMING_IMAGE_REGISTRY"
+
 // ImageRef resolves a release name (the bundle manifest's components
 // key — the contract's ReleaseName) and a version tag into the full
-// pinned image ref the renderer's `image:` entry carries.
+// pinned image ref the renderer's `image:` entry carries. The env
+// override above is the only departure from the production registry.
 func ImageRef(release, version string) string {
-	return ImageRegistry + "/" + release + ":" + version
+	registry := ImageRegistry
+	if override := os.Getenv(imageRegistryEnv); override != "" {
+		registry = strings.TrimSuffix(override, "/")
+	}
+	return registry + "/" + release + ":" + version
 }
 
 // IsLoopbackAddress reports whether addr names this very machine's
@@ -556,6 +569,44 @@ func digestDir(root, dir string) ([]digestEntry, error) {
 	return entries, nil
 }
 
+// convergenceHasher picks the render-diff hash function. Source-only
+// changes must reconverge even when the rendered compose text is
+// byte-identical, so an active bundle root mixes the build contexts
+// into every artifact's hash; an empty root disables digesting (unit
+// tests render as pure functions), and a fully pinned render skips it
+// regardless of the root (release-l1 §3.7, R4): pinned services carry
+// no build: block, so there is no context to fingerprint — and an
+// artifact-installed host has no source tree at all.
+func convergenceHasher(in Input) (func(string) string, error) {
+	if in.BundleRoot == "" || allPlacementsPinned(in) {
+		return Hash, nil
+	}
+	digest, err := buildContextDigest(in.BundleRoot)
+	if err != nil {
+		return nil, err
+	}
+	return func(content string) string {
+		return Hash(content + "\x00build-context:" + digest)
+	}, nil
+}
+
+// allPlacementsPinned reports whether every placed component carries
+// an image pin. Apply fills pins for all placed components whenever the
+// topology declares the bundle section (resolveImages fails closed on a
+// partial manifest), so this doubles as "the bundle section is present"
+// — the artifact-only render path (release-l1 §3.7).
+func allPlacementsPinned(in Input) bool {
+	if len(in.Placements) == 0 {
+		return false
+	}
+	for _, p := range in.Placements {
+		if in.Images[p.Component] == "" {
+			return false
+		}
+	}
+	return true
+}
+
 // Render produces one artifact per host that carries a placement or is
 // the state host. Hosts are visited in id order and each host's
 // placements in component order, so the output (and its hash) is a
@@ -566,19 +617,9 @@ func Render(in Input) ([]Artifact, error) {
 		byHost[p.HostID] = append(byHost[p.HostID], p)
 	}
 
-	// Source-only changes must reconverge even when the rendered
-	// compose text is byte-identical: mix the build contexts into
-	// every artifact's convergence hash. An empty root disables
-	// digesting (unit tests render as pure functions).
-	convergenceHash := Hash
-	if in.BundleRoot != "" {
-		digest, err := buildContextDigest(in.BundleRoot)
-		if err != nil {
-			return nil, err
-		}
-		convergenceHash = func(content string) string {
-			return Hash(content + "\x00build-context:" + digest)
-		}
+	convergenceHash, err := convergenceHasher(in)
+	if err != nil {
+		return nil, err
 	}
 
 	guideURL := topologydURL(in)

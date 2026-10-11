@@ -81,6 +81,11 @@
 # 2026-10-12 R2 bundle manifest (#160) re-validated: AGENTS.md directory
 # map gains bundle/ (net-zero against the folded lint-pr-body entry);
 # all read_order anchors resolve.
+# 2026-10-12 R4 artifact-only installer (#151) re-validated: AGENTS.md
+# directory map gains scripts/ (net-zero against the folded memory-
+# decisions entry), the tests/e2e/ line names install_test.go, Makefile's
+# lint-sh covers scripts/*.sh and lint-semgrep scans scripts/; all
+# read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
