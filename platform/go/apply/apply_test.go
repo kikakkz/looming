@@ -138,6 +138,8 @@ func (f *fakeRegistry) Update(_ context.Context, h *hostdomain.Host) (*hostdomai
 	return h, nil
 }
 
+func (f *fakeRegistry) List(context.Context) ([]hostdomain.Host, error) { return nil, nil }
+
 // fakeArtifacts is the ArtifactStore port against memory.
 type fakeArtifacts struct {
 	artifacts map[string]domain.RenderArtifact

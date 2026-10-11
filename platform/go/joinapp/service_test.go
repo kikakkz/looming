@@ -153,6 +153,14 @@ func (f *fakeRegistry) Update(_ context.Context, h *hostdomain.Host) (*hostdomai
 	return h, nil
 }
 
+func (f *fakeRegistry) List(_ context.Context) ([]hostdomain.Host, error) {
+	out := make([]hostdomain.Host, 0, len(f.byID))
+	for _, h := range f.byID {
+		out = append(out, *h)
+	}
+	return out, nil
+}
+
 // fakeTopology is the topology Store port against memory.
 type fakeTopology struct {
 	current topologydomain.Topology

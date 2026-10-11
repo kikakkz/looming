@@ -33,6 +33,7 @@ components:
   applycmd:       { in: internal/admin/applycmd }
   dbcmd:          { in: internal/admin/dbcmd }
   joincmd:        { in: internal/admin/joincmd }
+  factscmd:       { in: internal/admin/factscmd }
   advisecmd:      { in: internal/advisor }
   cmd:            { in: cmd/looming }
 
@@ -42,4 +43,4 @@ deps:
   advisecmd:
     mayDependOn: [profile, identityclient]
   cmd:
-    mayDependOn: [profile, identityclient, agentcfg, onboard, applycmd, dbcmd, joincmd, advisecmd]
+    mayDependOn: [profile, identityclient, agentcfg, onboard, applycmd, dbcmd, joincmd, factscmd, advisecmd]

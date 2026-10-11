@@ -115,3 +115,81 @@ func TestRegistryUpdateMovesAddressAndLabels(t *testing.T) {
 	_, err = reg.Update(ctx, &blocked)
 	assert.ErrorIs(t, err, domain.ErrAddressTaken)
 }
+
+// TestRegistryRoundTripsCapabilities proves the slice-1.3 facts column:
+// registration stores the observed block (jsonb) verbatim, lookups
+// reload it with the collected timestamp, and old-CLI hosts stay NULL.
+func TestRegistryRoundTripsCapabilities(t *testing.T) {
+	reg := adapter.NewRegistry(pgtest.NewDB(t))
+
+	egress := true
+	collected := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	withFacts := newHost(t, "11111111-1111-1111-1111-111111111111", "10.0.0.1", "engine")
+	withFacts.Capabilities = &domain.Capabilities{
+		Hardware:    domain.HardwareCapabilities{CPUCores: 8, MemoryMB: 32768, DiskGB: 457, Arch: "x86_64"},
+		Network:     domain.NetworkCapabilities{Egress: &egress},
+		CollectedAt: collected,
+	}
+	_, err := reg.Register(ctx, withFacts)
+	require.NoError(t, err)
+
+	byID, err := reg.ByID(ctx, withFacts.ID)
+	require.NoError(t, err)
+	require.NotNil(t, byID.Capabilities)
+	assert.Equal(t, *withFacts.Capabilities, *byID.Capabilities)
+
+	plain := newHost(t, "22222222-2222-2222-2222-222222222222", "10.0.0.2")
+	_, err = reg.Register(ctx, plain)
+	require.NoError(t, err)
+
+	// Re-registering without facts (an old-CLI re-join) must not erase
+	// the stored block; re-registering with fresh facts replaces it.
+	again := newHost(t, "11111111-1111-1111-1111-111111111111", "10.0.0.1")
+	_, err = reg.Register(ctx, again)
+	require.NoError(t, err)
+	kept, err := reg.ByID(ctx, withFacts.ID)
+	require.NoError(t, err)
+	require.NotNil(t, kept.Capabilities, "a fact-less re-register keeps the stored facts")
+
+	fresh := newHost(t, "11111111-1111-1111-1111-111111111111", "10.0.0.1")
+	freshEgress := false
+	fresh.Capabilities = &domain.Capabilities{
+		Hardware:    domain.HardwareCapabilities{CPUCores: 16},
+		Network:     domain.NetworkCapabilities{Egress: &freshEgress},
+		CollectedAt: collected.Add(time.Hour),
+	}
+	_, err = reg.Register(ctx, fresh)
+	require.NoError(t, err)
+	replaced, err := reg.ByID(ctx, withFacts.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 16, replaced.Capabilities.Hardware.CPUCores)
+
+	// Update (the re-join path) never touches the facts column.
+	moved := *plain
+	moved.Address = "10.0.0.9"
+	updated, err := reg.Update(ctx, &moved)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Capabilities)
+}
+
+// TestRegistryListReturnsHostsInIDOrder covers the admin-side read
+// surface the observed-facts pull consumes.
+func TestRegistryListReturnsHostsInIDOrder(t *testing.T) {
+	reg := adapter.NewRegistry(pgtest.NewDB(t))
+
+	_, err := reg.Register(ctx, newHost(t, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "10.0.0.2"))
+	require.NoError(t, err)
+	_, err = reg.Register(ctx, newHost(t, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "10.0.0.1"))
+	require.NoError(t, err)
+
+	hosts, err := reg.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, hosts, 2)
+	assert.Equal(t, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", hosts[0].ID)
+	assert.Equal(t, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", hosts[1].ID)
+
+	empty := adapter.NewRegistry(pgtest.NewDB(t))
+	hosts, err = empty.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, hosts)
+}

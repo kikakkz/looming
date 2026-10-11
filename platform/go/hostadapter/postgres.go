@@ -7,6 +7,7 @@ package adapter
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -29,18 +30,52 @@ func NewRegistry(db *sql.DB) *Registry {
 
 var _ port.Registry = (*Registry)(nil)
 
-const hostCols = `id, address, role_labels, credential_hash, joined_at`
+const hostCols = `id, address, role_labels, credential_hash, joined_at, capabilities`
 
 type scanner interface {
 	Scan(dest ...any) error
 }
 
+// scanCapabilities unmarshals the nullable jsonb column: NULL means
+// the host joined without facts (an old CLI) and stays nil.
+func scanCapabilities(raw sql.Null[[]byte]) (*domain.Capabilities, error) {
+	if !raw.Valid {
+		return nil, nil
+	}
+	var caps domain.Capabilities
+	if err := json.Unmarshal(raw.V, &caps); err != nil {
+		return nil, fmt.Errorf("topology: host capabilities decode: %w", err)
+	}
+	return &caps, nil
+}
+
 func scanHost(row scanner) (*domain.Host, error) {
-	var h domain.Host
-	if err := row.Scan(&h.ID, &h.Address, pq.Array(&h.RoleLabels), &h.CredentialHash, &h.JoinedAt); err != nil {
+	var (
+		h    domain.Host
+		caps sql.Null[[]byte]
+	)
+	if err := row.Scan(&h.ID, &h.Address, pq.Array(&h.RoleLabels), &h.CredentialHash, &h.JoinedAt, &caps); err != nil {
+		return nil, err
+	}
+	var err error
+	if h.Capabilities, err = scanCapabilities(caps); err != nil {
 		return nil, err
 	}
 	return &h, nil
+}
+
+// capabilitiesJSON marshals the facts for the jsonb column; a host
+// without observed facts writes SQL NULL, keeping old-CLI rows and
+// new-CLI rows indistinguishable except by the column's presence.
+func capabilitiesJSON(h *domain.Host) ([]byte, error) {
+	if h.Capabilities == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(h.Capabilities)
+	if err != nil {
+		return nil, fmt.Errorf("topology: host capabilities encode: %w", err)
+	}
+	return raw, nil
 }
 
 // nonNilLabels keeps the NOT NULL DEFAULT '{}' column happy when the
@@ -65,11 +100,15 @@ func isUniqueViolation(err error) bool {
 // (labels and credential refreshed, join time kept), a different ID is
 // the uniqueness violation.
 func (r *Registry) Register(ctx context.Context, h *domain.Host) (*domain.Host, error) {
+	caps, err := capabilitiesJSON(h)
+	if err != nil {
+		return nil, err
+	}
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO hosts (id, address, role_labels, credential_hash, joined_at)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO hosts (id, address, role_labels, credential_hash, joined_at, capabilities)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (address) DO NOTHING`,
-		h.ID, h.Address, pq.Array(nonNilLabels(h.RoleLabels)), h.CredentialHash, h.JoinedAt)
+		h.ID, h.Address, pq.Array(nonNilLabels(h.RoleLabels)), h.CredentialHash, h.JoinedAt, caps)
 	if err != nil {
 		return nil, fmt.Errorf("topology: host register: %w", err)
 	}
@@ -90,13 +129,38 @@ func (r *Registry) Register(ctx context.Context, h *domain.Host) (*domain.Host, 
 	}
 
 	// Idempotent re-registration of the same host: refresh the mutable
-	// fields, keep the original join time.
+	// fields — labels, credential, and the freshly observed facts — keep
+	// the original join time. Capabilities use COALESCE: an old CLI's
+	// re-registering join carries no facts and must not erase the stored
+	// ones (nil keeps the current value, the re-join address contract).
 	if _, err := r.db.ExecContext(ctx,
-		`UPDATE hosts SET role_labels = $2, credential_hash = $3 WHERE id = $1`,
-		h.ID, pq.Array(nonNilLabels(h.RoleLabels)), h.CredentialHash); err != nil {
+		`UPDATE hosts SET role_labels = $2, credential_hash = $3, capabilities = COALESCE($4, capabilities) WHERE id = $1`,
+		h.ID, pq.Array(nonNilLabels(h.RoleLabels)), h.CredentialHash, caps); err != nil {
 		return nil, fmt.Errorf("topology: host re-register: %w", err)
 	}
 	return r.ByID(ctx, h.ID)
+}
+
+// List returns every registered host in id order.
+func (r *Registry) List(ctx context.Context) ([]domain.Host, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+hostCols+` FROM hosts ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("topology: host list: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var hosts []domain.Host
+	for rows.Next() {
+		h, err := scanHost(rows)
+		if err != nil {
+			return nil, fmt.Errorf("topology: host list scan: %w", err)
+		}
+		hosts = append(hosts, *h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("topology: host list: %w", err)
+	}
+	return hosts, nil
 }
 
 // ByID returns the host or domain.ErrNotFound.
@@ -130,8 +194,8 @@ func (r *Registry) ByAddress(ctx context.Context, address string) (*domain.Host,
 // Update persists an address/label change for the host identified by
 // h.ID. The address move is guarded by the table's UNIQUE constraint:
 // a 23505 there is the uniqueness invariant, mapped to
-// domain.ErrAddressTaken. The credential slot is not written here —
-// T2's join mints it.
+// domain.ErrAddressTaken. The credential and capabilities slots are
+// not written here — the join flow owns both.
 func (r *Registry) Update(ctx context.Context, h *domain.Host) (*domain.Host, error) {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE hosts SET address = $2, role_labels = $3 WHERE id = $1`,

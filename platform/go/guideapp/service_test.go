@@ -85,6 +85,8 @@ func (f *fakeRegistry) Update(_ context.Context, h *hostdomain.Host) (*hostdomai
 	return h, nil
 }
 
+func (f *fakeRegistry) List(context.Context) ([]hostdomain.Host, error) { return nil, nil }
+
 // placedTopology is a revision-3 public topology with the phase-1 pair
 // placed: identityd on app-1, gateway-front on gw-1.
 func placedTopology() topologydomain.Topology {

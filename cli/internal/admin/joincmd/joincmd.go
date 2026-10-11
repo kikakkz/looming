@@ -95,11 +95,18 @@ func New(stdout io.Writer) *cobra.Command {
 				addr = detected
 			}
 
+			// Machine facts ride the join payload (advisor-l1 §8 slice
+			// 1.3): collected locally, degrading per-fact, announced on
+			// stdout so the operator sees exactly what registers.
+			caps := collectFacts(cmd.Context())
+			printFactsSummary(stdout, caps)
+
 			res, err := joinadapter.NewClient(server).Join(cmd.Context(), joinadapter.JoinRequest{
-				Token:   token,
-				HostID:  hostID,
-				Address: addr,
-				Labels:  labels,
+				Token:        token,
+				HostID:       hostID,
+				Address:      addr,
+				Labels:       labels,
+				Capabilities: caps,
 			})
 			if err != nil {
 				return err

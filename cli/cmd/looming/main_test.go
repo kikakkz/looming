@@ -29,3 +29,27 @@ func TestRootHelpListsBothFaces(t *testing.T) {
 		assert.Contains(t, out.String(), want)
 	}
 }
+
+// TestTopologyGroupCarriesAdviseAndFacts pins the slice-1.3 command
+// tree: one `topology` group (advise's parent since the round-4
+// review) with exactly the advise and facts children — the facts
+// subtree must never register a second topology group.
+func TestTopologyGroupCarriesAdviseAndFacts(t *testing.T) {
+	var out bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"topology", "--help"})
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+	usage := out.String()
+	assert.Contains(t, usage, "advise")
+	assert.Contains(t, usage, "facts")
+
+	out.Reset()
+	cmd = root()
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"topology", "facts", "--help"})
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+	assert.Contains(t, out.String(), "pull")
+}
