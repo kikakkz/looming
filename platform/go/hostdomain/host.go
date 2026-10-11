@@ -41,6 +41,12 @@ type Host struct {
 	RoleLabels     []string
 	CredentialHash []byte
 	JoinedAt       time.Time
+	// Capabilities is the host's observed machine facts (advisor-l1 §8
+	// slice 1.3), nil until a join carrying facts registers or
+	// re-registers the host — the aggregate keeps the re-join refresh
+	// address/label-only, so facts are join-time truth, never silently
+	// re-stamped.
+	Capabilities *Capabilities
 }
 
 // NewHost validates and builds a host at registration time. The

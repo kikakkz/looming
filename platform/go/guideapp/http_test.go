@@ -71,6 +71,8 @@ func (f *handlerRegistry) Update(_ context.Context, h *hostdomain.Host) (*hostdo
 	return h, nil
 }
 
+func (f *handlerRegistry) List(context.Context) ([]hostdomain.Host, error) { return nil, nil }
+
 // newGuideHandlerWorld wires a service over scripted fakes plus the
 // HTTP handler under test.
 func newGuideHandlerWorld(t *testing.T) (*handlerGuides, *app.Handler) {

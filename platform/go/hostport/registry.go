@@ -25,10 +25,14 @@ type Registry interface {
 	ByID(ctx context.Context, id string) (*domain.Host, error)
 	// ByAddress returns the host or domain.ErrNotFound.
 	ByAddress(ctx context.Context, address string) (*domain.Host, error)
+	// List returns every registered host in id order — the admin-side
+	// read surface the observed-facts pull consumes (slice 1.3's
+	// GET /v1/internal/hosts).
+	List(ctx context.Context) ([]domain.Host, error)
 	// Update persists an address/label change for the host identified
 	// by h.ID (re-join refreshes both). An unknown ID fails with
 	// domain.ErrNotFound; moving onto another host's address fails with
-	// domain.ErrAddressTaken. The credential slot is not touched here —
-	// T2's join mints it.
+	// domain.ErrAddressTaken. The credential and capabilities slots are
+	// not touched here — the join flow owns both.
 	Update(ctx context.Context, h *domain.Host) (*domain.Host, error)
 }

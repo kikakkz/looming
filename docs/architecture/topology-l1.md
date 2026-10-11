@@ -17,7 +17,8 @@ this design references them, never duplicates them.
 
 ```
 Topology (aggregate root; desired state snapshot)
-  ├─ Host        (registered machine: id, address, role labels, joined_at)
+  ├─ Host        (registered machine: id, address, role labels, joined_at,
+  │               observed capabilities — join-time facts, advisor slice 1.3)
   ├─ ComponentPlacement (component × host, port/config overrides; gateway front exactly 1 in phase-1)
   ├─ JoinToken   (one-time, TTL default 24h, hash-stored, role-scoped, revocable — kubeadm shape)
   └─ Guide       (rendered artifact from Topology snapshot; idempotent re-render)
@@ -90,7 +91,7 @@ secret.
 | Aggregate | Invariants |
 |---|---|
 | Topology | hosts ≥ 1; placements reference registered hosts; gateway-front placement exactly 1 (#109 lifts to N); `access` accepts only direct/ip/http in phase-1 — vip/dns/acme shapes are reserved in the schema but rejected at apply, with the owning phase-2 issue named (#109–#112); optimistic revision (component-patterns #3) |
-| Host | address unique; join is pull-based self-registration — a successful join mints the host's persistent service credential (its AD-27 §6 service-subject identity; re-join authenticates with that credential, identifies the host by id, and updates address/labels); no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
+| Host | address unique; join is pull-based self-registration — a successful join mints the host's persistent service credential (its AD-27 §6 service-subject identity; re-join authenticates with that credential, identifies the host by id, and updates address/labels) and stores the observed machine facts the join payload carried (slice 1.3: strict-validated, NULL when an old CLI joined, refreshed only by re-running join — never re-stamped by re-join); no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
 | JoinToken | one-time consume; TTL default 24h; hash at rest; atomic consume (guarded UPDATE — the slice-A invite-token precedent) |
 | ComponentPlacement | (component, host) unique; port conflicts rejected at apply |
 | Guide | render input = the current Topology snapshot; regenerated on every apply; served only when `access.public`; zero credentials by invariant |
@@ -129,20 +130,38 @@ loopback single-host shape the derived URL targets
 loopback), so apply also requires the gateway-front placement to carry
 the `host.docker.internal:host-gateway` extra_hosts entry there.
 
-- `POST /v1/join` `{token, host: {id?, address, labels}}` →
+- `POST /v1/join` `{token, host: {id?, address, labels, capabilities?}}` →
   `201 {host_id, credential, cluster: {access}}`: validates and
   atomically consumes the one-time token, registers the host (server
   id `host-<uuid8>` when `id` is absent), mints the host's persistent
   credential (plaintext exactly once), and answers with the gateway
-  access hint. Errors: `403 token_invalid|token_expired`,
-  `409 token_used|address_taken|host_conflict` (with the re-join
-  recovery hint), `400 invalid_request`. Consumption is irreversible:
-  host-validation or registration failures after the consume do not
-  restore the token — retry `/v1/join` with a fresh one.
+  access hint. `capabilities` is the joining host's observed machine
+  facts (advisor slice 1.3, advisor-l1 §8): `{hardware: {cpu_cores,
+  memory_mb, disk_gb, arch}, network: {egress?, latencies_ms?},
+  collected_at}` — strict-validated (unknown keys, sanity ranges, the
+  arch vocabulary, a clock-skew fence) and stored on the host row;
+  absent (an old CLI) is legal and stores NULL. The zone is never in
+  the payload — cloud/lan stays operator-declared. Errors: `403
+  token_invalid|token_expired`, `409 token_used|address_taken|
+  host_conflict` (with the re-join recovery hint), `400
+  invalid_request` (a malformed facts block included — the one-time
+  token is not spent by the rejection, so the operator can fix the
+  collector and retry). Consumption is irreversible: host-validation
+  or registration failures after the consume do not restore the token
+  — retry `/v1/join` with a fresh one.
 - `POST /v1/join/rejoin` with `Authorization: Host <host-id>:<credential>`,
   body `{address?, labels?}` → `200`: the credential-authenticated
   address/label refresh. Wrong credential and unknown host are the
-  same `401 unauthenticated`.
+  same `401 unauthenticated`. The contract stays address/label-only —
+  facts are join-time truth, refreshed by re-running join, never
+  silently re-stamped here.
+- `GET /v1/internal/hosts` with `Authorization: Bearer
+  <TOPOLOGY_SERVICE_TOKEN>` → `200 [{id, address, labels,
+  capabilities|null}]` in id order: the host capability's read
+  surface, consumed by the admin CLI's `looming topology facts pull`
+  (slice 1.3). The guard, the 503-when-unconfigured shape, and the
+  house envelope mirror the guide endpoint; the response never carries
+  credential material.
 
 Gateway guide route: `GET /` public page when `access.public` (served
 from the cached guide fetch; 404 when off).
