@@ -17,8 +17,8 @@ glossary live in [architecture/](architecture/); L1 module designs
 live alongside: [gateway](architecture/gateway-l1.md),
 [identity](architecture/identity-l1.md),
 [topology & bootstrap](architecture/topology-l1.md),
-[cli](architecture/cli-l1.md), and
-[advisor](architecture/advisor-l1.md). The repeated
+[cli](architecture/cli-l1.md), [advisor](architecture/advisor-l1.md),
+and [release](architecture/release-l1.md). The repeated
 top-down method is
 [.ai/skills/domain-design/](../.ai/skills/domain-design/SKILL.md).
 Start reading at [architecture/overview.md](architecture/overview.md)

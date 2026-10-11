@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-39 — release pipeline and artifact-only install](0039-release-pipeline-and-artifact-only-install.md)
 - [AD-38 — management agent: deterministic-hard, LLM-soft placement derivation](0038-management-agent-deterministic-hard-llm-soft.md)
 - [AD-37 — looming CLI: single binary, two faces](0037-looming-cli-single-binary-two-faces.md)
 - [AD-36 — topology and bootstrap plane](0036-topology-and-bootstrap-plane.md)
