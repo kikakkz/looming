@@ -33,7 +33,12 @@ The release skill's policy becomes mechanical (full mechanics in
 
 1. **Registry** — ghcr.io under the repository, immutable semver tags
    only (`ghcr.io/kikakkz/looming/<component>:vX.Y.Z`); CI pushes with
-   `GITHUB_TOKEN`, pulls are anonymous. No mutable tags.
+   `GITHUB_TOKEN`, pulls are anonymous. No mutable tags. The publish
+   job enforces the two promises GHCR defaults would break: published
+   packages are set public (verified by an unauthenticated pull after
+   first publication), and an existing semver tag fails the job
+   closed (pre-push manifest-inspect check; a disposable-package
+   double-push test proves rejection).
 2. **Tag-triggered releases** — component: `<component>/vX.Y.Z`; bundle:
    `vX.Y.Z`. One tag names one component; unchanged components are
    never rebuilt.

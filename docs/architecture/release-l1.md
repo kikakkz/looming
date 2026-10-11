@@ -66,7 +66,21 @@ Three surfaces, three semantics — kept strictly separate:
 1. **Registry.** ghcr.io under the repository
    (`ghcr.io/kikakkz/looming/<component>`). CI pushes with
    `GITHUB_TOKEN` (`packages: write`); pulls are anonymous. Only
-   immutable semver tags — NO `:latest`, NO mutable tags.
+   immutable semver tags — NO `:latest`, NO mutable tags. Two
+   mechanics the publish job (R1) enforces, because GHCR defaults
+   fight both promises: (a) *package visibility* — new packages
+   default to private, which would break the installer's anonymous
+   pulls; the job sets each published package public (`PATCH
+   /user/packages/container/looming%2F<component>` with
+   `visibility=public`) and verifies an unauthenticated pull after
+   first publication; (b) *tag immutability* — GHCR has no native
+   enforcement and manifests pin tags, not digests, so an overwritten
+   tag would silently repoint a released bundle; the job fails closed
+   when the semver tag already exists (a pre-push `docker manifest
+   inspect` check), and R1's acceptance test proves it by pushing
+   twice to the same semver tag in a disposable package and requiring
+   rejection. (Digest-pinned manifests remain the later hardening —
+   §4.)
 2. **Tag conventions are the release trigger.** Component release:
    push `<component>/vX.Y.Z` (e.g. `gateway/v0.1.0`). Bundle release:
    push `vX.Y.Z`. The release workflows match on these tag shapes;
@@ -150,7 +164,10 @@ Filed as issues after this design lands (the #107 pattern).
 - **R1 — component release CI.** `release.yml` component job; cutting
   `gateway/v0.1.0`, `identity/v0.1.0`, `topology/v0.1.0` publishes the
   three images. Acceptance: tag push publishes; anonymous pull works;
-  one tag builds one component.
+  one tag builds one component; each published package is public
+  (unauthenticated pull verified after first publication); the
+  double-push test — two pushes to the same semver tag in a
+  disposable package — rejects the second.
 - **R2 — manifest + render pin.** `bundle/manifest.yaml`; the render
   contract's image pin; apply validation; the `bundle:` topology
   section. Acceptance: apply with a manifest renders `image:` refs and
