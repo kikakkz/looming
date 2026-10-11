@@ -39,6 +39,17 @@ func fakeHome(t *testing.T) string {
 	return home
 }
 
+// backdateEnvFile pins the env file's mtime strictly before
+// genesisSyncNow, so the ready gate's mtime-vs-converge ordering is
+// exercised deterministically — the fixture clock, not wall-clock,
+// decides readiness (AD-25: unit tests never depend on wall-clock;
+// #157).
+func backdateEnvFile(t *testing.T, path string) {
+	t.Helper()
+	stamp := genesisSyncNow.Add(-time.Minute)
+	require.NoError(t, os.Chtimes(path, stamp, stamp))
+}
+
 // seedGenesisCredentials stores the fixture genesis key plus, when
 // withAdmin, a default profile + live admin session the stage-2 flow
 // needs (identity URL pointing at the given fake).
@@ -272,6 +283,8 @@ func completeSwitchFixture(t *testing.T, preparedByOperator bool) (*config.Confi
 	envFile := filepath.Join(home, "gateway.env")
 	if preparedByOperator {
 		require.NoError(t, os.WriteFile(envFile, []byte(padvisor.RenderGatewayEnv(endpoint, genesisKeyFixture)), 0o600))
+		backdateEnvFile(t, envFile)
+		backdateEnvFile(t, envFile)
 	}
 	return genesisConfig(t, endpoint, envFile), envFile
 }
@@ -330,6 +343,10 @@ func TestSyncCompletesAfterConvergeFollowingCLIWrite(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, padvisor.StageDirect, report.Stage)
 	assert.Contains(t, report.Notes[1], "stage 2 prepared")
+	// The sync wrote the env file with a wall-clock mtime; pin it
+	// before the fixture converge so the ordering gate stays
+	// deterministic (AD-25; #157).
+	backdateEnvFile(t, gatewayEnvFile(cfg))
 
 	pending, err := syncGenesis(context.Background(), cfg, genesisSyncNow.Add(time.Minute))
 	require.NoError(t, err)
@@ -388,6 +405,7 @@ func TestSyncServicePrincipalTakenSurfacesRecovery(t *testing.T) {
 	endpoint := "https://genesis.example.com/v1"
 	envFile := filepath.Join(t.TempDir(), "gateway.env")
 	require.NoError(t, os.WriteFile(envFile, []byte(padvisor.RenderGatewayEnv(endpoint, genesisKeyFixture)), 0o600))
+	backdateEnvFile(t, envFile)
 	_, err := syncGenesis(context.Background(), genesisConfig(t, endpoint, envFile), genesisSyncNow)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recovery")
@@ -436,6 +454,7 @@ func TestSyncPropagatesServiceFlowFailures(t *testing.T) {
 			endpoint := "https://genesis.example.com/v1"
 			envFile := filepath.Join(t.TempDir(), "gateway.env")
 			require.NoError(t, os.WriteFile(envFile, []byte(padvisor.RenderGatewayEnv(endpoint, genesisKeyFixture)), 0o600))
+			backdateEnvFile(t, envFile)
 			_, err := syncGenesis(context.Background(), genesisConfig(t, endpoint, envFile), genesisSyncNow)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.want)
@@ -455,6 +474,7 @@ func TestSyncServiceKeyNeedsAdminSession(t *testing.T) {
 	endpoint := "https://genesis.example.com/v1"
 	envFile := filepath.Join(t.TempDir(), "gateway.env")
 	require.NoError(t, os.WriteFile(envFile, []byte(padvisor.RenderGatewayEnv(endpoint, genesisKeyFixture)), 0o600))
+	backdateEnvFile(t, envFile)
 	_, err := syncGenesis(context.Background(), genesisConfig(t, endpoint, envFile), genesisSyncNow)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "onboard")
