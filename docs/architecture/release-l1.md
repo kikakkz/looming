@@ -154,13 +154,22 @@ Three surfaces, three semantics — kept strictly separate:
    logic prototyped on `feat/151-one-click-install`) → run
    `looming apply`, which pulls the pinned images and converges →
    print the one-time bootstrap invite (AD-36) and the guide URL.
-   Zero build steps; an existing topology.yaml is never clobbered
-   (edit + re-apply).
+   Zero build steps. Ownership split: the `bundle:` block is
+   installer-owned, everything else in topology.yaml is
+   operator-owned. Fresh install writes the whole file; an existing
+   topology.yaml is never clobbered — but when the requested release
+   differs from the file's `bundle.version` (an upgrade), the
+   installer rewrites ONLY the installer-owned `bundle:` block and
+   refreshes the manifest file, preserving operator edits (ports,
+   engine config, placements); a matching version is a converge-only
+   re-run (edit + re-apply).
 8. **Upgrade and rollback.** Upgrade: re-run the installer at the new
-   version and re-apply; schema migrations under the components move
-   forward only. Rollback: restore from the pg_dump-based backup
-   (AD-36's backup story) — version downgrade of a live state plane
-   is not supported.
+   version — it moves the topology's `bundle:` selection to the new
+   release (installer-owned block only, §3.7) and refreshes the
+   manifest — then apply converges to the new pins; schema migrations
+   under the components move forward only. Rollback: restore from the
+   pg_dump-based backup (AD-36's backup story) — version downgrade of
+   a live state plane is not supported.
 9. **Exceptions** — hotfixes and security rebuild waves follow the
    skill: identical tag mechanics, patch versions, pin-bump PRs.
 
