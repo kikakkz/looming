@@ -7,7 +7,8 @@
 # (config/render/exec/apply), the management agent's deterministic
 # feasibility layer (advisor, AD-38), the four capabilities' domain
 # vocabulary + ports + use-case services + postgres adapters
-# (topology, host, guide, join), the schema migrations, and the
+# (topology, host, guide, join), the schema migrations, the release
+# bundle manifest loader (bundle, release-l1 §3.4), and the
 # integration test helper. Both consumers (cli's admin face, topology's
 # topologyd) import it; nothing here imports a component.
 #
@@ -35,6 +36,7 @@ excludeFiles:
 components:
   config:          { in: config }
   render:          { in: render }
+  bundle:          { in: bundle }
   advisor:         { in: advisor }
   exec:            { in: exec }
   apply:           { in: apply }
@@ -59,7 +61,17 @@ components:
 
 deps:
   config:
-    mayDependOn: [render, topologydomain]
+    # config's bundle: section validation shares the manifest's
+    # vX.Y.Z tag shape (bundle.ValidVersion), so config reads the
+    # bundle package; the manifest itself loads at apply time.
+    mayDependOn: [render, topologydomain, bundle]
+
+  # The bundle manifest loader (release-l1 §3.4) draws its components
+  # vocabulary and its pin resolution from the render contracts
+  # (ReleaseNames, ImageRef) — the registry prefix's single source —
+  # and nothing wider.
+  bundle:
+    mayDependOn: [render]
 
   # The advisor (AD-38) is the management agent's deterministic hard
   # layer: it reads declared host facts (config.Host.Capabilities) and
@@ -112,7 +124,7 @@ deps:
     mayDependOn: [joindomain, joinport, hostdomain]
 
   apply:
-    mayDependOn: [config, render, exec, topologydomain, topologyport, topologyapp, topologyadapter, hostdomain, hostport, hostadapter, guidedomain, guideport, guideapp, guideadapter, migrations]
+    mayDependOn: [config, render, bundle, exec, topologydomain, topologyport, topologyapp, topologyadapter, hostdomain, hostport, hostadapter, guidedomain, guideport, guideapp, guideadapter, migrations]
 
   tests:
     mayDependOn: [migrations]

@@ -13,10 +13,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/kikakkz/looming/platform/go/bundle"
 	"github.com/kikakkz/looming/platform/go/config"
 	"github.com/kikakkz/looming/platform/go/exec"
 	guideport "github.com/kikakkz/looming/platform/go/guideport"
@@ -114,8 +117,10 @@ type HostResult struct {
 // Result is one apply run's outcome: the persisted revision (0 in
 // dry-run, where nothing is persisted), the per-host converge results,
 // the bootstrap-invite outcome (nil when the config declares no
-// bootstrap section), the guide-render outcome, and — in dry-run — the
-// rendered compose files themselves.
+// bootstrap section), the guide-render outcome, the release-bundle
+// outcome (nil when the config declares no bundle section;
+// release-l1 §3.5), and — in dry-run — the rendered compose files
+// themselves.
 type Result struct {
 	Revision  int64
 	DryRun    bool
@@ -123,6 +128,18 @@ type Result struct {
 	Artifacts []render.Artifact
 	Invite    *InviteOutcome
 	Guide     *GuideOutcome
+	Bundle    *BundleInfo
+}
+
+// BundleInfo is the release-bundle outcome (release-l1 §3.5, R2): the
+// operator's bundle selection passes through to the report — the
+// version is never cross-validated against the manifest's content,
+// release-l1 does not require that consistency — alongside the pins
+// render consumed (release name → full image ref).
+type BundleInfo struct {
+	Version  string
+	Manifest string
+	Pins     map[string]string
 }
 
 // Failed reports whether any host's converge errored. The pipeline
@@ -170,8 +187,18 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 		return nil, err
 	}
 
+	// The release pins resolve before anything touches the world:
+	// a declared-but-unreadable or incomplete manifest fails the run
+	// here — no state plane, no stores, no host converge (release-l1
+	// §3.5: apply validates coverage and fails closed).
+	images, bundleInfo, err := resolveImages(cfg)
+	if err != nil {
+		return nil, err
+	}
+	plan.render.Images = images
+
 	if in.DryRun {
-		return p.dryRun(plan)
+		return p.dryRun(plan, bundleInfo)
 	}
 
 	databaseURL, err := p.ensureDatabase(ctx, cfg, in.DatabaseURL)
@@ -199,6 +226,7 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 	}
 
 	result := p.convergeHosts(ctx, stores, cfg, topo.Revision, artifacts)
+	result.Bundle = bundleInfo
 	p.maybeInvite(ctx, cfg, result, in.PrintInvite)
 	p.renderGuide(ctx, stores, cfg, result)
 	return result, nil
@@ -206,12 +234,54 @@ func (p *Pipeline) Apply(ctx context.Context, in Input) (*Result, error) {
 
 // dryRun stops after the render: no docker, no database. The rendered
 // compose files land on the result so the caller can print them.
-func (p *Pipeline) dryRun(plan plan) (*Result, error) {
+func (p *Pipeline) dryRun(plan plan, bundleInfo *BundleInfo) (*Result, error) {
 	artifacts, err := render.Render(plan.render)
 	if err != nil {
 		return nil, err
 	}
-	return &Result{DryRun: true, Artifacts: artifacts}, nil
+	return &Result{DryRun: true, Artifacts: artifacts, Bundle: bundleInfo}, nil
+}
+
+// resolveImages loads the operator's bundle manifest when the config
+// declares the installer-owned bundle section (release-l1 §3.5) and
+// maps its pins onto the placed components' render names. Fail
+// closed: an unreadable or invalid manifest, or a manifest missing
+// any placed component, is an apply error naming the offenders —
+// a released install must never half-pin (some images built from
+// source, some pulled). Returns nils when the config declares no
+// bundle section: today's source-build path, byte-identical.
+func resolveImages(cfg *config.Config) (map[string]string, *BundleInfo, error) {
+	if cfg.Bundle == nil {
+		return nil, nil, nil
+	}
+	manifest, err := bundle.Load(cfg.Bundle.Manifest)
+	if err != nil {
+		return nil, nil, err
+	}
+	images := make(map[string]string, len(cfg.Placements))
+	var missing []string
+	for _, p := range cfg.Placements {
+		contract, ok := render.Lookup(p.Component)
+		if !ok {
+			continue // config validation already rejected the placement
+		}
+		version, pinned := manifest.Components[contract.ReleaseName]
+		if !pinned {
+			missing = append(missing, fmt.Sprintf("%q (release %q)", p.Component, contract.ReleaseName))
+			continue
+		}
+		images[p.Component] = render.ImageRef(contract.ReleaseName, version)
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return nil, nil, fmt.Errorf("apply: bundle manifest %q does not cover every placed component, missing: %s",
+			cfg.Bundle.Manifest, strings.Join(missing, ", "))
+	}
+	return images, &BundleInfo{
+		Version:  cfg.Bundle.Version,
+		Manifest: cfg.Bundle.Manifest,
+		Pins:     manifest.Pins(),
+	}, nil
 }
 
 // ensureDatabase brings the state plane up when the config declares
@@ -288,6 +358,7 @@ func (p *Pipeline) render(cfg *config.Config, topo domain.Topology, plan plan, b
 		Hosts:       cfg.RenderHosts(),
 		Placements:  placements,
 		EnvFiles:    cfg.RenderEnvFiles(),
+		Images:      plan.render.Images,
 		BundleRoot:  bundleRoot,
 	})
 }

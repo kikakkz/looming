@@ -147,6 +147,7 @@ func printSummary(w io.Writer, result *apply.Result, dryRun bool) {
 
 	if dryRun {
 		line("dry-run: rendered compose files (no docker, no database writes)")
+		printBundleOutcome(w, result.Bundle)
 		for _, artifact := range result.Artifacts {
 			line("--- %s (%s) ---", artifact.HostID, artifact.Hash)
 			_, _ = fmt.Fprint(w, artifact.Compose)
@@ -156,6 +157,7 @@ func printSummary(w io.Writer, result *apply.Result, dryRun bool) {
 	}
 
 	line("topology revision %d", result.Revision)
+	printBundleOutcome(w, result.Bundle)
 	for _, host := range result.Hosts {
 		switch {
 		case host.Err != nil:
@@ -169,6 +171,21 @@ func printSummary(w io.Writer, result *apply.Result, dryRun bool) {
 	printInviteOutcome(w, result.Invite)
 	printGuideOutcome(w, result.Guide)
 	line("next: `looming token create --role engine --ttl 24h` mints a join token for a new host")
+}
+
+// printBundleOutcome renders the release-bundle selection (release-l1
+// §3.5): the operator's bundle version passes through to the report —
+// apply never cross-validates it against the manifest's content —
+// alongside the pins the render consumed. Absent when the topology
+// declares no bundle section.
+func printBundleOutcome(w io.Writer, b *apply.BundleInfo) {
+	if b == nil {
+		return
+	}
+	line := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(w, format+"\n", args...)
+	}
+	line("bundle: %s (%d image pins from %s)", b.Version, len(b.Pins), b.Manifest)
 }
 
 // printGuideOutcome renders the post-converge guide step's outcome: a

@@ -196,4 +196,46 @@ func TestPrintSummaryCoversEveryOutcomeBranch(t *testing.T) {
 		printGuideOutcome(&out, nil)
 		assert.Empty(t, out.String())
 	})
+
+	t.Run("bundle outcomes", func(t *testing.T) {
+		var out bytes.Buffer
+		printBundleOutcome(&out, &apply.BundleInfo{
+			Version:  "v0.1.0",
+			Manifest: "/etc/looming/bundle-manifest.yaml",
+			Pins:     map[string]string{"gateway": "ghcr.io/kikakkz/looming/gateway:v0.1.0"},
+		})
+		s := out.String()
+		assert.Contains(t, s, "bundle: v0.1.0")
+		assert.Contains(t, s, "1 image pins from /etc/looming/bundle-manifest.yaml")
+		out.Reset()
+		printBundleOutcome(&out, nil)
+		assert.Empty(t, out.String(), "no bundle section → no bundle line")
+	})
+}
+
+// TestApplyDryRunWithBundleSectionRendersPins drives the real command
+// end to end (release-l1 §5 R2): a topology carrying the installer-
+// owned bundle section renders the manifest's image pins — image:
+// refs, no build block — and reports the bundle selection.
+func TestApplyDryRunWithBundleSectionRendersPins(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "bundle-manifest.yaml")
+	require.NoError(t, os.WriteFile(manifest, []byte(`
+components:
+  gateway: v0.1.0
+`), 0o600))
+	path := writeConfig(t, `
+version: 1
+access: {mode: public, transport: direct, endpoint: "10.0.0.10"}
+hosts: [{id: only, address: 10.0.0.11}]
+placements:
+  - {component: gateway-front, host: only, ports: {http: 8080}, config: {upstream: "http://10.0.0.13:4000"}}
+bundle: {version: v0.1.0, manifest: `+manifest+`}
+`)
+
+	out, err := runWith(t, "--config", path, "--dry-run")
+	require.NoError(t, err)
+	assert.Contains(t, out, "bundle: v0.1.0 (1 image pins from "+manifest+")")
+	assert.Contains(t, out, "image: ghcr.io/kikakkz/looming/gateway:v0.1.0")
+	assert.NotContains(t, out, "build:")
 }
