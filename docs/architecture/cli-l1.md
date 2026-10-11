@@ -54,8 +54,9 @@ agent CLI's config) → chat completions flow through the gateway →
 `/etc/looming/topology.yaml` (hosts, placements, and
 `bootstrap.admin_email`) → `looming apply` (converge per topology-l1
 §3; the first apply creates the component databases and prints the
-invite link plus the join hint — the e2e suite's step 1) → operator
-carries the invite to the first admin's mailbox.
+one-time bootstrap invite — the raw token plus a register `curl` —
+and the join hint — the e2e suite's step 1) → operator carries the
+invite to the first admin's mailbox.
 
 **Adding a host** (admin): `looming token create --role engine --ttl
 24h` → on the new host: install bundle → `looming join

@@ -50,8 +50,9 @@ validate invariants → bring up the state plane: start and initialize
 the bundle-owned Postgres, creating the `topology` database — on
 first boot it is started before any write → persist the topology →
 render per-host compose files → `docker compose up -d` on each
-declared host — restart only what changed; prints the invite link
-plus the join hint).
+declared host — restart only what changed; prints the one-time
+bootstrap invite (the raw token plus a register `curl`) plus the join
+hint).
 
 **Adding a host**: `looming token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →
@@ -116,7 +117,10 @@ topologyd is this component's only binary): `apply` (with
 `--print-invite` to force the bootstrap-invite request; `--dry-run`
 stops after the render), `token create|list|revoke` (admin side,
 direct to the topology DB), `join <first-host-url> --token <t>` (the
-pulling host), `guide show`. The CLI binary's own component placement
+pulling host), `topology advise` (placement feasibility over declared
+and observed host facts), `topology facts pull` (merges join-observed
+machine facts into the topology file — the consumer of this section's
+hosts read), `guide show`. The CLI binary's own component placement
 is #108's design surface — this doc only fixes the admin-side command
 contract.
 
