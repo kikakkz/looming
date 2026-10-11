@@ -38,6 +38,10 @@ type joinRequest struct {
 		ID      string   `json:"id"`
 		Address string   `json:"address"`
 		Labels  []string `json:"labels"`
+		// Capabilities is the optional observed machine facts block
+		// (advisor-l1 §8 slice 1.3). Raw so the handler can strict-decode
+		// the subtree: unknown keys are a 400, not a silent drop.
+		Capabilities *json.RawMessage `json:"capabilities"`
 	} `json:"host"`
 }
 
@@ -47,16 +51,22 @@ type rejoinRequest struct {
 }
 
 // Join handles POST /v1/join: consume a one-time token, register the
-// host, mint its persistent credential, answer with the cluster hint.
+// host (with its observed machine facts when the payload carries
+// them), mint its persistent credential, answer with the cluster hint.
 func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 	var req joinRequest
 	if !decode(w, r, &req) {
 		return
 	}
+	caps, ok := h.parseCapabilities(w, r, req.Host.Capabilities)
+	if !ok {
+		return
+	}
 	res, err := h.svc.Consume(r.Context(), req.Token, HostInput{
-		ID:      req.Host.ID,
-		Address: req.Host.Address,
-		Labels:  req.Host.Labels,
+		ID:           req.Host.ID,
+		Address:      req.Host.Address,
+		Labels:       req.Host.Labels,
+		Capabilities: caps,
 	})
 	if err != nil {
 		writeUseCaseError(w, r, err)
@@ -67,6 +77,22 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 		"credential": res.Credential,
 		"cluster":    map[string]any{"access": res.Endpoint},
 	})
+}
+
+// parseCapabilities strict-decodes the optional facts block. Absent
+// (nil raw — an old CLI) is legal and stays nil; present-but-invalid
+// fails 400 with the validation detail — the operator on the joining
+// host can see and fix the payload.
+func (h *Handler) parseCapabilities(w http.ResponseWriter, r *http.Request, raw *json.RawMessage) (*hostdomain.Capabilities, bool) {
+	if raw == nil {
+		return nil, true
+	}
+	caps, err := hostdomain.ParseCapabilities(*raw, h.svc.now())
+	if err != nil {
+		writeUseCaseError(w, r, err)
+		return nil, false
+	}
+	return caps, true
 }
 
 // Rejoin handles POST /v1/join/rejoin: authenticate the host by its
@@ -162,6 +188,8 @@ func classifyUseCaseError(err error) (status int, code string, safe bool) {
 	case errors.Is(err, ErrHostConflict):
 		return http.StatusConflict, "host_conflict", true
 	case errors.Is(err, hostdomain.ErrInvalidAddress):
+		return http.StatusBadRequest, "invalid_request", true
+	case errors.Is(err, hostdomain.ErrInvalidCapabilities):
 		return http.StatusBadRequest, "invalid_request", true
 	default:
 		return http.StatusInternalServerError, "internal", false

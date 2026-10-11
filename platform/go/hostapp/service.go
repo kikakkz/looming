@@ -39,6 +39,12 @@ func (s *Service) ByAddress(ctx context.Context, address string) (*domain.Host, 
 	return s.registry.ByAddress(ctx, address)
 }
 
+// List delegates the observed-facts read to the registry (slice 1.3's
+// admin-side pull — GET /v1/internal/hosts).
+func (s *Service) List(ctx context.Context) ([]domain.Host, error) {
+	return s.registry.List(ctx)
+}
+
 // Update delegates the re-join address/label refresh to the registry.
 func (s *Service) Update(ctx context.Context, h *domain.Host) (*domain.Host, error) {
 	return s.registry.Update(ctx, h)

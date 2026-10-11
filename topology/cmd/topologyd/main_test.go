@@ -17,6 +17,7 @@ import (
 	guideapp "github.com/kikakkz/looming/platform/go/guideapp"
 	guidedomain "github.com/kikakkz/looming/platform/go/guidedomain"
 	guideport "github.com/kikakkz/looming/platform/go/guideport"
+	hostapp "github.com/kikakkz/looming/platform/go/hostapp"
 	hostdomain "github.com/kikakkz/looming/platform/go/hostdomain"
 	hostport "github.com/kikakkz/looming/platform/go/hostport"
 	joinapp "github.com/kikakkz/looming/platform/go/joinapp"
@@ -58,6 +59,7 @@ func (s *stubTokens) List(context.Context) ([]domain.JoinToken, error) { return 
 // stubRegistry is the host Registry port against memory.
 type stubRegistry struct {
 	byID map[string]*hostdomain.Host
+	list []hostdomain.Host
 }
 
 func newStubRegistry() *stubRegistry {
@@ -84,6 +86,16 @@ func (s *stubRegistry) ByAddress(context.Context, string) (*hostdomain.Host, err
 func (s *stubRegistry) Update(_ context.Context, h *hostdomain.Host) (*hostdomain.Host, error) {
 	s.byID[h.ID] = h
 	return h, nil
+}
+
+func (s *stubRegistry) List(_ context.Context) ([]hostdomain.Host, error) {
+	return s.list, nil
+}
+
+// newStubHostsHandler wires the real host read handler over a fresh
+// stub registry, sharing the mux tests' service-token shape.
+func newStubHostsHandler(token string) *hostapp.Handler {
+	return hostapp.NewHandler(hostapp.NewService(newStubRegistry()), token)
 }
 
 // stubTopology reports no declared topology — the hint degrades empty.
@@ -159,7 +171,7 @@ func TestRouteMuxServesJoinAndRejoin(t *testing.T) {
 	svc := joinapp.NewService(tokens, newStubRegistry(), stubTopology{}, &countingRNG{left: 1024},
 		func() time.Time { return time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC) })
 	guideSvc := guideapp.NewService(&stubGuides{}, stubTopology{}, newStubRegistry(), time.Now)
-	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, "tok")))
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), newStubHostsHandler("tok"), guideapp.NewHandler(guideSvc, "tok")))
 	defer server.Close()
 
 	// Mint straight through the service (the admin-side path) so the
@@ -208,7 +220,7 @@ func TestRouteMuxServesJoinAndRejoin(t *testing.T) {
 func TestRouteMuxUnknownRoute(t *testing.T) {
 	svc := joinapp.NewService(&stubTokens{}, newStubRegistry(), stubTopology{}, &countingRNG{left: 1024}, time.Now)
 	guideSvc := guideapp.NewService(&stubGuides{}, stubTopology{}, newStubRegistry(), time.Now)
-	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, "tok")))
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), newStubHostsHandler("tok"), guideapp.NewHandler(guideSvc, "tok")))
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/v1/nope")
@@ -237,7 +249,7 @@ func TestRouteMuxServesGuide(t *testing.T) {
 	}
 	svc := joinapp.NewService(&stubTokens{}, newStubRegistry(), stubTopology{}, &countingRNG{left: 1024}, time.Now)
 	guideSvc := guideapp.NewService(guides, stubTopology{}, newStubRegistry(), time.Now)
-	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, "service-tok")))
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc), newStubHostsHandler("service-tok"), guideapp.NewHandler(guideSvc, "service-tok")))
 	defer server.Close()
 
 	get := func(token string) *http.Response {
@@ -273,6 +285,98 @@ func TestRouteMuxServesGuide(t *testing.T) {
 	if body["cluster_name"] != "mux cluster" {
 		t.Fatalf("snapshot must round trip verbatim, got %v", body)
 	}
+}
+
+// TestRouteMuxServesHosts pins the observed-facts read over the real
+// mux: the shared service-token guard, then the host list with its
+// facts — and never the host credential.
+func TestRouteMuxServesHosts(t *testing.T) {
+	egress := true
+	collected := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	registry := newStubRegistry()
+	registry.list = []hostdomain.Host{{
+		ID:      "node-1",
+		Address: "10.0.0.11",
+		Capabilities: &hostdomain.Capabilities{
+			Hardware:    hostdomain.HardwareCapabilities{CPUCores: 8, MemoryMB: 32768, DiskGB: 457, Arch: "x86_64"},
+			Network:     hostdomain.NetworkCapabilities{Egress: &egress},
+			CollectedAt: collected,
+		},
+		CredentialHash: []byte("never on the wire"),
+	}}
+	svc := joinapp.NewService(&stubTokens{}, registry, stubTopology{}, &countingRNG{left: 1024}, time.Now)
+	guideSvc := guideapp.NewService(&stubGuides{}, stubTopology{}, registry, time.Now)
+	server := httptest.NewServer(routeMux(joinapp.NewHandler(svc),
+		hostapp.NewHandler(hostapp.NewService(registry), "service-tok"), guideapp.NewHandler(guideSvc, "service-tok")))
+	defer server.Close()
+
+	get := func(token string) *http.Response {
+		req, err := http.NewRequest(http.MethodGet, server.URL+"/v1/internal/hosts", nil)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		return resp
+	}
+
+	resp := get("service-tok")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("hosts must 200, got %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var hosts []map[string]any
+	if err := json.Unmarshal(raw, &hosts); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(hosts) != 1 || hosts[0]["id"] != "node-1" {
+		t.Fatalf("host list must round trip, got %s", raw)
+	}
+	caps, ok := hosts[0]["capabilities"].(map[string]any)
+	if !ok || caps["hardware"].(map[string]any)["cpu_cores"] != float64(8) {
+		t.Fatalf("observed facts must round trip, got %s", raw)
+	}
+	if strings.Contains(string(raw), "never on the wire") {
+		t.Fatal("the response must never carry the host credential")
+	}
+
+	unauthorized := get("wrong")
+	defer func() { _ = unauthorized.Body.Close() }()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token must 401, got %d", unauthorized.StatusCode)
+	}
+
+	unguarded := httptest.NewServer(routeMux(joinapp.NewHandler(svc),
+		hostapp.NewHandler(hostapp.NewService(registry), ""), guideapp.NewHandler(guideSvc, "service-tok")))
+	defer unguarded.Close()
+	resp = getAgainst(t, unguarded.URL, "service-tok")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("unconfigured token must 503, got %d", resp.StatusCode)
+	}
+}
+
+func getAgainst(t *testing.T, base, token string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, base+"/v1/internal/hosts", nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	return resp
 }
 
 // Compile-time guards that the stubs really implement the ports.

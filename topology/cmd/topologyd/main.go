@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Command topologyd runs the topology component's long-running service:
-// the pull-join endpoints new and existing hosts talk to
-// (topology-l1 §7 — POST /v1/join and POST /v1/join/rejoin). It migrates
-// the schema on boot and serves until SIGTERM/SIGINT. Wiring only —
-// every decision lives in the capability packages (AD-23).
+// the pull-join endpoints new and existing hosts talk to, plus the
+// internal reads the gateway and the admin CLI consume (topology-l1
+// §7 — POST /v1/join, POST /v1/join/rejoin, GET /v1/internal/hosts,
+// GET /v1/internal/guide). It migrates the schema on boot and serves
+// until SIGTERM/SIGINT. Wiring only — every decision lives in the
+// capability packages (AD-23).
 package main
 
 import (
@@ -25,6 +27,7 @@ import (
 	guideadapter "github.com/kikakkz/looming/platform/go/guideadapter"
 	guideapp "github.com/kikakkz/looming/platform/go/guideapp"
 	hostadapter "github.com/kikakkz/looming/platform/go/hostadapter"
+	hostapp "github.com/kikakkz/looming/platform/go/hostapp"
 	joinadapter "github.com/kikakkz/looming/platform/go/joinadapter"
 	joinapp "github.com/kikakkz/looming/platform/go/joinapp"
 	"github.com/kikakkz/looming/platform/go/migrations"
@@ -105,6 +108,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 		rand.Reader,
 		time.Now,
 	)
+	hostSvc := hostapp.NewService(hostadapter.NewRegistry(db))
 	guideSvc := guideapp.NewService(
 		guideadapter.NewStore(db),
 		topologyadapter.NewStore(db),
@@ -113,7 +117,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	)
 	server := &http.Server{
 		Addr:              cfg.listen,
-		Handler:           routeMux(joinapp.NewHandler(svc), guideapp.NewHandler(guideSvc, cfg.serviceToken)),
+		Handler:           routeMux(joinapp.NewHandler(svc), hostapp.NewHandler(hostSvc, cfg.serviceToken), guideapp.NewHandler(guideSvc, cfg.serviceToken)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -143,15 +147,17 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 }
 
-// routeMux assembles the v1 API: the join/rejoin surface and the
+// routeMux assembles the v1 API: the join/rejoin surface, the hosts
+// read (the observed-facts pull's server half, slice 1.3), and the
 // guide's internal read endpoint. The join routes are
-// token/credential-guarded by their own payloads; the guide route
-// carries its own service-token guard — no session machinery in
-// phase 1 (topology-l1 §8 PEP).
-func routeMux(joinH *joinapp.Handler, guideH *guideapp.Handler) *http.ServeMux {
+// token/credential-guarded by their own payloads; the hosts and guide
+// routes carry the shared service-token guard — no session machinery
+// in phase 1 (topology-l1 §8 PEP).
+func routeMux(joinH *joinapp.Handler, hostH *hostapp.Handler, guideH *guideapp.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/join", http.HandlerFunc(joinH.Join))
 	mux.Handle("POST /v1/join/rejoin", http.HandlerFunc(joinH.Rejoin))
+	mux.Handle("GET /v1/internal/hosts", http.HandlerFunc(hostH.Hosts))
 	mux.Handle("GET /v1/internal/guide", http.HandlerFunc(guideH.Guide))
 	return mux
 }

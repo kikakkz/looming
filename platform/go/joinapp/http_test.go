@@ -25,10 +25,11 @@ import (
 
 // joinedWorld is a happy-path service wrapped in its HTTP handler.
 type httpWorld struct {
-	svc     *app.Service
-	tokens  *fakeTokens
-	handler *app.Handler
-	rawTok  string
+	svc      *app.Service
+	tokens   *fakeTokens
+	registry *fakeRegistry
+	handler  *app.Handler
+	rawTok   string
 }
 
 func newHTTPWorld(t *testing.T) *httpWorld {
@@ -46,7 +47,7 @@ func newHTTPWorld(t *testing.T) *httpWorld {
 	_, err := registry.Register(context.Background(), &hostdomain.Host{ID: "gw-host", Address: "10.0.0.10", JoinedAt: fixedNow})
 	require.NoError(t, err)
 	svc := newService(tokens, registry, topo)
-	w := &httpWorld{svc: svc, tokens: tokens, handler: app.NewHandler(svc)}
+	w := &httpWorld{svc: svc, tokens: tokens, registry: registry, handler: app.NewHandler(svc)}
 	w.rawTok = mint(t, svc, domain.RoleEngine)
 	return w
 }
@@ -334,6 +335,9 @@ func TestHandlerErrorContractExhaustive(t *testing.T) {
 			w.handler.Rejoin(rr, req)
 			return rr
 		}, http.StatusUnauthorized, "unauthenticated"},
+		{"invalid capabilities", func() *httptest.ResponseRecorder {
+			return w.join(t, fmt.Sprintf(`{"token":%q,"host":{"address":"10.0.0.21","capabilities":{"hardware":{"cpu_cores":-1},"network":{},"collected_at":"2026-10-06T08:59:00Z"}}}`, w.rawTok))
+		}, http.StatusBadRequest, "invalid_request"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -341,6 +345,77 @@ func TestHandlerErrorContractExhaustive(t *testing.T) {
 			require.Equal(t, tc.status, rec.Code)
 			code, _ := decodeError(t, rec)
 			assert.Equal(t, tc.code, code)
+		})
+	}
+}
+
+// TestJoinCarriesObservedFacts is the slice-1.3 happy path: the
+// payload's capabilities block lands on the registered host, validated
+// and stamped by the server's clock fence.
+func TestJoinCarriesObservedFacts(t *testing.T) {
+	w := newHTTPWorld(t)
+	rec := w.join(t, fmt.Sprintf(`{"token":%q,"host":{`+
+		`"address":"10.0.0.21",`+
+		`"capabilities":{`+
+		`"hardware":{"cpu_cores":8,"memory_mb":32768,"disk_gb":457,"arch":"x86_64"},`+
+		`"network":{"egress":true},`+
+		`"collected_at":"2026-10-06T08:59:00Z"}}}`, w.rawTok))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var body struct {
+		HostID string `json:"host_id"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	stored, err := w.registry.ByID(context.Background(), body.HostID)
+	require.NoError(t, err)
+	require.NotNil(t, stored.Capabilities, "the observed facts land on the host row")
+	assert.Equal(t, 8, stored.Capabilities.Hardware.CPUCores)
+	assert.Equal(t, 32768, stored.Capabilities.Hardware.MemoryMB)
+	assert.Equal(t, 457, stored.Capabilities.Hardware.DiskGB)
+	assert.Equal(t, "x86_64", stored.Capabilities.Hardware.Arch)
+	require.NotNil(t, stored.Capabilities.Network.Egress)
+	assert.True(t, *stored.Capabilities.Network.Egress)
+	assert.True(t, stored.Capabilities.CollectedAt.Equal(time.Date(2026, 10, 6, 8, 59, 0, 0, time.UTC)))
+}
+
+// TestJoinWithoutFactsStaysLegal pins the mixed-version contract: an
+// absent capabilities block (the old-CLI shape) joins fine and stores
+// nothing.
+func TestJoinWithoutFactsStaysLegal(t *testing.T) {
+	w := newHTTPWorld(t)
+	rec := w.join(t, fmt.Sprintf(`{"token":%q,"host":{"address":"10.0.0.21"}}`, w.rawTok))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	stored, err := w.registry.ByAddress(context.Background(), "10.0.0.21")
+	require.NoError(t, err)
+	assert.Nil(t, stored.Capabilities)
+}
+
+// TestJoinRejectsMalformedFactsBlocks is the strict half of the wire
+// contract over HTTP: unknown keys, value-range violations, and
+// clock-skewed stamps all fail 400 with the validation detail — and
+// the one-time token is NOT consumed by a rejected payload, so the
+// operator can fix the collector and retry.
+func TestJoinRejectsMalformedFactsBlocks(t *testing.T) {
+	cases := map[string]string{
+		"unknown key":     `"capabilities":{"hardware":{"cpu_cores":8,"zone":"cloud"},"network":{},"collected_at":"2026-10-06T08:59:00Z"}`,
+		"negative memory": `"capabilities":{"hardware":{"memory_mb":-1},"network":{},"collected_at":"2026-10-06T08:59:00Z"}`,
+		"bad arch":        `"capabilities":{"hardware":{"arch":"sparc"},"network":{},"collected_at":"2026-10-06T08:59:00Z"}`,
+		"future stamp":    `"capabilities":{"hardware":{},"network":{},"collected_at":"2026-10-08T09:00:01Z"}`,
+		"missing stamp":   `"capabilities":{"hardware":{},"network":{}}`,
+		"not an object":   `"capabilities":"yes"`,
+	}
+	for name, caps := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newHTTPWorld(t)
+			rec := w.join(t, fmt.Sprintf(`{"token":%q,"host":{"address":"10.0.0.21",%s}}`, w.rawTok, caps))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			code, message := decodeError(t, rec)
+			assert.Equal(t, "invalid_request", code)
+			assert.Contains(t, message, "capabilities")
+
+			// The token survives the rejection: a corrected retry joins.
+			retry := w.join(t, fmt.Sprintf(`{"token":%q,"host":{"address":"10.0.0.21"}}`, w.rawTok))
+			assert.Equal(t, http.StatusCreated, retry.Code, "the one-time token must not be spent by a rejected payload")
 		})
 	}
 }

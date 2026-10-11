@@ -68,6 +68,10 @@
 # map platform/go/ line names the reasoned proposal layer (prompt builder
 # + evaluator guardrail loop); advisor-l1 §4/§8 and the glossary Advise
 # entry name the --reason flow; all read_order anchors resolve.
+# 2026-10-11 advisor slice 1.3 (#144) re-validated: AGENTS.md directory
+# map cli/ line names the facts pull, platform/go/ + topology/ lines
+# name the join-carried host capabilities and the hosts read; all
+# read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
