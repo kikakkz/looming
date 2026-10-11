@@ -191,7 +191,8 @@ cites its `kind/flake` issue number; test-only helpers live under
 - Hybrid versioning: components carry independent semver image tags; a
   bundle release is a git tag plus a manifest pinning every component's
   exact version. Only changed components are published per release.
-  Release details: [.ai/skills/release/SKILL.md](.ai/skills/release/SKILL.md).
+  Release details: [.ai/skills/release/SKILL.md](.ai/skills/release/SKILL.md) (policy),
+  [docs/architecture/release-l1.md](docs/architecture/release-l1.md) (mechanics).
 
 ## Bootstrap exception
 
