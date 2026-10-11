@@ -96,7 +96,16 @@ phase-1, per topology-l1 §8).
   topology-l1 §7 (direct to the topology DB side; `create` prints the
   raw token once).
 - `looming join <first-host-url> --token <t>` — the pulling host's
-  self-registration (topology-l1 §7).
+  self-registration (topology-l1 §7); the join payload carries the
+  host's observed machine facts (advisor slice 1.3), collected locally
+  and announced on stdout.
+- `looming topology facts pull` — merge the observed facts topologyd
+  holds (GET /v1/internal/hosts, service-token guarded) into the
+  topology file's hosts[].capabilities: observed hardware/egress/
+  latencies replace declared values, the zone and labels stay
+  operator-declared, the merged file re-validates through the config
+  loader before it is written, and nothing applies — the operator
+  reviews the diff and runs `looming apply` (advisor slice 1.3).
 
 Naming boundary: user-face `looming status` is remote component health
 (§4 user face). Host-supervision wrappers (`status/restart/tail` as

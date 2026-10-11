@@ -112,11 +112,14 @@ func (s *Service) RevokeByPrefix(ctx context.Context, prefix string) (*domain.Jo
 
 // HostInput is the joining host's self-description: an optional
 // operator-supplied id (the server mints host-<uuid8> when absent), its
-// reachable address, and free-form labels.
+// reachable address, free-form labels, and the observed machine facts
+// the slice-1.3 collector attached (nil when the joining CLI predates
+// discovery — a legal, stored-as-NULL absence).
 type HostInput struct {
-	ID      string
-	Address string
-	Labels  []string
+	ID           string
+	Address      string
+	Labels       []string
+	Capabilities *hostdomain.Capabilities
 }
 
 // JoinResult is one successful join: the registered host (with its
@@ -172,11 +175,17 @@ func (s *Service) Consume(ctx context.Context, raw string, in HostInput) (*JoinR
 		return nil, err
 	}
 	host.CredentialHash = hash
+	host.Capabilities = in.Capabilities
 	if _, err := s.registry.Register(ctx, host); err != nil {
 		return nil, s.recoveryHint(err)
 	}
 	return &JoinResult{Host: host, Credential: credential, Endpoint: s.endpointHint(ctx)}, nil
 }
+
+// now exposes the injected clock to the transport layer — the
+// capabilities validation fences collected_at against the server's
+// wall clock at parse time.
+func (s *Service) now() time.Time { return s.clock() }
 
 // Rejoin authenticates a registered host by its persistent credential
 // and refreshes its address/labels: address nil keeps the current one;

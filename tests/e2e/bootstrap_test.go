@@ -5,6 +5,7 @@
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -337,6 +338,38 @@ func step6PullJoin(t *testing.T, f *fixture) {
 		map[string]any{"address": "10.0.0.100"})
 	require.Equal(t, http.StatusOK, status, "rejoin with the persisted credential: %v", body)
 	assert.Equal(t, "10.0.0.100", body["address"], "the rejoin refreshed the address: %v", body)
+
+	// The join carried the joining host's observed machine facts
+	// (advisor slice 1.3): the service-token read surfaces them.
+	status, rawHosts, ok := tryGet(client, f.topologydBase()+"/v1/internal/hosts",
+		map[string]string{"Authorization": "Bearer " + f.topologyServiceToken})
+	require.True(t, ok && status == http.StatusOK, "hosts read must 200, got %d", status)
+	assert.NotContains(t, string(rawHosts), credential,
+		"the hosts read must never carry the host credential")
+	var hosts []map[string]any
+	require.NoError(t, json.Unmarshal(rawHosts, &hosts), "hosts must be a JSON array: %s", rawHosts)
+	var joined map[string]any
+	for _, h := range hosts {
+		if h["id"] == hostID {
+			joined = h
+		}
+	}
+	require.NotNil(t, joined, "the joined host must appear in the hosts read: %s", rawHosts)
+	caps, ok := joined["capabilities"].(map[string]any)
+	require.True(t, ok, "the join must carry observed facts: %v", joined)
+	hw, ok := caps["hardware"].(map[string]any)
+	require.True(t, ok, "hardware facts must round trip: %v", caps)
+	assert.Greater(t, hw["cpu_cores"], float64(0), "the collector observed this machine's cpus: %v", hw)
+	assert.Greater(t, hw["memory_mb"], float64(0), "the collector observed this machine's memory: %v", hw)
+	assert.NotEmpty(t, hw["arch"], "the collector observed the architecture: %v", hw)
+	assert.NotEmpty(t, caps["collected_at"], "the facts carry a collection stamp: %v", caps)
+
+	// The guard is the guide shape: no token 401s, wrong token 401s.
+	status, _, _ = tryGet(client, f.topologydBase()+"/v1/internal/hosts", nil)
+	assert.Equal(t, http.StatusUnauthorized, status, "unauthenticated hosts read must 401")
+	status, _, _ = tryGet(client, f.topologydBase()+"/v1/internal/hosts",
+		map[string]string{"Authorization": "Bearer wrong"})
+	assert.Equal(t, http.StatusUnauthorized, status, "wrong token must 401")
 
 	stdout, err = f.runCLI(t, 2*time.Minute, "token", "list", "--database-url", f.topologyDBURL())
 	require.NoError(t, err, "token list:\n%s", stdout)

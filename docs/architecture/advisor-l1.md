@@ -17,8 +17,11 @@ confirm is the gate before anything reaches disk.
 
 In scope: profile schema + loader, pure evaluator, machine-facts
 fields, `looming topology advise` interaction, append-only session
-log. Out of scope (named triggers, §7): LLM reasoning (1.2), join-time
-discovery (1.3), capacity management, re-balancing, auto-apply.
+log. Out of scope (named triggers, §7): capacity management,
+re-balancing, auto-apply. Join-time discovery (1.3, §8) lands in this
+design's slices: facts now arrive with the join payload, and the §2
+"hand-declared" line describes the file side only — `topology facts
+pull` merges observation in.
 
 **Positioning.** Looming is itself an agent (AD-38): the default
 posture is understand-environment → propose → human confirms →
@@ -174,8 +177,6 @@ and depends on `platform/go/advisor`; the dependency never reverses.
 
 ## 7. Deferred (named triggers)
 
-- **LLM reasoning + full interaction protocol** — slice 1.2; closes #143.
-- **Join-time capability discovery** (egress probe, hardware read) — slice 1.3.
 - **`--yes` non-interactive pass-through** — deferred per maintainer
   (non-blocking, not rejected); the shape is predetermined (AD-38
   rule 9) when a real automation consumer exists.
@@ -202,5 +203,20 @@ and depends on `platform/go/advisor`; the dependency never reverses.
   previews as a unified diff and lands on disk only on confirm —
   edit (revalidated through the real config validator), regenerate
   (preference folds forward), or abort.
-- **1.3 discovery** — join-time facts collection replaces hand
-  declaration; profiles migrate to Registry when #8 lands.
+- **1.3 discovery** — landed as slice 1.3 (#144): join-time facts
+  collection replaces hand declaration. The joining host's CLI
+  collects its own machine facts — hardware from /proc + statfs
+  (logical cores, memory, root-filesystem availability, arch), egress
+  from a TCP probe of a well-known anycast endpoint, each source
+  degrading independently — and carries them in the join payload;
+  topologyd strict-validates the block (unknown keys, sanity ranges,
+  arch vocabulary, a clock-skew fence on collected_at) and stores it
+  on the host row (jsonb, NULL for old-CLI joins). The zone stays
+  operator-declared: cloud/lan is a placement semantic no probe can
+  know. `looming topology facts pull` reads the observed facts back
+  (GET /v1/internal/hosts, service-token guarded) and merges them into
+  the file's hosts[].capabilities — observed hardware/egress/latencies
+  replace declared values, zone and labels never move — landing only
+  through the real config validator, so the file stays the source of
+  truth and apply stays the operator's next step. Profiles migrate to
+  Registry when #8 lands.

@@ -26,6 +26,7 @@ type fakeRegistry struct {
 	byIDErr     error
 	byAddrErr   error
 	updateErr   error
+	listErr     error
 }
 
 func newFakeRegistry() *fakeRegistry {
@@ -75,6 +76,17 @@ func (f *fakeRegistry) Update(_ context.Context, h *domain.Host) (*domain.Host, 
 	f.byID[h.ID] = h
 	f.byAddress[h.Address] = h
 	return h, nil
+}
+
+func (f *fakeRegistry) List(_ context.Context) ([]domain.Host, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	out := make([]domain.Host, 0, len(f.registered))
+	for _, h := range f.registered {
+		out = append(out, *h)
+	}
+	return out, nil
 }
 
 func TestServiceDelegatesToRegistry(t *testing.T) {
