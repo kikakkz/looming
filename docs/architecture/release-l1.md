@@ -94,8 +94,11 @@ Three surfaces, three semantics — kept strictly separate:
    collapse to one (the second then fails the check), and R1's
    acceptance proves both: a double push to the same semver tag in a
    disposable package must reject, and two parallel publishers racing
-   at one tag must land exactly one. (Digest-pinned manifests remain
-   the later hardening — §4.)
+   at one tag must land exactly one. Component images publish as
+   multi-arch manifest lists — linux/amd64 + linux/arm64 (QEMU-backed
+   buildx in the publish job) — matching the CLI's platform matrix, so
+   an arm64 host never downloads a CLI it cannot run components for.
+   (Digest-pinned manifests remain the later hardening — §4.)
 2. **Tag conventions are the release trigger.** Component release:
    push `<component>/vX.Y.Z` (e.g. `gateway/v0.1.0`). Bundle release:
    push `vX.Y.Z`. The release workflows match on these tag shapes;
@@ -199,7 +202,8 @@ Filed as issues after this design lands (the #107 pattern).
   test — two parallel publishes racing at one tag — lands exactly one;
   and the visibility recovery path — publish against a private package,
   flip visibility via the owner action, re-run the verify mode, and the
-  anonymous pull passes without touching the tag.
+  anonymous pull passes without touching the tag; the image manifest
+  lists both linux/amd64 and linux/arm64 (per-platform pull checks).
 - **R2 — manifest + render pin.** `bundle/manifest.yaml`; the render
   contract's image pin; apply validation; the `bundle:` topology
   section. Acceptance: apply with a manifest renders `image:` refs and

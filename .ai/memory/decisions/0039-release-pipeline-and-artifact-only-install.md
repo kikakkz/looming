@@ -41,7 +41,8 @@ release L1 design, #153):
    rather than flips); and an existing semver tag fails the job
    closed (pre-push manifest-inspect check, plus a per-tag concurrency
    group serializing inspect-and-push so concurrent same-tag releases
-   collapse to one; both behaviors carry acceptance tests in R1).
+   collapse to one; both behaviors carry acceptance tests in R1);
+   images publish as multi-arch manifest lists (linux/amd64 + arm64).
 2. **Tag-triggered releases** — component: `<component>/vX.Y.Z`; bundle:
    `vX.Y.Z`. One tag names one component; unchanged components are
    never rebuilt.
