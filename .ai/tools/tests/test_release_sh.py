@@ -196,10 +196,15 @@ class ListModeTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def run_script(self, *args: str) -> subprocess.CompletedProcess:
+    def git(self, *args: str) -> str:
+        r = subprocess.run(["git", *args], cwd=self.repo, env=self.env,
+                           check=True, capture_output=True, text=True)
+        return r.stdout
+
+    def run_script(self, *args: str, env=None) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["bash", str(self.repo / "scripts" / "release.sh"), *args],
-            cwd=self.repo, env=self.env, capture_output=True, text=True,
+            cwd=self.repo, env=env or self.env, capture_output=True, text=True,
         )
 
     def test_list_emits_one_tsv_line_per_component(self):
@@ -236,6 +241,42 @@ class ListModeTests(unittest.TestCase):
         r = self.run_script("--list", "gateway")
         self.assertEqual(r.returncode, 2)
         self.assertIn("Usage:", r.stderr)
+
+    def test_list_ignores_prerelease_tags(self):
+        # The current-version glob also matches v1.0.0-rc.1 shapes; the
+        # strict filter keeps them from defining the displayed base.
+        self.git("tag", "gateway/v2.0.0")
+        self.git("tag", "gateway/v2.1.0-rc.1")
+        r = self.run_script("--list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        by_component = {line.split("\t")[0]: line.split("\t")[1:]
+                        for line in r.stdout.splitlines() if line.strip()}
+        self.assertEqual(by_component["gateway"][0], "v2.0.0")
+        self.assertEqual(by_component["gateway"][1], "v2.0.1")
+
+    def test_dry_run_does_not_fetch(self):
+        # A fetch writes remote tags into local refs — a dry run must
+        # stay free of ref updates (review thread on PR #167). --list
+        # keeps the best-effort refresh; the execution dry-run does not.
+        remote = self.tmp / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)],
+                       check=True, capture_output=True)
+        self.git("remote", "add", "origin", str(remote))
+        marker = self.tmp / "fetch-marker"
+        real_git = shutil.which("git")
+        shim = self.tmp / "shim-fetch-count"
+        shim.mkdir()
+        (shim / "git").write_text(
+            f'#!/bin/sh\nif [ "$1" = "fetch" ]; then touch "{marker}"; exit 0; fi\n'
+            f'exec "{real_git}" "$@"\n', encoding="utf-8")
+        os.chmod(shim / "git", 0o755)
+        env = dict(self.env, PATH=f"{shim}{os.pathsep}{os.environ['PATH']}")
+        r = self.run_script("gateway", "patch", "--dry-run", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(marker.exists(), "dry-run must not fetch")
+        r = self.run_script("--list", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(marker.exists(), "--list keeps the refresh")
 
 
 if __name__ == "__main__":

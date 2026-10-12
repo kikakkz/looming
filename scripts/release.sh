@@ -139,6 +139,10 @@ refresh_tags() {
     # pushed. An unreachable origin is a warning, not a stop — offline,
     # local tags still give an answer, and the remote tag guard fails
     # closed.
+    #
+    # Never called on the execution path's --dry-run: a fetch writes
+    # remote tags into local refs, which a dry run must not do (review
+    # thread on PR #167) — there the plan derives from local tags only.
     if git remote get-url origin >/dev/null 2>&1; then
         if ! GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git fetch --tags origin >/dev/null 2>&1; then
             warn "refreshing tags from origin failed — deriving versions from local tags only"
@@ -147,8 +151,13 @@ refresh_tags() {
 }
 
 current_version() { # $1 = component; echoes vX.Y.Z, empty when unreleased
+    # The same strict shape release_version.py parses: the glob also
+    # matches pre-release/malformed tags (v1.0.0-rc.1), which must not
+    # define the displayed base version.
     local latest
-    latest="$(git tag -l "$1/v*" | sort -V | tail -n 1)"
+    latest="$(git tag -l "$1/v*" \
+        | grep -E "^$1/v[0-9]+\.[0-9]+\.[0-9]+$" \
+        | sort -V | tail -n 1 || true)"
     [[ -n "$latest" ]] || return 0
     printf '%s\n' "${latest#"$1"/}"
 }
@@ -195,7 +204,11 @@ done
 [[ "$known" -eq 1 ]] || die \
     "'$COMPONENT' is not a release name in bundle/manifest.yaml: ${COMPONENTS[*]}"
 
-refresh_tags
+# A dry run must not write refs: skip the tag refresh (see refresh_tags)
+# and derive the plan from locally known tags.
+if [[ "$DRY_RUN" -eq 0 ]]; then
+    refresh_tags
+fi
 
 CURRENT="$(current_version "$COMPONENT")"
 VERSION="$(next_version "$COMPONENT" "$BUMP")"
