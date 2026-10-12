@@ -543,6 +543,21 @@ class ReleaseAssetTests(unittest.TestCase):
         self.assertIn("install.sh", problems[0])
         self.assertIn("repo path", problems[1])
 
+    def test_commented_out_release_create_fails(self):
+        # Round 4 (CodeRabbit #165): a COMMENTED-OUT gh release create
+        # carrying the full asset set in its text must not satisfy the
+        # asset checks — only an executable command line counts.
+        text = VALID.replace(
+            'gh release create "$VERSION" --notes-file release-notes.md '
+            'looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml '
+            'scripts/install.sh#install.sh',
+            '# gh release create "$VERSION" --notes-file release-notes.md '
+            'looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml '
+            'scripts/install.sh#install.sh')
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("gh release create", problems[0])
+
     def test_repo_path_asset_hiding_in_comment_fails(self):
         # Round 3 (CodeRabbit #165): the asset checks parse the gh
         # release create COMMAND LINE — the correct repo-path form

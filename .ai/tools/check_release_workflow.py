@@ -276,23 +276,46 @@ def _cross_compile_problems(text: str) -> list[str]:
     return bad
 
 
+def _strip_shell_comment(line: str) -> str:
+    """Drop a trailing shell comment — a '#' preceded by whitespace and
+    sitting outside quotes (full-comment lines therefore strip to
+    blank). Deterministic by design for the workflow-run-block domain
+    this checker pins: no heredocs, no quote-escape games."""
+    in_squote = in_dquote = False
+    for i, ch in enumerate(line):
+        if ch == "'" and not in_dquote:
+            in_squote = not in_squote
+        elif ch == '"' and not in_squote:
+            in_dquote = not in_dquote
+        elif ch == "#" and not in_squote and not in_dquote:
+            if i == 0 or line[i - 1] in " \t":
+                return line[:i]
+    return line
+
+
 def _release_command_assets(script: str) -> list[str] | None:
     """The whitespace-separated tokens of the ``gh release create``
-    command — the only place an asset name is real. Continuation lines
+    command — the only place an asset name is real. Comment lines and
+    trailing comments are stripped first (a commented-out release
+    command must not satisfy the check), and continuation lines
     (backslash) join into one logical command. None when the step never
     invokes it.
 
     Asset checks must parse THIS line, not the step body: a comment or
     a neighboring command carrying the right-looking text would
     otherwise satisfy the check while the actual upload used a bare
-    name (CodeRabbit #165 round 3)."""
+    name (CodeRabbit #165 rounds 3–4)."""
     lines = script.splitlines()
     for i, line in enumerate(lines):
+        line = _strip_shell_comment(line)
+        if not line.strip():
+            continue
         if "gh release create" not in line:
             continue
         cmd = line
         while cmd.rstrip().endswith("\\") and i + 1 < len(lines):
-            cmd = cmd.rstrip()[:-1] + " " + lines[i + 1].strip()
+            nxt = _strip_shell_comment(lines[i + 1])
+            cmd = cmd.rstrip()[:-1] + " " + nxt.strip()
             i += 1
         return cmd.split()
     return None
