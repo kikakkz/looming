@@ -23,7 +23,8 @@
 # existing topology.yaml is never clobbered: a newer --version rewrites
 # ONLY the bundle: block and refreshes the manifest file (operator
 # edits — ports, engine config, placements — survive); a matching
-# version is a converge-only re-run.
+# version is a converge-only re-run. --config-only stops after the
+# config stage, before the CLI download and converge.
 #
 # Usage:
 #   install.sh --email admin@example.com \
@@ -31,7 +32,7 @@
 #       [--engine-key KEY] [--models gpt-5,qwen3] \
 #       [--version v0.1.0] [--release-url URL] \
 #       [--prefix /etc/looming] [--ports 18080,18081,18082,15432] \
-#       [--name "my cluster"] [--private]
+#       [--name "my cluster"] [--private] [--config-only]
 #
 # One command (the operator's entry point):
 #   curl -fsSL https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh \
@@ -61,6 +62,7 @@ PREFIX="/etc/looming"
 PORTS="18080,18081,18082,15432"
 CLUSTER_NAME="looming cluster"
 PRIVATE=0
+CONFIG_ONLY=0
 VERSION=""
 RELEASE_URL="${LOOMING_RELEASE_URL:-}"
 
@@ -78,7 +80,7 @@ Usage:
       [--engine-key KEY] [--models gpt-5,qwen3] \
       [--version v0.1.0] [--release-url URL] \
       [--prefix /etc/looming] [--ports 18080,18081,18082,15432] \
-      [--name "my cluster"] [--private]
+      [--name "my cluster"] [--private] [--config-only]
 
 The installer consumes published release artifacts only (the host's
 `looming` CLI binary + the release's bundle-manifest.yaml) and converges
@@ -114,6 +116,7 @@ while [[ $# -gt 0 ]]; do
         --ports) PORTS="${2:?--ports needs a value}"; shift 2 ;;
         --name) CLUSTER_NAME="${2:?--name needs a value}"; shift 2 ;;
         --private) PRIVATE=1; shift ;;
+        --config-only) CONFIG_ONLY=1; shift ;;
         -h | --help) usage; exit 0 ;;
         *) die "unknown argument: $1 (see --help)" ;;
     esac
@@ -131,17 +134,27 @@ if [[ -n "$VERSION" && ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 if [[ -n "$RELEASE_URL" ]]; then
     case "$RELEASE_URL" in
-        http://* | https://* | file://*) ;;
-        *) die "--release-url must start with http://, https://, or file://: $RELEASE_URL" ;;
+        https://* | file://*) ;;
+        http://*)
+            die "--release-url over plain http:// is refused: a network attacker could swap the downloaded CLI binary — use https://, or file:// for a local mirror: $RELEASE_URL"
+            ;;
+        *)
+            die "--release-url must start with https:// or file://: $RELEASE_URL"
+            ;;
     esac
     RELEASE_URL="${RELEASE_URL%/}"
 fi
 
 IFS=',' read -r PORT_GATEWAY PORT_IDENTITY PORT_TOPOLOGY PORT_POSTGRES <<<"$PORTS"
+seen=" "
 for p in "$PORT_GATEWAY" "$PORT_IDENTITY" "$PORT_TOPOLOGY" "$PORT_POSTGRES"; do
     if ! [[ "$p" =~ ^[0-9]+$ ]] || ! ((p >= 1 && p <= 65535)); then
         die "--ports must be four comma-separated TCP ports, got: $PORTS"
     fi
+    if [[ "$seen" == *" $p "* ]]; then
+        die "--ports must be four distinct ports, got a duplicate: $p (in: $PORTS)"
+    fi
+    seen="$seen$p "
 done
 
 # Containers reach a host-published engine through the host-gateway
@@ -166,6 +179,17 @@ fi
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
 fetch() { # $1 = URL, $2 = destination, $3 = transfer bound (seconds)
     curl -fsSL --retry 3 --max-time "$3" -o "$2" "$1"
+}
+
+# yaml_sq single-quote-encodes one scalar for the flow-style YAML the
+# generated topology uses. Doubling every embedded ' is the whole
+# escape, so any operator input — colons, quotes, spaces, empties —
+# lands as a valid YAML scalar (CodeRabbit #165: a --name like
+# "Production: east" used to write an unparseable flow scalar, and
+# re-runs then preserved the broken file). Values bound for env files
+# never pass through here: env files are not YAML.
+yaml_sq() {
+    printf "'%s'" "${1//\'/\'\'}"
 }
 
 # --- preflight ------------------------------------------------------------
@@ -243,11 +267,10 @@ fi
 
 # --- release artifacts -----------------------------------------------------
 
-log "downloading $CLI_ASSET + bundle-manifest.yaml from $ASSET_BASE"
-fetch "$ASSET_BASE/$CLI_ASSET" "$PREFIX/bin/looming.tmp" 600
-mv "$PREFIX/bin/looming.tmp" "$PREFIX/bin/looming"
-chmod 755 "$PREFIX/bin/looming"
-
+# The manifest lands before the config stage: the topology's bundle:
+# block references this file, so even --config-only leaves the two
+# consistent (a later full run re-downloads it idempotently).
+log "downloading bundle-manifest.yaml from $ASSET_BASE"
 fetch "$ASSET_BASE/bundle-manifest.yaml" "$MANIFEST.tmp" 120
 grep -q '^components:' "$MANIFEST.tmp" || die "downloaded bundle-manifest.yaml carries no components: pins missing at $ASSET_BASE"
 mv "$MANIFEST.tmp" "$MANIFEST"
@@ -288,12 +311,12 @@ EOF
 
     CATALOG_LINE=""
     if [[ -n "$MODELS" ]]; then
-        CATALOG_LINE="        catalog: \"$MODELS\""
+        CATALOG_LINE="        catalog: $(yaml_sq "$MODELS")"
     fi
 
     ENGINE_AUTH_LINE=""
     if [[ -n "$ENGINE_KEY" ]]; then
-        ENGINE_AUTH_LINE="        upstream_auth: \"$ENGINE_KEY\""
+        ENGINE_AUTH_LINE="        upstream_auth: $(yaml_sq "$ENGINE_KEY")"
     fi
 
     # Single-host loopback topology — the shape the bundle e2e proves:
@@ -302,20 +325,22 @@ EOF
     # paired service tokens) is what the config validator requires.
     # Image refs are deliberately absent: apply resolves the pinned
     # images from the bundle: block's manifest (release-l1 §3.5) — the
-    # topology never names images.
+    # topology never names images. Every interpolated operator value
+    # passes through yaml_sq: single-quoted scalars survive any
+    # character the operator throws at them.
     cat >"$TOPOLOGY" <<EOF
 version: 1
 access: {mode: $ACCESS_MODE, transport: direct, endpoint: "127.0.0.1"}
-cluster: {name: $CLUSTER_NAME}
-bootstrap: {admin_email: $EMAIL}
+cluster: {name: $(yaml_sq "$CLUSTER_NAME")}
+bootstrap: {admin_email: $(yaml_sq "$EMAIL")}
 bundle:
   version: $VERSION
-  manifest: $MANIFEST
+  manifest: $(yaml_sq "$MANIFEST")
 state:
   postgres:
-    image: $POSTGRES_IMAGE
-    env_file: $PREFIX/postgres.env
-    data_dir: $PREFIX/pgdata
+    image: $(yaml_sq "$POSTGRES_IMAGE")
+    env_file: $(yaml_sq "$PREFIX/postgres.env")
+    data_dir: $(yaml_sq "$PREFIX/pgdata")
     port: $PORT_POSTGRES
 hosts:
   - {id: local, address: 127.0.0.1}
@@ -324,26 +349,26 @@ placements:
     host: local
     ports: {http: $PORT_GATEWAY}
     config:
-        upstream: "$ENGINE_URL"
+        upstream: $(yaml_sq "$ENGINE_URL")
 $ENGINE_AUTH_LINE
 $UPSTREAM_INSECURE
-        identity_url: "http://identityd:$PORT_IDENTITY"
+        identity_url: $(yaml_sq "http://identityd:$PORT_IDENTITY")
         identity_insecure: "1"
 $CATALOG_LINE
-    env_file: $PREFIX/gateway.env
+    env_file: $(yaml_sq "$PREFIX/gateway.env")
     extra_hosts: ["host.docker.internal:host-gateway"]
   - component: identityd
     host: local
     ports: {http: $PORT_IDENTITY}
     config:
-        database_url: "postgres://looming:$PG_PASSWORD@bundle-postgres:5432/identity?sslmode=disable"
-    env_file: $PREFIX/identityd.env
+        database_url: $(yaml_sq "postgres://looming:$PG_PASSWORD@bundle-postgres:5432/identity?sslmode=disable")
+    env_file: $(yaml_sq "$PREFIX/identityd.env")
   - component: topologyd
     host: local
     ports: {http: $PORT_TOPOLOGY}
     config:
-        database_url: "postgres://looming:$PG_PASSWORD@bundle-postgres:5432/topology?sslmode=disable"
-    env_file: $PREFIX/topologyd.env
+        database_url: $(yaml_sq "postgres://looming:$PG_PASSWORD@bundle-postgres:5432/topology?sslmode=disable")
+    env_file: $(yaml_sq "$PREFIX/topologyd.env")
 EOF
     chmod 600 "$PREFIX/postgres.env" "$PREFIX/identityd.env" "$PREFIX/gateway.env" "$PREFIX/topologyd.env"
     log "wrote $TOPOLOGY and the secret env files (0600)"
@@ -364,7 +389,12 @@ else
         else
             log "claiming this topology for $VERSION: adding the installer-owned bundle: block"
         fi
-        awk -v ver="$VERSION" -v man="$MANIFEST" '
+        # The manifest path is pre-encoded (yaml_sq) so the rewritten
+        # block matches the fresh-install shape byte-for-byte — a path
+        # with spaces or quotes must not parse differently depending
+        # on which install path wrote it.
+        man="$(yaml_sq "$MANIFEST")"
+        awk -v ver="$VERSION" -v man="$man" '
             BEGIN { inblk=0; wrote=0 }
             /^bundle:/ {
                 print "bundle:"
@@ -389,6 +419,17 @@ else
 fi
 
 # --- converge --------------------------------------------------------------
+
+if [[ "$CONFIG_ONLY" -eq 1 ]]; then
+    log "config only — converging downloads the CLI and runs apply; re-run without --config-only, or converge manually once a CLI is on the PATH:"
+    printf '    looming apply --config %s\n' "$TOPOLOGY"
+    exit 0
+fi
+
+log "downloading $CLI_ASSET from $ASSET_BASE"
+fetch "$ASSET_BASE/$CLI_ASSET" "$PREFIX/bin/looming.tmp" 600
+mv "$PREFIX/bin/looming.tmp" "$PREFIX/bin/looming"
+chmod 755 "$PREFIX/bin/looming"
 
 log "converging the bundle with the downloaded CLI (apply pulls the pinned images)"
 CLI="$PREFIX/bin/looming"

@@ -157,7 +157,7 @@ func TestInstallScript(t *testing.T) {
 	raw, err := os.ReadFile(topologyPath)
 	require.NoError(t, err)
 	topology := string(raw)
-	assert.Contains(t, topology, "bundle:\n  version: "+installVersion+"\n  manifest: "+filepath.Join(prefix, "bundle-manifest.yaml"),
+	assert.Contains(t, topology, "bundle:\n  version: "+installVersion+"\n  manifest: '"+filepath.Join(prefix, "bundle-manifest.yaml")+"'",
 		"the installer-owned bundle block pins the release and names the downloaded manifest")
 	assert.NotContains(t, topology, "ghcr.io", "the topology never carries image refs — apply resolves pins from the manifest")
 	assert.NotContains(t, topology, "build:", "a pinned topology has no build path at all")
@@ -285,8 +285,8 @@ func TestInstallScript(t *testing.T) {
 	// edits, secrets, and state survive (release-l1 §3.8) -------------
 
 	edited := bytes.Replace(topologyBefore,
-		[]byte("cluster: {name: looming cluster}"),
-		[]byte("cluster: {name: operator edited cluster}"), 1)
+		[]byte("cluster: {name: 'looming cluster'}"),
+		[]byte("cluster: {name: 'operator edited cluster'}"), 1)
 	require.NotEqual(t, topologyBefore, edited, "the operator edit applies")
 	require.NoError(t, os.WriteFile(topologyPath, edited, 0o600))
 
@@ -300,11 +300,11 @@ func TestInstallScript(t *testing.T) {
 	raw, err = os.ReadFile(topologyPath)
 	require.NoError(t, err)
 	upgraded := string(raw)
-	assert.Contains(t, upgraded, "cluster: {name: operator edited cluster}",
+	assert.Contains(t, upgraded, "cluster: {name: 'operator edited cluster'}",
 		"operator edits survive the upgrade (only the bundle: block is installer-owned)")
 	assert.Contains(t, upgraded, "  version: "+upgradeVersion,
 		"the bundle block moved to the requested release")
-	assert.Contains(t, upgraded, "  manifest: "+filepath.Join(prefix, "bundle-manifest.yaml"),
+	assert.Contains(t, upgraded, "  manifest: '"+filepath.Join(prefix, "bundle-manifest.yaml")+"'",
 		"the bundle block still names the prefix manifest")
 
 	manifest, err := os.ReadFile(filepath.Join(prefix, "bundle-manifest.yaml"))

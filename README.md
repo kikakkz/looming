@@ -60,8 +60,12 @@ then converges the bundle with `looming apply`, which pulls the pinned
 component images. There is no source-build install path — developing
 from source is its own workflow (a checkout + the repo's dev tooling).
 
-- `--version vX.Y.Z` pins a release; the default resolves the latest
-  one.
+- `--version vX.Y.Z` selects the released bundle the installer
+  converges; the default resolves the latest release. The one-liner
+  above downloads `install.sh` from `main`, so the installer itself
+  tracks main — to pin the installer to a release as well, take the
+  script from that release's assets:
+  `curl -fsSL https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh | bash -s -- ...`
 - Re-running is safe. The installer owns only the topology file's
   `bundle:` block: a newer version rewrites just that block and the
   manifest file (your edits — ports, engine config, placements —
@@ -69,8 +73,7 @@ from source is its own workflow (a checkout + the repo's dev tooling).
 - Teardown: `docker compose -p looming down` (the Postgres data dir is
   `/etc/looming/pgdata`).
 
-Full flags: `scripts/install.sh --help` (also shipped as a release
-asset, so `--version` can pin the installer itself).
+Full flags: `scripts/install.sh --help`.
 
 ---
 
