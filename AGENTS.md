@@ -75,7 +75,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
 - `make test-e2e` — bundle e2e layer (AD-25 `e2e` tag): the onboarding
   scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI job; loud skip without docker; first run builds all images.
-- `scripts/release.sh` — interactive per-component release driver (#166): menu over bundle/manifest.yaml's release names → patch/minor → push `<component>/vX.Y.Z` (the version derives from the component's existing tags via `.ai/tools/release_version.py`) — release.yml's component job publishes that component only; `scripts/release.sh <component> <patch|minor> [--dry-run]` for automation.
+- `scripts/release.sh` — interactive per-component release driver (#166): menu over bundle/manifest.yaml's release names → patch/minor/major → push `<component>/vX.Y.Z` (the version derives from the component's existing tags via `.ai/tools/release_version.py`) — release.yml's component job publishes that component only; `scripts/release.sh <component> <patch|minor|major> [--dry-run]` for automation.
 ## Go engineering standards
 
 Applies to all Go components. Rationale and evidence live in the decision

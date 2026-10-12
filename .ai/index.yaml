@@ -90,6 +90,9 @@
 # the scripts/release.sh pointer (net-zero against the folded make
 # test-e2e entry) and the scripts/ entry names it; all read_order anchors
 # resolve.
+# 2026-10-12 release driver major bump (#166 review): the scripts/
+# pointer's bump list reads patch|minor|major; same-line edit, net-zero
+# preserved; all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

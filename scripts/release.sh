@@ -12,8 +12,8 @@
 # pushes the tag; the bundle release (bare vX.Y.Z) stays manual.
 #
 # Flow: discover the release names from bundle/manifest.yaml → pick a
-# component (menu, or positional arg) → pick patch or minor — the
-# version is derived from the component's existing tags by
+# component (menu, or positional arg) → pick patch, minor, or major —
+# the version is derived from the component's existing tags by
 # .ai/tools/release_version.py, never hand-typed → guard against
 # existing tags → tag → push (retried) → print the workflow watch
 # command and the follow-up steps (pin-bump PR, post-publish
@@ -21,7 +21,7 @@
 #
 # Usage:
 #   scripts/release.sh                       interactive menu (needs a TTY)
-#   scripts/release.sh <component> <bump>    non-interactive (bump: patch|minor)
+#   scripts/release.sh <component> <bump>    non-interactive (bump: patch|minor|major)
 #   scripts/release.sh gateway patch --dry-run
 
 set -euo pipefail
@@ -45,13 +45,14 @@ release.sh — interactive per-component release driver (#166).
 
 Usage:
   scripts/release.sh                       interactive menu (needs a TTY)
-  scripts/release.sh <component> <bump>    non-interactive (bump: patch|minor)
+  scripts/release.sh <component> <bump>    non-interactive (bump: patch|minor|major)
   scripts/release.sh gateway patch --dry-run
 
 Components come from bundle/manifest.yaml (the release names); the
 version is derived from the component's existing <component>/v* tags by
 .ai/tools/release_version.py — patch bumps the third field, minor the
-second (patch zeroed); a component with no tags starts at v0.1.0.
+second (patch zeroed), major the first (minor and patch zeroed); a
+component with no tags starts at v0.1.0.
 Pushing <component>/vX.Y.Z triggers release.yml's component job, which
 builds and publishes that component's image only; this script only cuts
 and pushes the tag. Positional args are the confirmation (no prompt);
@@ -85,9 +86,14 @@ if [[ (-z "$COMPONENT" && -n "$BUMP") || (-n "$COMPONENT" && -z "$BUMP") ]]; the
     usage >&2
     exit 2
 fi
-if [[ -n "$BUMP" && "$BUMP" != "patch" && "$BUMP" != "minor" ]]; then
-    usage >&2
-    exit 2
+if [[ -n "$BUMP" ]]; then
+    case "$BUMP" in
+        patch | minor | major) ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
 fi
 
 cd "$REPO_ROOT"
@@ -178,23 +184,26 @@ choose_component() {
 }
 
 choose_bump() {
-    local patch minor current
+    local patch minor major current
     patch="$(next_version "$COMPONENT" patch)"
     minor="$(next_version "$COMPONENT" minor)"
+    major="$(next_version "$COMPONENT" major)"
     current="$(current_version "$COMPONENT")"
     [[ -n "$current" ]] || current="none (unreleased)"
     cat <<EOF
 selected: $COMPONENT (current: $current)
   1) patch -> $COMPONENT/$patch
   2) minor -> $COMPONENT/$minor
+  3) major -> $COMPONENT/$major
 EOF
     local reply
     while true; do
-        read -r -p "select a bump [1-2, patch, or minor]: " reply \
+        read -r -p "select a bump [1-3, patch, minor, or major]: " reply \
             || die "no input — aborted, nothing was tagged or pushed"
         case "$reply" in
             1 | patch) BUMP="patch"; return 0 ;;
             2 | minor) BUMP="minor"; return 0 ;;
+            3 | major) BUMP="major"; return 0 ;;
             *) warn "unrecognized selection: '$reply'" ;;
         esac
     done

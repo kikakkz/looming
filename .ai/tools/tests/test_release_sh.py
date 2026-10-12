@@ -90,6 +90,11 @@ class ReleaseShTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("gateway/v0.2.0", r.stdout)
 
+    def test_dry_run_major_zeroes_minor_and_patch(self):
+        r = self.run_script("gateway", "major", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gateway/v1.0.0", r.stdout)
+
     def test_dry_run_never_released_component_starts_at_v0_1_0(self):
         r = self.run_script("topology", "patch", "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -108,7 +113,7 @@ class ReleaseShTests(unittest.TestCase):
         self.assertIn("nosuch", r.stderr)
 
     def test_unknown_bump_rejected(self):
-        r = self.run_script("gateway", "major", "--dry-run")
+        r = self.run_script("gateway", "micro", "--dry-run")
         self.assertNotEqual(r.returncode, 0)
 
     def test_help_exits_zero(self):
@@ -163,7 +168,7 @@ class InteractiveMenuTests(unittest.TestCase):
         r = subprocess.run(
             [script_bin, "-qec",
              f"bash {self.repo}/scripts/release.sh", "/dev/null"],
-            cwd=self.repo, env=self.env, input="1\n1\nn\n",
+            cwd=self.repo, env=self.env, input="1\n3\nn\n",
             capture_output=True, text=True,
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -172,11 +177,12 @@ class InteractiveMenuTests(unittest.TestCase):
         self.assertIn("topology", r.stdout)
         self.assertIn("gateway/v0.1.2", r.stdout)  # patch candidate
         self.assertIn("gateway/v0.2.0", r.stdout)  # minor candidate
+        self.assertIn("gateway/v1.0.0", r.stdout)  # major candidate
         self.assertIn("aborted", r.stdout)
         tags = subprocess.run(["git", "tag", "-l"], cwd=self.repo,
                               env=self.env, capture_output=True, text=True,
                               check=True).stdout.splitlines()
-        self.assertNotIn("gateway/v0.1.2", tags)
+        self.assertNotIn("gateway/v1.0.0", tags)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ SCRIPT = Path(__file__).resolve().parent.parent / "release_version.py"
 
 class NextVersionTests(unittest.TestCase):
     def test_no_tags_initial_version(self):
-        for bump in ("patch", "minor"):
+        for bump in ("patch", "minor", "major"):
             with self.subTest(bump=bump):
                 self.assertEqual(release_version.next_version([], bump), "v0.1.0")
 
@@ -45,6 +45,25 @@ class NextVersionTests(unittest.TestCase):
     def test_cross_digit_minor(self):
         self.assertEqual(
             release_version.next_version(["gateway/v0.9.9"], "minor"), "v0.10.0")
+
+    def test_major_bump_zeroes_minor_and_patch(self):
+        self.assertEqual(
+            release_version.next_version(["gateway/v0.9.9"], "major"), "v1.0.0")
+        self.assertEqual(
+            release_version.next_version(["gateway/v1.2.3"], "major"), "v2.0.0")
+
+    def test_major_from_max_semver(self):
+        tags = ["gateway/v0.1.9", "gateway/v0.1.10", "gateway/v0.1.2"]
+        self.assertEqual(release_version.next_version(tags, "major"), "v1.0.0")
+
+    def test_bumps_continue_after_a_major(self):
+        # A major release is an ordinary tag: patch and minor derive
+        # from it exactly like from any other version.
+        tags = ["gateway/v2.0.0"]
+        self.assertEqual(release_version.next_version(tags, "patch"), "v2.0.1")
+        self.assertEqual(release_version.next_version(tags, "minor"), "v2.1.0")
+        self.assertEqual(
+            release_version.next_version(tags, "major"), "v3.0.0")
 
     def test_multi_digit_major_compare(self):
         tags = ["gateway/v9.0.0", "gateway/v10.0.0"]
@@ -77,7 +96,7 @@ class NextVersionTests(unittest.TestCase):
 
     def test_unknown_bump_raises(self):
         with self.assertRaises(ValueError):
-            release_version.next_version(["gateway/v0.1.0"], "major")
+            release_version.next_version(["gateway/v0.1.0"], "micro")
 
     def test_generator_input_accepted(self):
         self.assertEqual(
@@ -132,6 +151,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "v0.10.0")
 
+    def test_major_from_tag(self):
+        self.commit()
+        self.git("tag", "gateway/v1.2.3")
+        r = self.run_cli("--component", "gateway", "--bump", "major")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "v2.0.0")
+
     def test_no_tags_initial_version(self):
         self.commit()
         r = self.run_cli("--component", "topology", "--bump", "patch")
@@ -154,7 +180,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "v0.1.0")
 
     def test_invalid_bump_rejected(self):
-        r = self.run_cli("--component", "gateway", "--bump", "major")
+        r = self.run_cli("--component", "gateway", "--bump", "micro")
         self.assertEqual(r.returncode, 2)
 
     def test_outside_git_repo_fails(self):

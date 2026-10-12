@@ -17,7 +17,7 @@ Rules:
   - current version = the semver maximum (numeric field ordering —
     v0.1.10 sorts above v0.1.9), never string ordering.
   - patch bumps the third field; minor bumps the second and zeroes the
-    third.
+    third; major bumps the first and zeroes the second and third.
 
 Errors: an unknown bump, or a non-empty tag list holding zero valid
 versions, raises ValueError — the latter is a caller/pattern fault and
@@ -42,14 +42,15 @@ TAG_RE = re.compile(
     r"^[A-Za-z0-9_-]+/v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$"
 )
 
-BUMPS = ("patch", "minor")
+BUMPS = ("patch", "minor", "major")
 
 
 def next_version(tags, bump):
     """Return the next release version ("vX.Y.Z") for the component.
 
     tags: iterable of the component's existing tag strings.
-    bump: "patch" (Z+1) or "minor" (Y+1, Z reset to 0).
+    bump: "patch" (Z+1), "minor" (Y+1, Z reset to 0), or "major" (X+1,
+    Y/Z reset to 0).
 
     Empty tags -> "v0.1.0". Invalid tags are ignored. Raises ValueError
     on an unknown bump or when tags is non-empty but holds no valid
@@ -80,8 +81,10 @@ def next_version(tags, bump):
     current = max(versions)
     if bump == "patch":
         nxt = (current[0], current[1], current[2] + 1)
-    else:
+    elif bump == "minor":
         nxt = (current[0], current[1] + 1, 0)
+    else:
+        nxt = (current[0] + 1, 0, 0)
     return f"v{nxt[0]}.{nxt[1]}.{nxt[2]}"
 
 
