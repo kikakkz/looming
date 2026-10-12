@@ -86,6 +86,10 @@
 # decisions entry), the tests/e2e/ line names install_test.go, Makefile's
 # lint-sh covers scripts/*.sh and lint-semgrep scans scripts/; all
 # read_order anchors resolve.
+# 2026-10-12 release driver (#166) re-validated: AGENTS.md Commands gains
+# the scripts/release.sh pointer (net-zero against the folded make
+# test-e2e entry) and the scripts/ entry names it; all read_order anchors
+# resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

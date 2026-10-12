@@ -74,8 +74,8 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make test-coverage` — per-component coverage profile plus the
   go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
 - `make test-e2e` — bundle e2e layer (AD-25 `e2e` tag): the onboarding
-  scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI
-  job; loud skip without docker; first run builds all images.
+  scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI job; loud skip without docker; first run builds all images.
+- `scripts/release.sh` — interactive per-component release driver (#166): menu over bundle/manifest.yaml's release names → patch/minor → push `<component>/vX.Y.Z` (the version derives from the component's existing tags via `.ai/tools/release_version.py`) — release.yml's component job publishes that component only; `scripts/release.sh <component> <patch|minor> [--dry-run]` for automation.
 ## Go engineering standards
 
 Applies to all Go components. Rationale and evidence live in the decision
@@ -134,7 +134,7 @@ cites its `kind/flake` issue number; test-only helpers live under
 - `docs/` — long-form knowledge. Index: [docs/README.md](docs/README.md).
 - `.ai/` — agent assets: skills, external skill pins, MCP server pins, repo tools, memory bank. Rules: [.ai/AGENTS.md](.ai/AGENTS.md). Bootstrap map: [.ai/index.yaml](.ai/index.yaml) — read it first, never crawl.
 - `.github/` — templates, CODEOWNERS, workflows, contributing policy.
-- `scripts/` — the artifact-only bundle installer (`install.sh`, #151, release-l1 §3.7): consumes published release artifacts only (the CLI binary + bundle manifest), materializes the operator config under the install prefix (all 0600), and converges via the downloaded CLI; the e2e layer drives the real script against a fixture release. Shellcheck-gated with `.ai/tools` (`make lint-sh`); the bundle release ships it as an asset.
+- `scripts/` — the artifact-only bundle installer (`install.sh`, #151, release-l1 §3.7): consumes published release artifacts only (the CLI binary + bundle manifest), materializes the operator config under the install prefix (all 0600), and converges via the downloaded CLI; the e2e layer drives the real script against a fixture release. `release.sh` (#166) is the interactive per-component release driver — menu → component → patch/minor → component tag push, with `--dry-run` for automation. Shellcheck-gated with `.ai/tools` (`make lint-sh`); the bundle release ships install.sh as an asset.
 - `.ai/memory/decisions.md` — pointer; the decisions live one per file in `.ai/memory/decisions/` (generated index: `decisions/README.md`). Read them before proposing anything architectural.
 
 ## Collaboration protocol
