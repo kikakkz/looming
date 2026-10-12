@@ -467,3 +467,61 @@ func TestBundleRootMixesBuildContextIntoHash(t *testing.T) {
 		t.Fatalf("a root .dockerignore change must change the convergence hash")
 	}
 }
+
+// TestImageRefRegistryOverride pins the e2e seam the artifact-only
+// installer depends on (release-l1 §5 R4): LOOMING_IMAGE_REGISTRY
+// redirects pinned refs at a fixture registry so the suite can run the
+// real install.sh without touching ghcr. Production resolution stays
+// the ghcr constant (registry mirrors remain a non-goal, release-l1 §4).
+func TestImageRefRegistryOverride(t *testing.T) {
+	t.Setenv("LOOMING_IMAGE_REGISTRY", "localhost:15500/looming")
+	assert.Equal(t, "localhost:15500/looming/gateway:v0.1.0",
+		render.ImageRef("gateway", "v0.1.0"))
+	assert.Equal(t, "localhost:15500/looming/gateway:v0.1.0",
+		render.ImageRef("gateway", "v0.1.0"),
+		"a trailing slash on the override must not double the separator")
+
+	t.Setenv("LOOMING_IMAGE_REGISTRY", "localhost:15500/looming/")
+	assert.Equal(t, "localhost:15500/looming/gateway:v0.1.0",
+		render.ImageRef("gateway", "v0.1.0"))
+
+	t.Setenv("LOOMING_IMAGE_REGISTRY", "")
+	assert.Equal(t, "ghcr.io/kikakkz/looming/gateway:v0.1.0",
+		render.ImageRef("gateway", "v0.1.0"),
+		"unset override resolves the production registry constant")
+}
+
+// TestBundleRootSkippedWhenAllPlacementsPinned is the renderer half of
+// the artifact-only install contract (release-l1 §3.7, R4): a fully
+// pinned render carries no build: block, so build-context digesting has
+// no meaning — and an installed host has no source tree to digest. The
+// BundleRoot must be ignored (not just optional) when every placement
+// carries a pin; unpinned renders keep digesting unchanged.
+func TestBundleRootSkippedWhenAllPlacementsPinned(t *testing.T) {
+	in := render.Input{
+		StateHostID: "h1",
+		State:       &render.StatePostgres{Image: "postgres:16-alpine", EnvFile: "/e.env", DataDir: "/d", Port: 5432},
+		Hosts:       []render.Host{{ID: "h1", Address: "10.0.0.1"}},
+		Placements: []domain.ComponentPlacement{
+			{Component: domain.ComponentGatewayFront, HostID: "h1", Ports: map[string]int{"http": 8080}, Config: map[string]string{"upstream": "http://10.0.0.2:4000"}},
+		},
+	}
+	// An install prefix: a real directory with NO component build
+	// contexts anywhere under it.
+	prefix := t.TempDir()
+
+	pinned := render.Input{StateHostID: in.StateHostID, State: in.State, Hosts: in.Hosts, Placements: in.Placements, BundleRoot: prefix}
+	pinned.Images = map[string]string{domain.ComponentGatewayFront: "registry.example/looming/gateway:v0.1.0"}
+	arts, err := render.Render(pinned)
+	require.NoError(t, err, "a fully pinned render must not touch the bundle root")
+	assert.NotContains(t, arts[0].Compose, "build:",
+		"a pinned render carries no build context to digest")
+	assert.Equal(t, render.Hash(arts[0].Compose), arts[0].Hash,
+		"with nothing to digest the convergence hash is the plain content hash")
+
+	// The unpinned control: digesting is still active, and a bundle
+	// root without the component directories still fails closed.
+	unpinned := render.Input{StateHostID: in.StateHostID, State: in.State, Hosts: in.Hosts, Placements: in.Placements, BundleRoot: prefix}
+	_, err = render.Render(unpinned)
+	require.Error(t, err, "an unpinned render still digests build contexts and fails on a root without them")
+}

@@ -137,8 +137,7 @@ __PRECHECK__      - name: Build and push multi-arch image
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # R4 (#151): install.sh joins this asset set.
-          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml
+          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml scripts/install.sh#install.sh
 """.replace("__PRECHECK__", PRECHECK)
 
 
@@ -531,22 +530,59 @@ class ReleaseAssetTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("bundle-manifest.yaml", problems[0])
 
-    def test_install_sh_outside_a_comment_fails(self):
-        # R4 (#151) ships the installer; until it lands, install.sh may
-        # appear only in the placeholder comment
+    def test_install_sh_missing_from_assets_fails(self):
+        # R4 (#151) shipped the installer: install.sh must ride every
+        # bundle release's asset set, alongside the CLI + manifest.
         text = VALID.replace(
-            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml",
-            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh")
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml scripts/install.sh#install.sh",
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml")
         problems = crw.problems(text)
-        self.assertEqual(len(problems), 1)
+        # Both halves of the contract fire: the asset-set membership
+        # check and the repo-path form check.
+        self.assertEqual(len(problems), 2)
         self.assertIn("install.sh", problems[0])
+        self.assertIn("repo path", problems[1])
 
-    def test_missing_r4_placeholder_fails(self):
-        text = VALID.replace("# R4 (#151): install.sh joins this asset set.\n",
-                             "")
+    def test_commented_out_release_create_fails(self):
+        # Round 4 (CodeRabbit #165): a COMMENTED-OUT gh release create
+        # carrying the full asset set in its text must not satisfy the
+        # asset checks — only an executable command line counts.
+        text = VALID.replace(
+            'gh release create "$VERSION" --notes-file release-notes.md '
+            'looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml '
+            'scripts/install.sh#install.sh',
+            '# gh release create "$VERSION" --notes-file release-notes.md '
+            'looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml '
+            'scripts/install.sh#install.sh')
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
-        self.assertIn("R4 (#151)", problems[0])
+        self.assertIn("gh release create", problems[0])
+
+    def test_repo_path_asset_hiding_in_comment_fails(self):
+        # Round 3 (CodeRabbit #165): the asset checks parse the gh
+        # release create COMMAND LINE — the correct repo-path form
+        # hiding in a comment must not satisfy them while the actual
+        # command uploads a bare install.sh.
+        text = VALID.replace(
+            "bundle-manifest.yaml scripts/install.sh#install.sh",
+            "bundle-manifest.yaml install.sh")
+        text = text.replace(
+            'gh release create "$VERSION"',
+            '# upload via scripts/install.sh#install.sh (gh rename form)\n'
+            '          gh release create "$VERSION"')
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("repo path", problems[0])
+
+    def test_install_sh_bare_asset_name_fails(self):
+        # install.sh lives at scripts/install.sh in the checkout: a
+        # bare asset name names a file that does not exist at the
+        # workspace root and gh's upload would fail — the repo-path#
+        # asset-name form is required.
+        text = VALID.replace("scripts/install.sh#install.sh", "install.sh")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("repo path", problems[0])
 
     def test_missing_notes_generation_fails(self):
         text = VALID.replace('git log --pretty=%s "$prev..HEAD"', "echo notes")
@@ -584,7 +620,7 @@ class OtherContractTests(unittest.TestCase):
     def test_empty_workflow_reports_every_piece(self):
         # three component tag patterns + the bundle pattern, each
         # reported on its own line, plus the R3 contract pieces
-        self.assertEqual(len(crw.problems("")), 23)
+        self.assertEqual(len(crw.problems("")), 22)
 
 
 class CliTests(unittest.TestCase):

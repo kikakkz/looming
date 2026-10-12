@@ -128,7 +128,11 @@ Three surfaces, three semantics — kept strictly separate:
    `image: <pinned ref>` and NO `build:` block; apply pulls and
    converges — it never builds a pinned image. Unpinned components
    keep today's `build:` path unchanged (PR/e2e and source
-   development). The topology file gains an optional `bundle:`
+   development). A fully pinned render carries no build context at
+   all, so apply skips build-context digesting for it — an
+   artifact-installed host has no source tree, and `--bundle-root`
+   stays a source-path concern (#151 R4). The topology file gains an
+   optional `bundle:`
    section, written by the installer:
 
    ```yaml

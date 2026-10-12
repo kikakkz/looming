@@ -21,6 +21,7 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 <p align="center">
   <strong>
+    <a href="#install">Install</a> ·
     <a href="#why-looming">Why Looming</a> ·
     <a href="#architecture">Architecture</a> ·
     <a href="#status">Status</a> ·
@@ -42,8 +43,56 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 ---
 
+## Install
+
+Prerequisites: a Linux host with Docker Engine and the Docker Compose
+plugin — the installer preflights both but does not install them.
+Point it at any OpenAI-compatible engine you run (Ollama, llama.cpp,
+vLLM, …). Download the script first, then run it — piping `curl`
+straight into `bash` would execute whatever arrived, and a failed or
+truncated download could half-run or fail silently:
+
+```bash
+( tmp="$(mktemp)" \
+    && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh \
+    && bash "$tmp" --email admin@example.com --engine-url http://host.docker.internal:11434/v1
+  rc=$?; rm -f "$tmp"; exit "$rc" )
+```
+
+The subshell surfaces the install's exit code without closing your
+interactive shell; a failed download still cleans up and reports
+failure (`rc` captures the `&&` chain's exit status either way).
+
+The installer consumes **published release artifacts only**: it
+downloads the released `looming` CLI and the bundle's pinned manifest,
+then converges the bundle with `looming apply`, which pulls the pinned
+component images. There is no source-build install path — developing
+from source is its own workflow (a checkout + the repo's dev tooling).
+
+- `--version vX.Y.Z` selects the released bundle the installer
+  converges; the default resolves the latest release. The one-liner
+  above downloads `install.sh` from `main`, so the installer itself
+  tracks main — to pin the installer to a release as well, take the
+  script from that release's assets (download first, then run, same
+  reason as above):
+  `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"; exit "$rc" )` (subshell form, same reason as above)
+- Re-running is safe. The installer owns only the topology file's
+  `bundle:` block: a newer version rewrites just that block and the
+  manifest file (your edits — ports, engine config, placements —
+  survive), and the same version is a converge-only re-run.
+- Teardown: `docker compose -p looming down` (the Postgres data dir is
+  `/etc/looming/pgdata`).
+
+Full flags: download the script and run it with `--help` (a
+self-contained form, since the one-liner above already deleted its
+temporary copy):
+`( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
+
+---
+
 ## Table of Contents
 
+- [Install](#install)
 - [Why Looming?](#why-looming)
 - [Architecture](#architecture)
 - [Status](#status)

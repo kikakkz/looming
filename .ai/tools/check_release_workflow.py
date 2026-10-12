@@ -39,9 +39,10 @@ structure. Checks target behavior, not names:
   - R3: the CLI cross-compiles with CGO_ENABLED=0 for linux/amd64 +
     linux/arm64 from ./cmd/looming
   - R3: the release step runs ``gh release create --notes-file`` over
-    the three assets (CLI x2 + bundle-manifest.yaml), with GH_TOKEN
-    wired to secrets.GITHUB_TOKEN; install.sh appears only in the
-    R4 (#151) placeholder comment — never as an asset
+    the assets, with GH_TOKEN wired to secrets.GITHUB_TOKEN
+  - R4: the asset set includes install.sh — the artifact-only installer
+    (#151) ships in every bundle release, alongside the CLI binaries
+    and the manifest
 
 Usage: check_release_workflow.py [--workflow PATH]
 Exit 0 when the contract holds, 1 listing what is missing.
@@ -68,6 +69,7 @@ PRECHECK_STEP = "Immutable pre-check"
 NOT_FOUND_MARKERS = ("no such manifest", "manifest unknown", "not found",
                      "NAME_UNKNOWN")
 # R3 (#161): the bundle-release contract (release-l1 §3.6/§5).
+# R4 (#151): install.sh joins the release asset set.
 DISJOINT_MARKER = 'never crosses a "/"'
 COMPONENT_GUARD = ("if: ${{ github.event_name == 'workflow_dispatch' "
                    "|| contains(github.ref_name, '/') }}")
@@ -89,7 +91,12 @@ TOPOLOGY_ROUTE = "/v1/internal/guide"
 CROSS_STEP = "Cross-compile CLI"
 RELEASE_STEP = "Create GitHub Release"
 RELEASE_ASSETS = ("looming-linux-amd64", "looming-linux-arm64",
-                  "bundle-manifest.yaml")
+                  "bundle-manifest.yaml", "install.sh")
+# gh's repo-path#asset-name form: install.sh lives at scripts/install.sh
+# in the checkout — a bare "install.sh" asset name names a file that
+# does not exist at the workflow's workspace root and the release
+# upload would fail (CodeRabbit #165 round 2).
+REPO_PATH_ASSETS = {"install.sh": "scripts/install.sh#install.sh"}
 GH_TOKEN_ENV = "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}"
 
 
@@ -269,24 +276,89 @@ def _cross_compile_problems(text: str) -> list[str]:
     return bad
 
 
+def _strip_shell_comment(line: str) -> str:
+    """Drop a trailing shell comment — a '#' preceded by whitespace and
+    sitting outside quotes (full-comment lines therefore strip to
+    blank). Deterministic by design for the workflow-run-block domain
+    this checker pins: no heredocs, no quote-escape games."""
+    in_squote = in_dquote = False
+    for i, ch in enumerate(line):
+        if ch == "'" and not in_dquote:
+            in_squote = not in_squote
+        elif ch == '"' and not in_squote:
+            in_dquote = not in_dquote
+        elif ch == "#" and not in_squote and not in_dquote:
+            if i == 0 or line[i - 1] in " \t":
+                return line[:i]
+    return line
+
+
+def _release_command_assets(script: str) -> list[str] | None:
+    """The whitespace-separated tokens of the ``gh release create``
+    command — the only place an asset name is real. Comment lines and
+    trailing comments are stripped first (a commented-out release
+    command must not satisfy the check), and continuation lines
+    (backslash) join into one logical command. None when the step never
+    invokes it.
+
+    Asset checks must parse THIS line, not the step body: a comment or
+    a neighboring command carrying the right-looking text would
+    otherwise satisfy the check while the actual upload used a bare
+    name (CodeRabbit #165 rounds 3–4)."""
+    lines = script.splitlines()
+    for i, line in enumerate(lines):
+        line = _strip_shell_comment(line)
+        if not line.strip():
+            continue
+        if "gh release create" not in line:
+            continue
+        cmd = line
+        while cmd.rstrip().endswith("\\") and i + 1 < len(lines):
+            nxt = _strip_shell_comment(lines[i + 1])
+            cmd = cmd.rstrip()[:-1] + " " + nxt.strip()
+            i += 1
+        return cmd.split()
+    return None
+
+
+def _uploads_asset(tokens: list[str], asset: str) -> bool:
+    """True when the command uploads `asset`: either as the exact token
+    or via gh's repo-path#asset-name rename form (…#<asset>)."""
+    return any(t == asset or t.endswith("#" + asset) for t in tokens)
+
+
 def _release_step_problems(text: str) -> list[str]:
     """The release step must create the GH Release with generated notes
-    over the R3 asset set; install.sh stays an R4 (#151) comment-only
-    placeholder until the installer slice lands."""
+    over the full asset set: the two CLI binaries, the bundle manifest,
+    and install.sh — the artifact-only installer rides every bundle
+    release (release-l1 §2, R4 #151). install.sh uploads via gh's
+    repo-path#asset-name form (it lives at scripts/install.sh in the
+    checkout; a bare asset name names a nonexistent root file). Asset
+    names are checked as tokens of the gh release create command line
+    itself, never as free text anywhere in the step."""
     bad = []
     script = _step_run(text, RELEASE_STEP)
     if script is None:
         return ["release step absent (`- name: Create GitHub Release` "
                 "missing)"]
-    if "gh release create" not in script:
+    tokens = _release_command_assets(script)
+    if tokens is None:
         bad.append("release step does not run `gh release create`")
-    if "--notes-file" not in script:
+        return bad
+    if "--notes-file" not in tokens:
         bad.append("release step does not attach the generated notes "
                    "(--notes-file missing)")
-    absent = [a for a in RELEASE_ASSETS if a not in script]
+    absent = [a for a in RELEASE_ASSETS if not _uploads_asset(tokens, a)]
     if absent:
         bad.append("release assets incomplete (missing: "
                    + ", ".join(absent) + ")")
+    for asset, repo_form in REPO_PATH_ASSETS.items():
+        if repo_form not in tokens:
+            bad.append(f"release asset {asset} must upload from its "
+                       f"repo path ('{repo_form}' — gh's "
+                       f"repo-path#asset-name form; a bare '{asset}' "
+                       f"does not exist at the checkout root and the "
+                       f"release upload would fail)")
     return bad
 
 
@@ -339,16 +411,6 @@ def _bundle_problems(text: str) -> list[str]:
     bad += _release_step_problems(text)
     if GH_TOKEN_ENV not in text:
         bad.append("GH_TOKEN is not wired to secrets.GITHUB_TOKEN")
-    if not any("R4 (#151)" in line and "install.sh" in line
-               for line in text.splitlines()):
-        bad.append("no R4 (#151) placeholder note declaring install.sh "
-                   "lands in a later slice")
-    for line in text.splitlines():
-        stripped = line.strip()
-        if "install.sh" in stripped and not stripped.startswith("#"):
-            bad.append("install.sh appears outside a comment — R4 (#151) "
-                       "has not landed")
-            break
     if "git log" not in text or "--pretty=%s" not in text:
         bad.append("release notes are not generated from conventional "
                    "commits (`git log --pretty=%s` missing)")
