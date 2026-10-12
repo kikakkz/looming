@@ -543,6 +543,22 @@ class ReleaseAssetTests(unittest.TestCase):
         self.assertIn("install.sh", problems[0])
         self.assertIn("repo path", problems[1])
 
+    def test_repo_path_asset_hiding_in_comment_fails(self):
+        # Round 3 (CodeRabbit #165): the asset checks parse the gh
+        # release create COMMAND LINE — the correct repo-path form
+        # hiding in a comment must not satisfy them while the actual
+        # command uploads a bare install.sh.
+        text = VALID.replace(
+            "bundle-manifest.yaml scripts/install.sh#install.sh",
+            "bundle-manifest.yaml install.sh")
+        text = text.replace(
+            'gh release create "$VERSION"',
+            '# upload via scripts/install.sh#install.sh (gh rename form)\n'
+            '          gh release create "$VERSION"')
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("repo path", problems[0])
+
     def test_install_sh_bare_asset_name_fails(self):
         # install.sh lives at scripts/install.sh in the checkout: a
         # bare asset name names a file that does not exist at the

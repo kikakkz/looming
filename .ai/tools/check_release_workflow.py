@@ -276,29 +276,61 @@ def _cross_compile_problems(text: str) -> list[str]:
     return bad
 
 
+def _release_command_assets(script: str) -> list[str] | None:
+    """The whitespace-separated tokens of the ``gh release create``
+    command — the only place an asset name is real. Continuation lines
+    (backslash) join into one logical command. None when the step never
+    invokes it.
+
+    Asset checks must parse THIS line, not the step body: a comment or
+    a neighboring command carrying the right-looking text would
+    otherwise satisfy the check while the actual upload used a bare
+    name (CodeRabbit #165 round 3)."""
+    lines = script.splitlines()
+    for i, line in enumerate(lines):
+        if "gh release create" not in line:
+            continue
+        cmd = line
+        while cmd.rstrip().endswith("\\") and i + 1 < len(lines):
+            cmd = cmd.rstrip()[:-1] + " " + lines[i + 1].strip()
+            i += 1
+        return cmd.split()
+    return None
+
+
+def _uploads_asset(tokens: list[str], asset: str) -> bool:
+    """True when the command uploads `asset`: either as the exact token
+    or via gh's repo-path#asset-name rename form (…#<asset>)."""
+    return any(t == asset or t.endswith("#" + asset) for t in tokens)
+
+
 def _release_step_problems(text: str) -> list[str]:
     """The release step must create the GH Release with generated notes
     over the full asset set: the two CLI binaries, the bundle manifest,
     and install.sh — the artifact-only installer rides every bundle
     release (release-l1 §2, R4 #151). install.sh uploads via gh's
     repo-path#asset-name form (it lives at scripts/install.sh in the
-    checkout; a bare asset name names a nonexistent root file)."""
+    checkout; a bare asset name names a nonexistent root file). Asset
+    names are checked as tokens of the gh release create command line
+    itself, never as free text anywhere in the step."""
     bad = []
     script = _step_run(text, RELEASE_STEP)
     if script is None:
         return ["release step absent (`- name: Create GitHub Release` "
                 "missing)"]
-    if "gh release create" not in script:
+    tokens = _release_command_assets(script)
+    if tokens is None:
         bad.append("release step does not run `gh release create`")
-    if "--notes-file" not in script:
+        return bad
+    if "--notes-file" not in tokens:
         bad.append("release step does not attach the generated notes "
                    "(--notes-file missing)")
-    absent = [a for a in RELEASE_ASSETS if a not in script]
+    absent = [a for a in RELEASE_ASSETS if not _uploads_asset(tokens, a)]
     if absent:
         bad.append("release assets incomplete (missing: "
                    + ", ".join(absent) + ")")
     for asset, repo_form in REPO_PATH_ASSETS.items():
-        if repo_form not in script:
+        if repo_form not in tokens:
             bad.append(f"release asset {asset} must upload from its "
                        f"repo path ('{repo_form}' — gh's "
                        f"repo-path#asset-name form; a bare '{asset}' "

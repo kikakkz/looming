@@ -58,7 +58,7 @@ tmp="$(mktemp)" \
   && bash "$tmp" \
        --email admin@example.com \
        --engine-url http://host.docker.internal:11434/v1
-rc=$?; rm -f "$tmp"
+rc=$?; rm -f "$tmp"; exit "$rc"
 ```
 
 The installer consumes **published release artifacts only**: it
@@ -73,7 +73,7 @@ from source is its own workflow (a checkout + the repo's dev tooling).
   tracks main — to pin the installer to a release as well, take the
   script from that release's assets (download first, then run, same
   reason as above):
-  `tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"`
+  `tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"; exit "$rc"`
 - Re-running is safe. The installer owns only the topology file's
   `bundle:` block: a newer version rewrites just that block and the
   manifest file (your edits — ports, engine config, placements —
@@ -81,7 +81,8 @@ from source is its own workflow (a checkout + the repo's dev tooling).
 - Teardown: `docker compose -p looming down` (the Postgres data dir is
   `/etc/looming/pgdata`).
 
-Full flags: `scripts/install.sh --help`.
+Full flags: run the downloaded script with `--help` — `bash "$tmp" --help`
+(`$tmp` is the installer the command above downloaded).
 
 ---
 
