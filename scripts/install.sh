@@ -34,9 +34,12 @@
 #       [--prefix /etc/looming] [--ports 18080,18081,18082,15432] \
 #       [--name "my cluster"] [--private] [--config-only]
 #
-# One command (the operator's entry point):
-#   curl -fsSL https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh \
-#     | bash -s -- --email admin@example.com --engine-url ...
+# One command (the operator's entry point) — download first, then run:
+#   tmp="$(mktemp)" && curl -fsSL -o "$tmp" \
+#       https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh && \
+#     bash "$tmp" --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"
+# (Execution is tied to a complete download: a pipe into bash would
+# run whatever arrived, and a truncated download can half-run.)
 #
 # Release download base: the GitHub release of kikakkz/looming by
 # default; --release-url (or LOOMING_RELEASE_URL) overrides it with a
@@ -98,9 +101,14 @@ everything else is operator-owned. A newer --version rewrites ONLY the
 bundle: block + the manifest file; a matching version is a converge-only
 re-run. Re-running is always safe — the topology file is never clobbered.
 
-One command (the operator's entry point):
-  curl -fsSL https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh \
-    | bash -s -- --email admin@example.com --engine-url ...
+One command (the operator's entry point) — download first, then run:
+  tmp="$(mktemp)" && curl -fsSL -o "$tmp" \
+      https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh && \
+    bash "$tmp" --email admin@example.com --engine-url http://host.docker.internal:11434/v1; \
+  rc=$?; rm -f "$tmp"
+Execution is tied to a complete download: piping curl into bash would
+run whatever arrived, and a failed or truncated download can half-run
+or fail silently.
 EOF
 }
 
@@ -192,6 +200,30 @@ yaml_sq() {
     printf "'%s'" "${1//\'/\'\'}"
 }
 
+# topology_http_port echoes the published http port of one placement in
+# the operator's topology (the installer-generated `ports: {http: N}`
+# shape); empty when the placement or port is absent.
+topology_http_port() { # $1 = component name
+    awk -v comp="$1" '
+        $0 ~ "- component: " comp "$" { want=1 }
+        want && /ports: \{http: [0-9]+\}/ {
+            match($0, /http: [0-9]+/)
+            print substr($0, RSTART + 6, RLENGTH - 6)
+            exit
+        }
+    ' "$TOPOLOGY"
+}
+
+# topology_pg_port echoes state.postgres.port from the topology; empty
+# when the section is absent.
+topology_pg_port() {
+    awk '
+        /^  postgres:/ { inpg=1; next }
+        inpg && /^  [^[:space:]]/ { inpg=0 }
+        inpg && $1 == "port:" { print $2; exit }
+    ' "$TOPOLOGY"
+}
+
 # --- preflight ------------------------------------------------------------
 
 log "preflight: docker"
@@ -208,10 +240,14 @@ if [[ -z "$VERSION" ]]; then
     if [[ -n "$RELEASE_URL" ]]; then
         VERSION="$(fetch "$RELEASE_URL/latest" /dev/stdout 30)"
     else
-        # Anonymous API view (public repo) — no gh auth required.
-        VERSION="$(curl -fsSL --retry 3 --max-time 30 \
-            "https://api.github.com/repos/$REPO_SLUG/releases/latest" \
-            | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+        # Anonymous API view (public repo) — no gh auth required. The
+        # body lands complete in a variable BEFORE parsing: grep -m1 on
+        # a stream exits early and curl then dies on SIGPIPE, which
+        # pipefail turns into a failed default install on a slow,
+        # large response.
+        body="$(curl -fsSL --retry 3 --max-time 30 \
+            "https://api.github.com/repos/$REPO_SLUG/releases/latest")"
+        VERSION="$(printf '%s\n' "$body" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
     fi
     [[ -n "$VERSION" ]] || die "could not resolve the latest release tag"
 fi
@@ -418,6 +454,29 @@ else
     fi
 fi
 
+# --- effective ports ---------------------------------------------------------
+
+# The guide/register/join hints below must name the ports that are
+# actually published. A fresh install publishes this run's --ports; a
+# re-run or an upgrade preserves the operator's topology file — its
+# ports win, and a re-run passing different --ports must not print
+# those (CodeRabbit #165 round 2). Values absent from the file fall
+# back to this run's parameters.
+EFF_GATEWAY="$PORT_GATEWAY"
+EFF_IDENTITY="$PORT_IDENTITY"
+EFF_TOPOLOGYD="$PORT_TOPOLOGY"
+EFF_POSTGRES="$PORT_POSTGRES"
+if [[ "$FRESH" -eq 0 ]]; then
+    EFF_GATEWAY="$(topology_http_port gateway-front)"
+    [[ -n "$EFF_GATEWAY" ]] || EFF_GATEWAY="$PORT_GATEWAY"
+    EFF_IDENTITY="$(topology_http_port identityd)"
+    [[ -n "$EFF_IDENTITY" ]] || EFF_IDENTITY="$PORT_IDENTITY"
+    EFF_TOPOLOGYD="$(topology_http_port topologyd)"
+    [[ -n "$EFF_TOPOLOGYD" ]] || EFF_TOPOLOGYD="$PORT_TOPOLOGY"
+    EFF_POSTGRES="$(topology_pg_port)"
+    [[ -n "$EFF_POSTGRES" ]] || EFF_POSTGRES="$PORT_POSTGRES"
+fi
+
 # --- converge --------------------------------------------------------------
 
 if [[ "$CONFIG_ONLY" -eq 1 ]]; then
@@ -444,7 +503,7 @@ if [[ -n "$INVITE_TOKEN" ]]; then
     cat >"$PREFIX/bootstrap-invite.txt" <<EOF
 # Looming bootstrap invite — one-time. Deliver it to the admin's mailbox,
 # then delete this file. The admin registers with:
-#   curl -sS -X POST http://127.0.0.1:$PORT_IDENTITY/v1/self/register \\
+#   curl -sS -X POST http://127.0.0.1:$EFF_IDENTITY/v1/self/register \\
 #     -H 'Content-Type: application/json' \\
 #     -d '{"username":"<choose>","password":"<choose>","email":"$EMAIL","invite_token":"$INVITE_TOKEN"}'
 token: $INVITE_TOKEN
@@ -476,16 +535,18 @@ $HEADLINE
   manifest:    $MANIFEST
   CLI:         $CLI
   invite:      $PREFIX/bootstrap-invite.txt (when the invite printed)
-  guide page:  http://127.0.0.1:$PORT_GATEWAY/  (when access.public)
+  guide page:  http://127.0.0.1:$EFF_GATEWAY/  (when access.public)
 
 Next steps:
   1. Register the initial admin with the one-time invite above.
   2. Members self-register from the guide page (or an admin provisions them).
-  3. Join more hosts: mint a token with
-       $CLI token create --role engine --ttl 24h --database-url \\
-         postgres://looming@127.0.0.1:$PORT_POSTGRES/topology?sslmode=disable
-     (the Postgres password is in $PREFIX/postgres.env), then on the new host:
-       $CLI join http://<this-host>:$PORT_TOPOLOGY --token <token> --host-id <id> --address <ip>
+  3. Join more hosts: mint a token (the subshell sources the 0600
+     $PREFIX/postgres.env — the password reaches the command from the
+     file, never from shell history):
+       ( set -a; . "$PREFIX/postgres.env"; set +a; $CLI token create --role engine --ttl 24h --database-url \\
+         "postgres://\$POSTGRES_USER:\$POSTGRES_PASSWORD@127.0.0.1:$EFF_POSTGRES/topology?sslmode=disable" )
+     then on the new host:
+       $CLI join http://<this-host>:$EFF_TOPOLOGYD --token <token> --host-id <id> --address <ip>
 
 Re-apply after editing the topology file: $CLI apply --config $TOPOLOGY
 Upgrade to a newer release: re-run this script with --version vX.Y.Z

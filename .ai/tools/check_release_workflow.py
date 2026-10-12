@@ -92,6 +92,11 @@ CROSS_STEP = "Cross-compile CLI"
 RELEASE_STEP = "Create GitHub Release"
 RELEASE_ASSETS = ("looming-linux-amd64", "looming-linux-arm64",
                   "bundle-manifest.yaml", "install.sh")
+# gh's repo-path#asset-name form: install.sh lives at scripts/install.sh
+# in the checkout — a bare "install.sh" asset name names a file that
+# does not exist at the workflow's workspace root and the release
+# upload would fail (CodeRabbit #165 round 2).
+REPO_PATH_ASSETS = {"install.sh": "scripts/install.sh#install.sh"}
 GH_TOKEN_ENV = "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}"
 
 
@@ -275,7 +280,9 @@ def _release_step_problems(text: str) -> list[str]:
     """The release step must create the GH Release with generated notes
     over the full asset set: the two CLI binaries, the bundle manifest,
     and install.sh — the artifact-only installer rides every bundle
-    release (release-l1 §2, R4 #151)."""
+    release (release-l1 §2, R4 #151). install.sh uploads via gh's
+    repo-path#asset-name form (it lives at scripts/install.sh in the
+    checkout; a bare asset name names a nonexistent root file)."""
     bad = []
     script = _step_run(text, RELEASE_STEP)
     if script is None:
@@ -290,6 +297,13 @@ def _release_step_problems(text: str) -> list[str]:
     if absent:
         bad.append("release assets incomplete (missing: "
                    + ", ".join(absent) + ")")
+    for asset, repo_form in REPO_PATH_ASSETS.items():
+        if repo_form not in script:
+            bad.append(f"release asset {asset} must upload from its "
+                       f"repo path ('{repo_form}' — gh's "
+                       f"repo-path#asset-name form; a bare '{asset}' "
+                       f"does not exist at the checkout root and the "
+                       f"release upload would fail)")
     return bad
 
 

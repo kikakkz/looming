@@ -137,7 +137,7 @@ __PRECHECK__      - name: Build and push multi-arch image
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh
+          gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml scripts/install.sh#install.sh
 """.replace("__PRECHECK__", PRECHECK)
 
 
@@ -534,11 +534,24 @@ class ReleaseAssetTests(unittest.TestCase):
         # R4 (#151) shipped the installer: install.sh must ride every
         # bundle release's asset set, alongside the CLI + manifest.
         text = VALID.replace(
-            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml install.sh",
+            "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml scripts/install.sh#install.sh",
             "looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml")
         problems = crw.problems(text)
-        self.assertEqual(len(problems), 1)
+        # Both halves of the contract fire: the asset-set membership
+        # check and the repo-path form check.
+        self.assertEqual(len(problems), 2)
         self.assertIn("install.sh", problems[0])
+        self.assertIn("repo path", problems[1])
+
+    def test_install_sh_bare_asset_name_fails(self):
+        # install.sh lives at scripts/install.sh in the checkout: a
+        # bare asset name names a file that does not exist at the
+        # workspace root and gh's upload would fail — the repo-path#
+        # asset-name form is required.
+        text = VALID.replace("scripts/install.sh#install.sh", "install.sh")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("repo path", problems[0])
 
     def test_missing_notes_generation_fails(self):
         text = VALID.replace('git log --pretty=%s "$prev..HEAD"', "echo notes")
