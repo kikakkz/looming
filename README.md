@@ -83,8 +83,10 @@ from source is its own workflow (a checkout + the repo's dev tooling).
 - Teardown: `docker compose -p looming down` (the Postgres data dir is
   `/etc/looming/pgdata`).
 
-Full flags: run the downloaded script with `--help` — `bash "$tmp" --help`
-(`$tmp` is the installer the command above downloaded).
+Full flags: download the script and run it with `--help` (a
+self-contained form, since the one-liner above already deleted its
+temporary copy):
+`( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
 
 ---
 
