@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Smoke tests for scripts/release.sh (#166) against throwaway git repos.
 
-The driver is exercised through its non-interactive + --dry-run surface
-(the same vehicle install.sh uses for its shell assertions): the script
-and its two inputs (bundle/manifest.yaml, .ai/tools/release_version.py)
-are copied into a fixture repository, tags are planted there, and every
-run asserts the printed plan while proving zero side effects — no tag
-is ever created and nothing is ever pushed.
+The driver is exercised through its two non-interactive surfaces (the
+same vehicle install.sh uses for its shell assertions): `--list` (the
+machine-readable candidate feed for AI agents' menus) and the
+`<component> <bump> [--dry-run]` execution form. The script and its two
+inputs (bundle/manifest.yaml, .ai/tools/release_version.py) are copied
+into a fixture repository, tags are planted there, and every run
+asserts its output while proving zero side effects — no tag is ever
+created and nothing is ever pushed.
 """
 
 import os
@@ -121,10 +123,11 @@ class ReleaseShTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("Usage:", r.stdout)
 
-    def test_no_args_without_tty_prints_usage_and_exits_2(self):
+    def test_no_args_prints_usage_and_exits_2(self):
         r = self.run_script(stdin=subprocess.DEVNULL)
         self.assertEqual(r.returncode, 2)
         self.assertIn("Usage:", r.stderr)
+        self.assertIn("--list", r.stderr)
 
     def test_refuses_when_tag_exists_on_remote(self):
         # The computed tag existing on the remote (but not in this
@@ -140,21 +143,51 @@ class ReleaseShTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(remote))
         self.git("push", "-q", "origin", "gateway/v0.1.2")
         self.git("tag", "-d", "gateway/v0.1.2")
-        shim = self.tmp / "shim"
-        shim.mkdir()
-        (shim / "git").write_text(
-            '#!/bin/sh\n[ "$1" = "fetch" ] && exit 0\n'
-            'exec /usr/bin/git "$@"\n', encoding="utf-8")
-        os.chmod(shim / "git", 0o755)
-        env = dict(self.env, PATH=f"{shim}{os.pathsep}{os.environ['PATH']}")
+        env = dict(self.env, PATH=self.shim_path(fail="fetch"))
         r = self.run_script("gateway", "patch", "--dry-run", env=env)
         self.assertEqual(r.returncode, 1)
         self.assertIn("already exists on origin", r.stderr)
 
+    def test_ls_remote_failure_fails_closed(self):
+        # Only ls-remote exit 2 means "no such tag". A network/auth
+        # failure (any other non-zero) must abort, not proceed —
+        # pushing blind could overwrite an immutable published tag.
+        remote = self.tmp / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)],
+                       check=True, capture_output=True)
+        self.git("remote", "add", "origin", str(remote))
+        env = dict(self.env, PATH=self.shim_path(fail="ls-remote"))
+        r = self.run_script("gateway", "patch", "--dry-run", env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("failing closed", r.stderr)
+        tags = subprocess.run(["git", "tag", "-l"], cwd=self.repo,
+                              env=self.env, capture_output=True, text=True,
+                              check=True).stdout.splitlines()
+        self.assertNotIn("gateway/v0.1.2", tags, "no tag on a failed check")
 
-@unittest.skipUnless(shutil.which("script"), "util-linux script(1) unavailable")
-class InteractiveMenuTests(unittest.TestCase):
-    """The TTY menu: list components, pick bump, decline the confirm."""
+    def shim_path(self, fail: str) -> str:
+        """A PATH whose `git` intercepts one subcommand — fetch is a
+        no-op success, ls-remote simulates a network failure (rc 128) —
+        and delegates everything else to the real git binary, resolved
+        dynamically (never a hardcoded path)."""
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        if fail == "fetch":
+            intercept = '[ "$1" = "fetch" ] && exit 0\n'
+        else:
+            intercept = (f'[ "$1" = "{fail}" ] && {{ '
+                         f'echo "simulated {fail} failure" >&2; exit 128; }}\n')
+        shim = self.tmp / f"shim-{fail}"
+        shim.mkdir()
+        (shim / "git").write_text(
+            f'#!/bin/sh\n{intercept}exec "{real_git}" "$@"\n',
+            encoding="utf-8")
+        os.chmod(shim / "git", 0o755)
+        return f"{shim}{os.pathsep}{os.environ['PATH']}"
+
+
+class ListModeTests(unittest.TestCase):
+    """--list: the machine-readable candidate feed for agent menus."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
@@ -163,26 +196,46 @@ class InteractiveMenuTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_menu_lists_components_and_aborts_on_no(self):
-        script_bin = shutil.which("script")
-        r = subprocess.run(
-            [script_bin, "-qec",
-             f"bash {self.repo}/scripts/release.sh", "/dev/null"],
-            cwd=self.repo, env=self.env, input="1\n3\nn\n",
-            capture_output=True, text=True,
+    def run_script(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", str(self.repo / "scripts" / "release.sh"), *args],
+            cwd=self.repo, env=self.env, capture_output=True, text=True,
         )
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("gateway", r.stdout)
-        self.assertIn("identity", r.stdout)
-        self.assertIn("topology", r.stdout)
-        self.assertIn("gateway/v0.1.2", r.stdout)  # patch candidate
-        self.assertIn("gateway/v0.2.0", r.stdout)  # minor candidate
-        self.assertIn("gateway/v1.0.0", r.stdout)  # major candidate
-        self.assertIn("aborted", r.stdout)
-        tags = subprocess.run(["git", "tag", "-l"], cwd=self.repo,
-                              env=self.env, capture_output=True, text=True,
-                              check=True).stdout.splitlines()
-        self.assertNotIn("gateway/v1.0.0", tags)
+
+    def test_list_emits_one_tsv_line_per_component(self):
+        r = self.run_script("--list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = [line for line in r.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 3)
+        by_component = {}
+        for line in lines:
+            fields = line.split("\t")
+            self.assertEqual(len(fields), 5, f"not 5 TSV fields: {line!r}")
+            by_component[fields[0]] = fields[1:]
+        # gateway tags v0.1.0/v0.1.1: current is the numeric max v0.1.1.
+        self.assertEqual(by_component["gateway"],
+                         ["v0.1.1", "v0.1.2", "v0.2.0", "v1.0.0"])
+        self.assertEqual(by_component["identity"],
+                         ["v0.2.0", "v0.2.1", "v0.3.0", "v1.0.0"])
+        # No tags: the none marker and all three initial candidates.
+        self.assertEqual(by_component["topology"],
+                         ["none", "v0.1.0", "v0.1.0", "v0.1.0"])
+
+    def test_list_is_read_only(self):
+        before = subprocess.run(["git", "tag", "-l"], cwd=self.repo,
+                                env=self.env, capture_output=True, text=True,
+                                check=True).stdout.splitlines()
+        r = self.run_script("--list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        after = subprocess.run(["git", "tag", "-l"], cwd=self.repo,
+                               env=self.env, capture_output=True, text=True,
+                               check=True).stdout.splitlines()
+        self.assertEqual(sorted(before), sorted(after))
+
+    def test_list_rejects_operational_args(self):
+        r = self.run_script("--list", "gateway")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Usage:", r.stderr)
 
 
 if __name__ == "__main__":

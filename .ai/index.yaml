@@ -93,6 +93,10 @@
 # 2026-10-12 release driver major bump (#166 review): the scripts/
 # pointer's bump list reads patch|minor|major; same-line edit, net-zero
 # preserved; all read_order anchors resolve.
+# 2026-10-12 release driver --list redesign (#166 review): the scripts/
+# pointer now names the --list candidate feed and the execution form
+# (interactive menu lives in the AI agent); same-line edit, net-zero
+# preserved; all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
