@@ -41,15 +41,19 @@ buildinfo shape, and the OCI image-label spec.
    tag, with release.sh stringing the three steps together.
 4. **Rich `--version` is a standard.** A small shared buildinfo package
    carries version (ldflags-injected, default `dev`; CI reads it from
-   VERSION) plus commit/buildTime/dirty, preferring the BuildInfo VCS
-   stamps — local builds with `.git` self-report automatically, CI
-   builds without `.git` fall back to injected values. Every binary
-   (cmd/looming, cmd/gateway, cmd/identityd, cmd/topologyd) prints the
-   promu-shaped block: version, commit (with dirty flag), build time,
-   go version, platform. Dockerfiles take VERSION/COMMIT/BUILD_TIME
-   build args into ldflags and carry the OCI labels
-   (org.opencontainers.image.version/revision); the R1 component job
-   and R3 bundle job pass them through, including to the CLI
+   VERSION), commit, buildTime, and dirty. Build time is the injected
+   BUILD_TIME — the moment CI built the artifact — never Go's vcs.time,
+   which is the commit time: rebuilding one commit must report a new
+   build time. vcs.time stays a commit-time display, the dev-build
+   traceability field when nothing is injected. Commit and dirty prefer
+   the BuildInfo VCS stamps — local builds with `.git` self-report
+   automatically, CI builds without `.git` fall back to injected
+   values. Every binary (cmd/looming, cmd/gateway, cmd/identityd,
+   cmd/topologyd) prints the promu-shaped block: version, commit (with
+   dirty flag), build time, go version, platform. Dockerfiles take
+   VERSION/COMMIT/BUILD_TIME build args into ldflags and carry the OCI
+   labels (org.opencontainers.image.version/revision); the R1 component
+   job and R3 bundle job pass them through, including to the CLI
    cross-compile.
 
 ## Consequences

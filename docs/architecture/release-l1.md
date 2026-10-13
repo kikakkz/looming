@@ -252,14 +252,19 @@ Filed as issues after this design lands (the #107 pattern).
 Mechanism refinements from #168 (AD-40), filed as issues the same way:
 
 - **S1 — rich `--version` everywhere.** `platform/go/buildinfo`:
-  version (ldflags-injected, default `dev`) + commit/buildTime/dirty,
-  preferring the BuildInfo VCS stamps so local `.git` builds
-  self-report while CI builds without `.git` fall back to injected
-  values; `--version` on the four binaries (cmd/looming, cmd/gateway,
+  version (ldflags-injected, default `dev`) + commit/buildTime/dirty.
+  Build time is the injected BUILD_TIME — the build moment CI passes,
+  never Go's vcs.time (the commit time): rebuilding one commit must
+  report a new build time, and vcs.time serves only as the commit-time
+  display on dev builds when nothing is injected. Commit and dirty
+  prefer the BuildInfo VCS stamps so local `.git` builds self-report
+  while CI builds without `.git` fall back to injected values;
+  `--version` on the four binaries (cmd/looming, cmd/gateway,
   cmd/identityd, cmd/topologyd) printing the promu-shaped block
   (version, commit + dirty, build time, go, platform). Acceptance:
   every binary prints the block; unit tests cover the dev default,
-  injected values, and the BuildInfo-preferred path.
+  injected values, the BuildInfo-preferred path, and the build-metadata
+  split — a rebuild of one commit changes buildTime only.
 - **S2 — VERSION files + consistency gate + re-sourced derivation.**
   The three component roots gain `VERSION` (v0.1.0); the R1 job fails
   closed when the pushed tag's version != the file's content;
