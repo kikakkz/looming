@@ -7,8 +7,9 @@ description: Cut component releases and bundle releases. Use when publishing a c
 
 Two-level versioning:
 
-- **Component version** — independent semver per component, tagged on its
-  container image (e.g. `gateway:v0.3.1`).
+- **Component version** — independent semver per component, canonical
+  in its `VERSION` file (one line, `vX.Y.Z`), tagged on its container
+  image (e.g. `gateway:v0.3.1`).
 - **Bundle version** — a git tag `vX.Y.Z` plus a manifest pinning every
   component's exact version. A bundle release is a *tested combination
   snapshot*, not a full re-release of everything.
@@ -16,9 +17,12 @@ Two-level versioning:
 ## Normal component release
 
 1. Land changes through issues/PRs with conventional commits.
-2. CI publishes the changed component's image under its new semver tag.
+2. Bump the component's `VERSION` file first — it is the version's
+   canonical source; the git/image tag must match it and CI's release
+   gate rejects a mismatch (AD-40).
+3. CI publishes the changed component's image under its new semver tag.
    Unchanged components are **not** rebuilt or republished.
-3. Open a PR bumping only that component's pin in the bundle manifest.
+4. Open a PR bumping only that component's pin in the bundle manifest.
 
 ## Bundle release
 
