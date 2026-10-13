@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -14,6 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 	guideapp "github.com/kikakkz/looming/platform/go/guideapp"
 	guidedomain "github.com/kikakkz/looming/platform/go/guidedomain"
 	guideport "github.com/kikakkz/looming/platform/go/guideport"
@@ -26,6 +31,18 @@ import (
 	topologydomain "github.com/kikakkz/looming/platform/go/topologydomain"
 	topologyport "github.com/kikakkz/looming/platform/go/topologyport"
 )
+
+// TestVersionFlagHandledBeforeWiring pins the AD-40 S1 --version
+// contract: the block prints under this binary's name and the handler
+// reports handled, so main returns (exit 0) before touching the
+// environment or the database config.
+func TestVersionFlagHandledBeforeWiring(t *testing.T) {
+	var out bytes.Buffer
+	require.True(t, buildinfo.HandleVersionFlag("topologyd", []string{"--version"}, &out))
+	assert.Contains(t, out.String(), "topologyd version ")
+
+	require.False(t, buildinfo.HandleVersionFlag("topologyd", nil, &out))
+}
 
 // stubTokens is the TokenStore port against memory — just enough surface
 // for the mux smoke test.

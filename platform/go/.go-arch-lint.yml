@@ -8,9 +8,11 @@
 # feasibility layer (advisor, AD-38), the four capabilities' domain
 # vocabulary + ports + use-case services + postgres adapters
 # (topology, host, guide, join), the schema migrations, the release
-# bundle manifest loader (bundle, release-l1 §3.4), and the
-# integration test helper. Both consumers (cli's admin face, topology's
-# topologyd) import it; nothing here imports a component.
+# bundle manifest loader (bundle, release-l1 §3.4), the shared
+# buildinfo assembler (AD-40: the promu-shaped --version block every
+# binary prints, stdlib-only like exec), and the integration test
+# helper. Both consumers (cli's admin face, topology's topologyd)
+# import it; nothing here imports a component.
 #
 # Dependency rules (the AD-23 layering, unchanged by the move):
 # - *domain packages are pure: stdlib only (also enforced by depguard).
@@ -34,6 +36,7 @@ excludeFiles:
   - "^.*_test\\.go$" # test doubles legitimately cross seams
 
 components:
+  buildinfo:       { in: buildinfo }
   config:          { in: config }
   render:          { in: render }
   bundle:          { in: bundle }

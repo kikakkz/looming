@@ -25,10 +25,16 @@ import (
 	"github.com/kikakkz/looming/gateway/internal/front/adapter"
 	frontapp "github.com/kikakkz/looming/gateway/internal/front/app"
 	frontdomain "github.com/kikakkz/looming/gateway/internal/front/domain"
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 )
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// --version (AD-40 S1) answers before any wiring: the block prints
+	// and main returns for exit 0.
+	if buildinfo.HandleVersionFlag("gateway", os.Args[1:], os.Stdout) {
+		return
+	}
 	if err := run(log); err != nil {
 		log.Error("gateway exited", "err", err)
 		os.Exit(1)
