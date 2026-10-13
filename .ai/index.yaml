@@ -110,6 +110,11 @@
 # 2026-10-14 buildinfo S1 (#171) re-validated: AGENTS.md directory map
 # platform/go/ line names the buildinfo package (AD-40's --version
 # block); all read_order anchors resolve.
+# 2026-10-14 VERSION source S2 (#172) re-validated: the three component
+# roots gain VERSION files, AGENTS.md's VERSION-authority bullet and
+# the release skill are present tense (gate landed, three-step flow),
+# release-l1 §3.1(c)/§5 S2 state the landed mechanics; all read_order
+# anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

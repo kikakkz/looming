@@ -7,10 +7,12 @@ description: Cut component releases and bundle releases. Use when publishing a c
 
 Two-level versioning:
 
-- **Component version** — independent semver per component, designated
-  canonical in its `VERSION` file (AD-40, one line `vX.Y.Z`; its gate
-  and derivation re-source land in S2, #168), tagged on its container
-  image (e.g. `gateway:v0.3.1`).
+- **Component version** — independent semver per component, canonical
+  in its `VERSION` file (AD-40, one line `vX.Y.Z`; the release CI gate
+  enforces tag == VERSION and the tooling derives from the file —
+  `scripts/release.sh <component> <bump>` strings the three-step flow:
+  bump-VERSION PR → merge → tag), tagged on its container image
+  (e.g. `gateway:v0.3.1`).
 - **Bundle version** — a git tag `vX.Y.Z` plus a manifest pinning every
   component's exact version. A bundle release is a *tested combination
   snapshot*, not a full re-release of everything.
@@ -19,10 +21,10 @@ Two-level versioning:
 
 1. Land changes through issues/PRs with conventional commits.
 2. Version the component per AD-40: the component-root `VERSION` file
-   is the designated canonical source — post-S2, land its bump as a PR
-   first and the CI gate enforces tag == VERSION. Pre-S2 the tag stays
-   operational (the driver derives from git tags; no VERSION file or
-   gate exists yet).
+   is the canonical source — land its bump as a PR first (the driver
+   strings the three steps: `scripts/release.sh <component> <bump>` →
+   bump-VERSION PR → merge → tag) and the release CI gate enforces tag
+   == VERSION, refusing to publish a mismatch.
 3. CI publishes the changed component's image under its new semver tag.
    Unchanged components are **not** rebuilt or republished.
 4. Open a PR bumping only that component's pin in the bundle manifest.

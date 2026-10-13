@@ -107,17 +107,14 @@ Three surfaces, three semantics — kept strictly separate:
    A component's version is canonical in the component, not on the tag:
    AD-40 designates a `VERSION` file at the component root (single
    line `vX.Y.Z`, language-neutral) as the single source of truth; the
-   git tag and the image tag mark and replicate it (#168). Once S2
-   lands, the publish job enforces a third mechanic alongside (a) and
-   (b) — (c) *version consistency*: the job resolves the pushed tag's
-   version and fails closed when it differs from the component's
-   VERSION file, so tag and file can never disagree on what was
-   released. Until S2, the tag stays the operational version source —
-   the driver still derives from git tags and nothing gates the match.
-   The double-truth risk the file invites is closed by CI once (c) is
-   live, and — this repo being AI-developed — the constraint is also
-   written into AGENTS.md and the release skill, so AI contributors
-   hold it by construction.
+   git tag and the image tag mark and replicate it (#168). The publish
+   job enforces a third mechanic alongside (a) and (b) — (c) *version
+   consistency*: the job resolves the pushed tag's version and fails
+   closed when it differs from the component's VERSION file, so tag
+   and file can never disagree on what was released (S2, #172). The
+   double-truth risk the file invites is closed by CI, and — this repo
+   being AI-developed — the constraint is also written into AGENTS.md
+   and the release skill, so AI contributors hold it by construction.
 2. **Tag conventions are the release trigger.** Component release:
    push `<component>/vX.Y.Z` (e.g. `gateway/v0.1.0`). Bundle release:
    push `vX.Y.Z`. The release workflows match on these tag shapes;
@@ -265,7 +262,8 @@ Mechanism refinements from #168 (AD-40), filed as issues the same way:
   every binary prints the block; unit tests cover the dev default,
   injected values, the BuildInfo-preferred path, and the build-metadata
   split — a rebuild of one commit changes buildTime only.
-- **S2 — VERSION files + consistency gate + re-sourced derivation.**
+- **S2 — VERSION files + consistency gate + re-sourced flow (landed
+  #172).**
   The three component roots gain `VERSION` (v0.1.0); the R1 job fails
   closed when the pushed tag's version != the file's content;
   release_version and `release.sh --list` read the files (no git tag

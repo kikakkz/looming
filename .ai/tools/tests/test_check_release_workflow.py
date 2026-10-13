@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for check_release_workflow.py (#159, R3 bundle contract #161)."""
+"""Unit tests for check_release_workflow.py (#159, R3 bundle contract
+#161, AD-40 VERSION gate #172)."""
 
 import shutil
 import sys
@@ -28,6 +29,26 @@ PRECHECK = """\
               exit 1
               ;;
           esac
+"""
+
+GATE = """\
+      - name: Check VERSION consistency
+        if: needs.resolve.outputs.verify_only == 'false'
+        env:
+          COMPONENT: ${{ needs.resolve.outputs.component }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          file_version="$(grep -Ev '^[[:space:]]*(#|$)' "$COMPONENT/VERSION" | head -n 1 | tr -d '[:space:]')"
+          if [[ ! "$file_version" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
+            echo "::error::$COMPONENT/VERSION holds no single vX.Y.Z version line"
+            exit 1
+          fi
+          if [[ "$file_version" != "$VERSION" ]]; then
+            echo "::error::AD-40 consistency gate: $COMPONENT/VERSION is '$file_version' but the tag resolves to '$VERSION'"
+            exit 1
+          fi
+          echo "AD-40 consistency gate green: $COMPONENT/VERSION == $VERSION"
 """
 
 VALID = """\
@@ -83,8 +104,10 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.git_ref }}
           persist-credentials: false
-__PRECHECK__      - name: Build and push multi-arch image
-        run: docker buildx build --tag ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway
+__GATE____PRECHECK__      - name: Build and push multi-arch image
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: docker buildx build --build-arg VERSION="$VERSION" --tag ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway
   bundle:
     if: ${{ github.event_name == 'push' && !contains(github.ref_name, '/') }}
     permissions:
@@ -138,7 +161,7 @@ __PRECHECK__      - name: Build and push multi-arch image
         run: |
           set -euo pipefail
           gh release create "$VERSION" --notes-file release-notes.md looming-linux-amd64 looming-linux-arm64 bundle-manifest.yaml scripts/install.sh#install.sh
-""".replace("__PRECHECK__", PRECHECK)
+""".replace("__PRECHECK__", PRECHECK).replace("__GATE__", GATE)
 
 
 class TagTriggerTests(unittest.TestCase):
@@ -619,8 +642,69 @@ class OtherContractTests(unittest.TestCase):
 
     def test_empty_workflow_reports_every_piece(self):
         # three component tag patterns + the bundle pattern, each
-        # reported on its own line, plus the R3 contract pieces
-        self.assertEqual(len(crw.problems("")), 22)
+        # reported on its own line, plus the R3 contract pieces, the
+        # AD-40 VERSION gate, and the VERSION build-arg passthrough
+        self.assertEqual(len(crw.problems("")), 24)
+
+
+class VersionGateTests(unittest.TestCase):
+    """AD-40 S2 (#172): the publish job refuses a tag whose version
+    disagrees with the component's VERSION file, before any image push,
+    and passes the version into the docker build (S3 prep)."""
+
+    def test_missing_gate_step_fails(self):
+        text = VALID.replace(GATE, "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("VERSION consistency gate step absent", problems[0])
+
+    def test_gate_without_file_read_fails(self):
+        text = VALID.replace('"$COMPONENT/VERSION"', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("VERSION file", problems[0])
+
+    def test_gate_without_shape_guard_fails(self):
+        # unparsable file content must fail closed, never read as
+        # "matches" or "absent"
+        text = VALID.replace(
+            'if [[ ! "$file_version" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then\n',
+            "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("fail closed", problems[0])
+
+    def test_gate_without_string_comparison_fails(self):
+        # any check short of string equality (e.g. a mere -n presence
+        # test) lets a mismatched tag through
+        text = VALID.replace('if [[ "$file_version" != "$VERSION" ]]; then',
+                             'if [ -n "$file_version" ]; then')
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("string-compare", problems[0])
+
+    def test_gate_without_ad_reference_fails(self):
+        text = VALID.replace("AD-40", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("AD-40", problems[0])
+
+    def test_gate_after_build_fails(self):
+        # the gate must reject before the build/push sequence runs
+        text = VALID.replace(GATE, "")
+        build_line = ('        run: docker buildx build --build-arg '
+                      'VERSION="$VERSION" --tag '
+                      'ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway\n')
+        text = text.replace(build_line, build_line + GATE)
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("before the image build", problems[0])
+
+    def test_build_without_version_build_arg_fails(self):
+        text = VALID.replace('--build-arg VERSION="$VERSION" ', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("build arg", problems[0])
 
 
 class CliTests(unittest.TestCase):

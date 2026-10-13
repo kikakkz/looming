@@ -187,8 +187,8 @@ cites its `kind/flake` issue number; test-only helpers live under
 
 - Conventional Commits, enforced on PR titles (squash merge).
 - Component version authority (AD-40): the component-root `VERSION`
-  file is the designated canonical source; its consistency gate and
-  re-sourced derivation land in S2 (#168) — pre-S2 the tag stays operational.
+  file is the canonical source — the release CI gate enforces tag ==
+  VERSION and the tooling derives from it (scripts/release.sh strings bump PR → merge → tag, #168 S2, #172).
 - Hybrid versioning: components carry independent semver versions; a
   bundle release is a git tag plus a manifest pinning every component's
   exact version. Only changed components are published per release.
