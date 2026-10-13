@@ -60,6 +60,16 @@ func newFakeIdentity(t *testing.T) *fakeIdentity {
 
 func (f *fakeIdentity) url() string { return f.srv.URL }
 
+// wakeLocked wakes every held watch: close the current change channel
+// and install a fresh one. Callers hold f.mu; mutations and the watch's
+// (channel, rev) capture are serialized by it, so a change either
+// precedes the capture (the watch answers immediately) or closes the
+// captured channel — the wake never rides on the 60ms hold fallback.
+func (f *fakeIdentity) wakeLocked() {
+	close(f.ch)
+	f.ch = make(chan struct{})
+}
+
 func (f *fakeIdentity) setState(rev uint64, keys map[string]feedRow, revoked []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -69,8 +79,7 @@ func (f *fakeIdentity) setState(rev uint64, keys map[string]feedRow, revoked []s
 	for _, h := range revoked {
 		f.revoked[h] = true
 	}
-	close(f.ch)
-	f.ch = make(chan struct{})
+	f.wakeLocked()
 }
 
 // setPrincipals replaces the principal projection (slice D's feed
@@ -79,8 +88,30 @@ func (f *fakeIdentity) setPrincipals(principals map[string]feedPrincipal) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.principals = principals
-	close(f.ch)
-	f.ch = make(chan struct{})
+	f.wakeLocked()
+}
+
+// setFeed replaces the feed wholesale — keys, revocation markers, and
+// the principal projection in ONE mutation — at the given revision,
+// waking any held watch. The real authority serves one full projection
+// per revision (any mutation, keys or principals, bumps the same rev
+// counter), so an identity restart's post-rollback state is a single
+// setFeed, not a setState/setPrincipals pair: split mutations let the
+// first wake's response encode before the second mutation, stranding a
+// principal change at the reset revision where the caches' monotonic
+// guard drops its Apply forever and the watch degrades to the 60ms
+// wall-clock fallback (#170).
+func (f *fakeIdentity) setFeed(rev uint64, keys map[string]feedRow, revoked []string, principals map[string]feedPrincipal) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rev = rev
+	f.keys = keys
+	f.revoked = map[string]bool{}
+	for _, h := range revoked {
+		f.revoked[h] = true
+	}
+	f.principals = principals
+	f.wakeLocked()
 }
 
 func (f *fakeIdentity) failNext(n int) {
@@ -603,9 +634,15 @@ func TestSyncerAllowlistResetsOnRevRollback(t *testing.T) {
 	// Identity restarts: rev rolls back to 1 and a NEW principal
 	// appears. The allowlist must reset wholesale (the monotonic
 	// guard would drop an Apply at a lower revision, leaving the new
-	// principal unprojected and 403ing).
-	fake.setState(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil)
-	fake.setPrincipals(map[string]feedPrincipal{
+	// principal unprojected and 403ing). The restart is ONE atomic
+	// feed mutation: the real authority answers a rollback with a
+	// single revision-bumped full projection, and a setState/
+	// setPrincipals pair raced the first wake's response encoding
+	// with the second mutation — the principal change could land at
+	// the reset revision, where the monotonic guard drops its Apply
+	// indefinitely and the test hangs on the watch's wall-clock
+	// fallback (#170).
+	fake.setFeed(1, map[string]feedRow{hashA64: {principal: "p-1"}}, nil, map[string]feedPrincipal{
 		"p-1":  {status: "active", permissions: []string{"model:use:*"}},
 		"p-10": {status: "active", permissions: []string{"model:use:*"}},
 	})
