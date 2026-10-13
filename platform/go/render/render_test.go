@@ -433,8 +433,9 @@ func TestBundleRootMixesBuildContextIntoHash(t *testing.T) {
 	for _, d := range []string{"gateway", "identity", "topology"} {
 		mk(d, "go.mod", "module x\n")
 	}
-	// topologyd's cross-module build digests platform/go too (CLI-1,
-	// #108): the stand-in bundle root must carry it.
+	// Every component's cross-module build digests platform/go (topologyd
+	// since CLI-1 #108, gateway/identity since #171): the stand-in bundle
+	// root must carry it.
 	mk("platform/go", "go.mod", "module x\n")
 
 	rooted, err := render.Render(render.Input{StateHostID: in.StateHostID, State: in.State, Hosts: in.Hosts, Placements: in.Placements, BundleRoot: root})

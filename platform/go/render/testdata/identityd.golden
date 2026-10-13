@@ -4,7 +4,8 @@ services:
         build:
             args:
                 - GOPROXY
-            context: identity
+            context: .
+            dockerfile: identity/Dockerfile
         environment:
             IDENTITY_DATABASE_URL: postgres://postgres:pw@10.0.0.11:5432/identity
             IDENTITY_LISTEN: :8081

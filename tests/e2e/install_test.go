@@ -49,9 +49,10 @@ const (
 
 // releaseComponent is one publishable component image: the release
 // name (the manifest's components key), the compose service name its
-// container converges under, and its docker build shape — gateway and
-// identity build from their component directory, topologyd from the
-// bundle root (its go.mod replace pins platform/go).
+// container converges under, and its docker build shape — every
+// phase-1 image builds from the bundle root with an explicit
+// dockerfile (all three consume platform/go; gateway/identity since
+// #171's buildinfo, topologyd since CLI-1 #108).
 type releaseComponent struct {
 	release    string
 	service    string
@@ -60,8 +61,8 @@ type releaseComponent struct {
 }
 
 var releaseComponents = []releaseComponent{
-	{release: "gateway", service: "gateway-front", context: "gateway", dockerfile: "gateway/Dockerfile"},
-	{release: "identity", service: "identityd", context: "identity", dockerfile: "identity/Dockerfile"},
+	{release: "gateway", service: "gateway-front", context: ".", dockerfile: "gateway/Dockerfile"},
+	{release: "identity", service: "identityd", context: ".", dockerfile: "identity/Dockerfile"},
 	{release: "topology", service: "topologyd", context: ".", dockerfile: "topology/Dockerfile"},
 }
 
