@@ -24,6 +24,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // postgres driver
 
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 	guideadapter "github.com/kikakkz/looming/platform/go/guideadapter"
 	guideapp "github.com/kikakkz/looming/platform/go/guideapp"
 	hostadapter "github.com/kikakkz/looming/platform/go/hostadapter"
@@ -37,6 +38,11 @@ import (
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(log) // app-layer error logging lands in the same handler
+	// --version (AD-40 S1) answers before any wiring: the block prints
+	// and main returns for exit 0.
+	if buildinfo.HandleVersionFlag("topologyd", os.Args[1:], os.Stdout) {
+		return
+	}
 	if err := run(context.Background(), log); err != nil {
 		log.Error("topologyd exited", "err", err)
 		os.Exit(1)

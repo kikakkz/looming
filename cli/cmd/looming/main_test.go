@@ -11,6 +11,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestVersionFlagPrintsPromuBlock pins the AD-40 S1 --version contract:
+// the cobra version template carries the promu-shaped buildinfo block
+// headed by the binary name, and the flag short-circuits (exit 0 path)
+// before any subcommand wiring.
+func TestVersionFlagPrintsPromuBlock(t *testing.T) {
+	var out bytes.Buffer
+	cmd := root()
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--version"})
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+	text := out.String()
+	assert.Contains(t, text, "looming version ")
+	for _, field := range []string{"  commit: ", " (dirty: ", "  build time: ", "  go: ", "  platform: "} {
+		assert.Contains(t, text, field)
+	}
+}
+
 // TestRootHelpListsBothFaces pins the single-binary-two-faces contract
 // (AD-37): the user face and the admin face share one root command.
 func TestRootHelpListsBothFaces(t *testing.T) {

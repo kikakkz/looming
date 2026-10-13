@@ -4,7 +4,8 @@ services:
         build:
             args:
                 - GOPROXY
-            context: gateway
+            context: .
+            dockerfile: gateway/Dockerfile
         environment:
             GATEWAY_IDENTITY_INSECURE: "1"
             GATEWAY_IDENTITY_URL: http://10.0.0.12:8081

@@ -1,16 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # identityd's phase-1 image (topology-l1 §2). Shape mirrors
-# gateway/Dockerfile: component directory as context, GOPROXY as a
-# build-arg, distroless nonroot runtime.
+# gateway/Dockerfile: #171's buildinfo made identity a platform/go
+# consumer, so the build context is the bundle root (the render
+# contract builds this dockerfile with context "."), workspace mode is
+# off, and the module's replace directive pins platform/go to the
+# sibling directory copied below. GOPROXY is a build-arg;
+# distroless nonroot runtime.
 
 FROM golang:1.25 AS build
-WORKDIR /src
+WORKDIR /src/identity
 ARG GOPROXY=https://proxy.golang.org,direct
-ENV GOPROXY=${GOPROXY}
-COPY go.mod go.sum ./
+ENV GOPROXY=${GOPROXY} GOWORK=off
+COPY identity/go.mod identity/go.sum ./
+COPY platform/go/go.mod platform/go/go.sum /src/platform/go/
 RUN go mod download
-COPY . .
+COPY identity/ ./
+COPY platform/go/ /src/platform/go/
 RUN CGO_ENABLED=0 go build -trimpath -o /out/identityd ./cmd/identityd
 
 FROM gcr.io/distroless/static-debian12:nonroot

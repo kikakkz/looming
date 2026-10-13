@@ -25,6 +25,7 @@ import (
 	"github.com/kikakkz/looming/cli/internal/identityclient"
 	"github.com/kikakkz/looming/cli/internal/onboard"
 	"github.com/kikakkz/looming/cli/internal/profile"
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 )
 
 func main() {
@@ -39,6 +40,12 @@ func root() *cobra.Command {
 		Use:   "looming",
 		Short: "Looming CLI — connect local agents to your cluster",
 	}
+	// --version (AD-40 S1): cobra's version template carries the
+	// promu-shaped buildinfo block; the flag short-circuits before any
+	// subcommand wiring and exits 0.
+	info := buildinfo.Get()
+	root.Version = info.Version
+	root.SetVersionTemplate(info.String("looming") + "\n")
 	root.AddCommand(onboardCmd(), configureCmd(), usageCmd())
 	root.AddCommand(adminCmd(os.Stdout, os.Stderr)...)
 	return root

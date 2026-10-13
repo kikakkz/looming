@@ -3,13 +3,35 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 )
+
+// TestVersionFlagHandledBeforeWiring pins the AD-40 S1 --version
+// contract: the block prints under this binary's name and the handler
+// reports handled, so main returns (exit 0) before touching the
+// environment.
+func TestVersionFlagHandledBeforeWiring(t *testing.T) {
+	var out bytes.Buffer
+	require.True(t, buildinfo.HandleVersionFlag("gateway", []string{"--version"}, &out))
+	text := out.String()
+	assert.Contains(t, text, "gateway version ")
+	for _, field := range []string{"  commit: ", "  build time: ", "  go: ", "  platform: "} {
+		assert.Contains(t, text, field)
+	}
+
+	require.False(t, buildinfo.HandleVersionFlag("gateway", nil, &out))
+}
 
 // TestGuideHandlerEnvMatrix pins the GET / wiring contract: no
 // GATEWAY_TOPOLOGY_URL → not-configured stub; URL without token →

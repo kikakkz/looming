@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,9 +10,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	authndomain "github.com/kikakkz/looming/identity/internal/authn/domain"
 	authnport "github.com/kikakkz/looming/identity/internal/authn/port"
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 )
+
+// TestVersionFlagHandledBeforeWiring pins the AD-40 S1 --version
+// contract: the block prints under this binary's name and the handler
+// reports handled, so main returns (exit 0) before touching the
+// environment or the database config.
+func TestVersionFlagHandledBeforeWiring(t *testing.T) {
+	var out bytes.Buffer
+	require.True(t, buildinfo.HandleVersionFlag("identityd", []string{"--version"}, &out))
+	assert.Contains(t, out.String(), "identityd version ")
+
+	require.False(t, buildinfo.HandleVersionFlag("identityd", nil, &out))
+}
 
 type middlewareStub struct {
 	info authnport.TokenInfo

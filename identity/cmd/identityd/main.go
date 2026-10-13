@@ -46,11 +46,17 @@ import (
 	quotaadapter "github.com/kikakkz/looming/identity/internal/quota/adapter"
 	quotaapp "github.com/kikakkz/looming/identity/internal/quota/app"
 	"github.com/kikakkz/looming/identity/migrations"
+	"github.com/kikakkz/looming/platform/go/buildinfo"
 )
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(log) // app-layer error logging lands in the same handler
+	// --version (AD-40 S1) answers before any wiring: the block prints
+	// and main returns for exit 0.
+	if buildinfo.HandleVersionFlag("identityd", os.Args[1:], os.Stdout) {
+		return
+	}
 	if err := run(log); err != nil {
 		log.Error("identityd exited", "err", err)
 		os.Exit(1)

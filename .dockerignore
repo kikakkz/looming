@@ -1,6 +1,7 @@
 # Build-context hygiene for the images that build from the bundle root
-# (topologyd since CLI-1, #108): VCS metadata, agent control plane,
-# docs, and test artifacts never belong in a build.
+# (every phase-1 image: topologyd since CLI-1 #108, gateway/identity
+# since #171's buildinfo): VCS metadata, agent control plane, docs, and
+# test artifacts never belong in a build.
 .git
 .wt
 .github

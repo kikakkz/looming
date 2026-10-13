@@ -113,7 +113,7 @@ type Contract struct {
 	BuildDir string
 	// Dockerfile is the compose build dockerfile, bundle-root-relative
 	// (set when BuildDir is a wider context than the component's own
-	// directory — topologyd's cross-module build).
+	// directory — every phase-1 build is bundle-rooted since #171).
 	Dockerfile string
 	// DigestDirs scopes the convergence-digest walk: the directories
 	// whose file contents the image build actually reads. Empty
@@ -153,14 +153,26 @@ func ReleaseNames() []string {
 // component are rejected at validate time. The map is the single
 // source for both the check and the render.
 var contracts = map[string]Contract{
-	domain.ComponentGatewayFront: {EnvPrefix: "GATEWAY", BuildDir: "gateway", ReleaseName: "gateway", ListenPort: "http", ListenEnv: "GATEWAY_LISTEN"},
-	domain.ComponentIdentityd:    {EnvPrefix: "IDENTITY", BuildDir: "identity", ReleaseName: "identity", ListenPort: "http", ListenEnv: "IDENTITY_LISTEN"},
-	// topologyd serves the join/rejoin API. CLI-1 (#108) moved its
-	// module's dependencies into platform/go, so its image builds from
-	// the bundle root (context "." + explicit dockerfile) and the
-	// convergence digest covers both directories the build reads.
-	// TOPOLOGY_DATABASE_URL rides the placement's config keys or
-	// env_file like any other secret material.
+	// Every phase-1 image builds from the bundle root with an explicit
+	// dockerfile: all three components consume the platform/go kit
+	// (topologyd since CLI-1 #108, gateway/identity since #171's
+	// buildinfo), and each module's replace directive pins platform/go
+	// to the sibling directory its Dockerfile copies (workspace mode
+	// off). The convergence digest covers both directories each build
+	// reads.
+	domain.ComponentGatewayFront: {
+		EnvPrefix: "GATEWAY", BuildDir: ".", Dockerfile: "gateway/Dockerfile", ReleaseName: "gateway",
+		DigestDirs: []string{"gateway", "platform/go"},
+		ListenPort: "http", ListenEnv: "GATEWAY_LISTEN",
+	},
+	domain.ComponentIdentityd: {
+		EnvPrefix: "IDENTITY", BuildDir: ".", Dockerfile: "identity/Dockerfile", ReleaseName: "identity",
+		DigestDirs: []string{"identity", "platform/go"},
+		ListenPort: "http", ListenEnv: "IDENTITY_LISTEN",
+	},
+	// topologyd serves the join/rejoin API. TOPOLOGY_DATABASE_URL rides
+	// the placement's config keys or env_file like any other secret
+	// material.
 	domain.ComponentTopologyd: {
 		EnvPrefix: "TOPOLOGY", BuildDir: ".", Dockerfile: "topology/Dockerfile", ReleaseName: "topology",
 		DigestDirs: []string{"platform/go", "topology"},
@@ -274,8 +286,8 @@ func postgresService(sp StatePostgres) map[string]any {
 
 // buildMap is the compose `build` block: the contract's context plus
 // GOPROXY passthrough, and the explicit dockerfile when the context is
-// a wider directory than the component's own (topologyd's cross-module
-// build; empty means the context's default Dockerfile).
+// a wider directory than the component's own (every phase-1 build
+// since #171; empty means the context's default Dockerfile).
 func buildMap(c Contract) map[string]any {
 	m := map[string]any{"context": c.BuildDir, "args": []string{"GOPROXY"}}
 	if c.Dockerfile != "" {
@@ -467,10 +479,10 @@ func Hash(content string) string {
 
 // buildContextDigest fingerprints every phase-1 component's digest
 // scope (its build directory by default; the contract's DigestDirs
-// when the image reads a wider set — topologyd's cross-module build
-// covers platform/go too): sorted (path, file-sha256) pairs
+// when the image reads a wider set — every component's cross-module
+// build covers platform/go too): sorted (path, file-sha256) pairs
 // combined into one digest, plus the root .dockerignore — which
-// governs what the topologyd cross-module context ships to the daemon
+// governs what the bundle-root build contexts ship to the daemon
 // without living inside any digest directory (dotfiles are skipped
 // except when a walked dir contains them). Dockerfiles reference the
 // directories, not their contents, so a source-only change leaves the
@@ -503,7 +515,7 @@ func buildContextDigest(root string) (string, error) {
 		}
 	}
 	// The bundle root's .dockerignore decides which files Docker
-	// actually sends for the topologyd "." context; an edit must
+	// actually sends for the "." build contexts; an edit must
 	// reconverge even though no digest directory contains it.
 	// #nosec G304 -- path is inside the operator-supplied bundle root.
 	data, readErr := os.ReadFile(filepath.Join(root, ".dockerignore"))

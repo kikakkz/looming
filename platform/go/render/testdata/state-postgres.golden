@@ -13,7 +13,8 @@ services:
         build:
             args:
                 - GOPROXY
-            context: gateway
+            context: .
+            dockerfile: gateway/Dockerfile
         environment:
             GATEWAY_LISTEN: :8080
             GATEWAY_UPSTREAM: http://10.0.0.13:4000

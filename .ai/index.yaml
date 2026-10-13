@@ -107,6 +107,9 @@
 # bullet and the release skill now state the S2 plan tense — pre-S2 the
 # tag remains the operational version source; all read_order anchors
 # resolve.
+# 2026-10-14 buildinfo S1 (#171) re-validated: AGENTS.md directory map
+# platform/go/ line names the buildinfo package (AD-40's --version
+# block); all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

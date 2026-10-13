@@ -200,9 +200,20 @@ jobs:
         run: |
           set -euo pipefail
           case "$COMPONENT" in
-            # topologyd builds from the bundle root with an explicit
-            # dockerfile: its go.mod replace-directive pins platform/go
-            # to the sibling directory (render contract).
+            # Every phase-1 image builds from the bundle root with an
+            # explicit dockerfile: all three components' go.mod
+            # replace-directives pin platform/go to the sibling
+            # directory the Dockerfiles copy (the render contract;
+            # topologyd since CLI-1 #108, gateway/identity since #171's
+            # buildinfo).
+            gateway)
+              context="."
+              dockerfile="gateway/Dockerfile"
+              ;;
+            identity)
+              context="."
+              dockerfile="identity/Dockerfile"
+              ;;
             topology)
               context="."
               dockerfile="topology/Dockerfile"

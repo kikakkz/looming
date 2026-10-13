@@ -98,13 +98,14 @@ func TestPinDiffersFromUnpinnedOnlyInBuildImage(t *testing.T) {
 
 	// Strip the swapped lines from both documents: what remains must
 	// be byte-equal, and the stripped sets must be exactly the build
-	// block (4 lines) versus the image line (1) — the pin's entire
+	// block (5 lines) versus the image line (1) — the pin's entire
 	// textual footprint.
 	buildLines := map[string]bool{
-		"        build:":               true,
-		"            args:":            true,
-		"                - GOPROXY":    true,
-		"            context: gateway": true,
+		"        build:":                             true,
+		"            args:":                          true,
+		"                - GOPROXY":                  true,
+		"            context: .":                     true,
+		"            dockerfile: gateway/Dockerfile": true,
 	}
 	strip := func(doc string, drop map[string]bool) []string {
 		var out []string
@@ -118,8 +119,8 @@ func TestPinDiffersFromUnpinnedOnlyInBuildImage(t *testing.T) {
 	assert.Equal(t, strip(unpinned[0].Compose, buildLines),
 		strip(pinned[0].Compose, map[string]bool{"        image: " + ref: true}),
 		"the pin changes exactly the build block → image line; all other bytes match")
-	assert.Equal(t, strings.Count(unpinned[0].Compose, "\n"), strings.Count(pinned[0].Compose, "\n")+3,
-		"four build lines are replaced by one image line")
+	assert.Equal(t, strings.Count(unpinned[0].Compose, "\n"), strings.Count(pinned[0].Compose, "\n")+4,
+		"five build lines are replaced by one image line")
 }
 
 // TestPartialPinLeavesUnpinnedComponentsOnBuild: the pin map is
@@ -138,7 +139,7 @@ func TestPartialPinLeavesUnpinnedComponentsOnBuild(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, arts, 1)
 	assert.Contains(t, arts[0].Compose, "image: ghcr.io/kikakkz/looming/gateway:v0.1.0")
-	assert.NotContains(t, arts[0].Compose, "        build:\n            args:\n                - GOPROXY\n            context: gateway",
+	assert.NotContains(t, arts[0].Compose, "        build:\n            args:\n                - GOPROXY\n            context: .\n            dockerfile: gateway/Dockerfile",
 		"the pinned gateway-front lost its build block")
 	assert.Contains(t, arts[0].Compose, "context: .",
 		"topologyd is unpinned: its cross-module build context stays")
