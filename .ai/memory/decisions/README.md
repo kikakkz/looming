@@ -4,6 +4,7 @@
 
 ## Active
 
+- [AD-40 — component-internal VERSION as the canonical version source](0040-component-internal-version-as-the-canonical.md)
 - [AD-39 — release pipeline and artifact-only install](0039-release-pipeline-and-artifact-only-install.md)
 - [AD-38 — management agent: deterministic-hard, LLM-soft placement derivation](0038-management-agent-deterministic-hard-llm-soft.md)
 - [AD-37 — looming CLI: single binary, two faces](0037-looming-cli-single-binary-two-faces.md)

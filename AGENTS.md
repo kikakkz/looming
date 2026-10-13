@@ -26,8 +26,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 3. **Attribution.** Humans sign DCO (`git commit -s`); AI assistance is
    disclosed with `Assisted-by:` / `Generated-by:` trailers. `Co-Authored-By:`
    is banned for AI. AI never signs `Signed-off-by`.
-4. **License.** Apache-2.0. New source files carry the SPDX header:
-   `# SPDX-License-Identifier: Apache-2.0`.
+4. **License.** Apache-2.0; new source files carry the SPDX header `# SPDX-License-Identifier: Apache-2.0`.
 5. **Never commit secrets.** Credentials, tokens, and private keys do not
    enter the repository, ever. Report leaked secrets by opening a security
    advisory, not an issue.
@@ -149,8 +148,7 @@ cites its `kind/flake` issue number; test-only helpers live under
   promote (dogfood migration target — e.g. pr_watch.py -> product
   judge); AD-26's seam is a literal migration checklist.
 - Dogfood automation failure is issue-worthy: when a repo automation
-  (ci-gate job, pr-watch, housekeeping, labeler) flakes or misbehaves,
-  file an issue instead of silently retrying.
+  (ci-gate job, pr-watch, housekeeping, labeler) flakes or misbehaves, file an issue instead of silently retrying.
 - Design-first trigger: a change that is user/operator-facing or
   crosses an AD-23 context boundary lands as `kind/design` with an AD
   before code; everything else is a plain issue.
@@ -188,11 +186,13 @@ cites its `kind/flake` issue number; test-only helpers live under
 ## Versioning and releases
 
 - Conventional Commits, enforced on PR titles (squash merge).
-- Hybrid versioning: components carry independent semver image tags; a
+- Component version authority (AD-40): the component-root `VERSION`
+  file is the designated canonical source; its consistency gate and
+  re-sourced derivation land in S2 (#168) — pre-S2 the tag stays operational.
+- Hybrid versioning: components carry independent semver versions; a
   bundle release is a git tag plus a manifest pinning every component's
   exact version. Only changed components are published per release.
-  Release details: [.ai/skills/release/SKILL.md](.ai/skills/release/SKILL.md) (policy),
-  [docs/architecture/release-l1.md](docs/architecture/release-l1.md) (mechanics).
+  Release details: [.ai/skills/release/SKILL.md](.ai/skills/release/SKILL.md) (policy), [docs/architecture/release-l1.md](docs/architecture/release-l1.md) (mechanics).
 
 ## Bootstrap exception
 

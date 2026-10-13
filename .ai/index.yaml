@@ -98,6 +98,15 @@
 # (interactive menu lives in the AI agent); the scripts/ entry sentence
 # names the same; same-line edits, net-zero preserved; all read_order
 # anchors resolve.
+# 2026-10-13 component VERSION source (#168) re-validated: AD-40 lands
+# (regenerated decisions/README.md), AGENTS.md's Versioning section gains
+# the VERSION-file authority bullet (net-zero against the folded license,
+# dogfood, and release-pointer lines) and the release skill's component
+# step gains the VERSION bump; all read_order anchors resolve.
+# 2026-10-13 #169 review re-validated: AGENTS.md's VERSION-authority
+# bullet and the release skill now state the S2 plan tense — pre-S2 the
+# tag remains the operational version source; all read_order anchors
+# resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):

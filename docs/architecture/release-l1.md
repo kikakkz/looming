@@ -2,7 +2,8 @@
 
 Derived in #153. Authority: the release skill
 ([.ai/skills/release/SKILL.md](../../.ai/skills/release/SKILL.md)) —
-this design makes its policy mechanical; AD-39 records the decisions.
+this design makes its policy mechanical; AD-39 records the decisions,
+AD-40 the component version source (#168).
 Vocabulary: [glossary](glossary.md).
 
 ## 1. Scope
@@ -30,8 +31,11 @@ anonymous pull).
 
 Two-level versions, per the skill:
 
-- **Component version** — independent semver per component, tagged on
-  its image: `ghcr.io/kikakkz/looming/<component>:vX.Y.Z`.
+- **Component version** — independent semver per component. The
+  canonical source is a `VERSION` file at the component root (single
+  line `vX.Y.Z`, language-neutral); the git tag `<component>/vX.Y.Z`
+  and the image tag `ghcr.io/kikakkz/looming/<component>:vX.Y.Z` are
+  marks and replicas of it (#168, AD-40).
 - **Bundle version** — a git tag `vX.Y.Z` plus a manifest pinning
   every component's exact version. A tested combination snapshot,
   never a full re-release.
@@ -99,6 +103,21 @@ Three surfaces, three semantics — kept strictly separate:
    buildx in the publish job) — matching the CLI's platform matrix, so
    an arm64 host never downloads a CLI it cannot run components for.
    (Digest-pinned manifests remain the later hardening — §4.)
+
+   A component's version is canonical in the component, not on the tag:
+   AD-40 designates a `VERSION` file at the component root (single
+   line `vX.Y.Z`, language-neutral) as the single source of truth; the
+   git tag and the image tag mark and replicate it (#168). Once S2
+   lands, the publish job enforces a third mechanic alongside (a) and
+   (b) — (c) *version consistency*: the job resolves the pushed tag's
+   version and fails closed when it differs from the component's
+   VERSION file, so tag and file can never disagree on what was
+   released. Until S2, the tag stays the operational version source —
+   the driver still derives from git tags and nothing gates the match.
+   The double-truth risk the file invites is closed by CI once (c) is
+   live, and — this repo being AI-developed — the constraint is also
+   written into AGENTS.md and the release skill, so AI contributors
+   hold it by construction.
 2. **Tag conventions are the release trigger.** Component release:
    push `<component>/vX.Y.Z` (e.g. `gateway/v0.1.0`). Bundle release:
    push `vX.Y.Z`. The release workflows match on these tag shapes;
@@ -229,6 +248,37 @@ Filed as issues after this design lands (the #107 pattern).
 - **First release.** Cut the three component tags then `v0.1.0`;
   verify the published artifacts with the R4 installer on a clean
   host.
+
+Mechanism refinements from #168 (AD-40), filed as issues the same way:
+
+- **S1 — rich `--version` everywhere.** `platform/go/buildinfo`:
+  version (ldflags-injected, default `dev`) + commit/buildTime/dirty.
+  Build time is the injected BUILD_TIME — the build moment CI passes,
+  never Go's vcs.time (the commit time): rebuilding one commit must
+  report a new build time, and vcs.time serves only as the commit-time
+  display on dev builds when nothing is injected. Commit and dirty
+  prefer the BuildInfo VCS stamps so local `.git` builds self-report
+  while CI builds without `.git` fall back to injected values;
+  `--version` on the four binaries (cmd/looming, cmd/gateway,
+  cmd/identityd, cmd/topologyd) printing the promu-shaped block
+  (version, commit + dirty, build time, go, platform). Acceptance:
+  every binary prints the block; unit tests cover the dev default,
+  injected values, the BuildInfo-preferred path, and the build-metadata
+  split — a rebuild of one commit changes buildTime only.
+- **S2 — VERSION files + consistency gate + re-sourced derivation.**
+  The three component roots gain `VERSION` (v0.1.0); the R1 job fails
+  closed when the pushed tag's version != the file's content;
+  release_version and `release.sh --list` read the files (no git tag
+  fetch); release.sh strings the three-step flow (bump-VERSION PR →
+  merge → tag). Acceptance: a mismatched tag push rejects before any
+  image push; `--list` works on a tagless clone.
+- **S3 — image/CI stamping + OCI labels.** Dockerfiles take
+  VERSION/COMMIT/BUILD_TIME build args into ldflags and carry the OCI
+  labels (org.opencontainers.image.version/revision); R1's component
+  job and R3's CLI cross-compile pass the values. Acceptance: the
+  published image carries the labels at the tag's version; the
+  released CLI's `--version` reports version and commit matching the
+  release.
 
 ## 6. Consequences
 
