@@ -105,16 +105,19 @@ Three surfaces, three semantics — kept strictly separate:
    (Digest-pinned manifests remain the later hardening — §4.)
 
    A component's version is canonical in the component, not on the tag:
-   a `VERSION` file at the component root (single line `vX.Y.Z`,
-   language-neutral) is the single source of truth; the git tag and
-   the image tag mark and replicate it (#168, AD-40). The publish job
-   enforces a third mechanic alongside (a) and (b): (c) *version
-   consistency* — the job resolves the pushed tag's version and fails
-   closed when it differs from the component's VERSION file, so tag
-   and file can never disagree on what was released. The double-truth
-   risk this introduces is closed by CI, and — this repo being
-   AI-developed — the same constraint is written into AGENTS.md and
-   the release skill, so AI contributors hold it by construction.
+   AD-40 designates a `VERSION` file at the component root (single
+   line `vX.Y.Z`, language-neutral) as the single source of truth; the
+   git tag and the image tag mark and replicate it (#168). Once S2
+   lands, the publish job enforces a third mechanic alongside (a) and
+   (b) — (c) *version consistency*: the job resolves the pushed tag's
+   version and fails closed when it differs from the component's
+   VERSION file, so tag and file can never disagree on what was
+   released. Until S2, the tag stays the operational version source —
+   the driver still derives from git tags and nothing gates the match.
+   The double-truth risk the file invites is closed by CI once (c) is
+   live, and — this repo being AI-developed — the constraint is also
+   written into AGENTS.md and the release skill, so AI contributors
+   hold it by construction.
 2. **Tag conventions are the release trigger.** Component release:
    push `<component>/vX.Y.Z` (e.g. `gateway/v0.1.0`). Bundle release:
    push `vX.Y.Z`. The release workflows match on these tag shapes;
