@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for check_release_workflow.py (#159, R3 bundle contract
-#161, AD-40 VERSION gate #172)."""
+#161, AD-40 VERSION gate #172, S3 build stamping #173)."""
 
 import shutil
 import sys
@@ -112,7 +112,11 @@ jobs:
 __GATE____PRECHECK__      - name: Build and push multi-arch image
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
-        run: docker buildx build --build-arg VERSION="$VERSION" --tag ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway
+        run: |
+          set -euo pipefail
+          COMMIT="$(git rev-parse HEAD)"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          docker buildx build --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" --build-arg BUILD_TIME="$BUILD_TIME" --tag ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway
   bundle:
     if: ${{ github.event_name == 'push' && !contains(github.ref_name, '/') }}
     permissions:
@@ -153,8 +157,9 @@ __GATE____PRECHECK__      - name: Build and push multi-arch image
       - name: Cross-compile CLI
         run: |
           set -euo pipefail
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o looming-linux-amd64 ./cmd/looming
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o looming-linux-arm64 ./cmd/looming
+          ldflags="-X github.com/kikakkz/looming/platform/go/buildinfo.version=$VERSION -X github.com/kikakkz/looming/platform/go/buildinfo.commit=$COMMIT -X github.com/kikakkz/looming/platform/go/buildinfo.buildTime=$BUILD_TIME"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o looming-linux-amd64 -ldflags "$ldflags" ./cmd/looming
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o looming-linux-arm64 -ldflags "$ldflags" ./cmd/looming
       - name: Write release notes
         run: |
           set -euo pipefail
@@ -697,9 +702,11 @@ class VersionGateTests(unittest.TestCase):
     def test_gate_after_build_fails(self):
         # the gate must reject before the build/push sequence runs
         text = VALID.replace(GATE, "")
-        build_line = ('        run: docker buildx build --build-arg '
-                      'VERSION="$VERSION" --tag '
-                      'ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway\n')
+        build_line = (
+            '          docker buildx build --build-arg VERSION="$VERSION" '
+            '--build-arg COMMIT="$COMMIT" --build-arg '
+            'BUILD_TIME="$BUILD_TIME" --tag '
+            'ghcr.io/kikakkz/looming/gateway:v0.1.0 --push gateway\n')
         text = text.replace(build_line, build_line + GATE)
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
@@ -710,6 +717,51 @@ class VersionGateTests(unittest.TestCase):
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
         self.assertIn("build arg", problems[0])
+
+
+class StampTests(unittest.TestCase):
+    """S3 (#173): the published artifacts carry the build-info stamp —
+    images via COMMIT/BUILD_TIME build args, the released CLI via
+    buildinfo -ldflags injection."""
+
+    def test_build_without_commit_build_arg_fails(self):
+        text = VALID.replace('--build-arg COMMIT="$COMMIT" ', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("tag commit", problems[0])
+
+    def test_build_without_build_time_build_arg_fails(self):
+        text = VALID.replace('--build-arg BUILD_TIME="$BUILD_TIME" ', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("build time", problems[0])
+
+    def test_build_without_git_rev_parse_fails(self):
+        # github.sha is a dispatch's branch head, not the tag's commit;
+        # the commit must come from the pinned checkout
+        text = VALID.replace('COMMIT="$(git rev-parse HEAD)"\n', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("git rev-parse HEAD", problems[0])
+
+    def test_build_without_utc_timestamp_fails(self):
+        text = VALID.replace(
+            'BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"\n', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("ISO 8601", problems[0])
+
+    def test_cross_compile_without_ldflags_fails(self):
+        text = VALID.replace(' -ldflags "$ldflags"', "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("-ldflags", problems[0])
+
+    def test_cross_compile_without_buildinfo_fields_fails(self):
+        text = VALID.replace("buildinfo.buildTime=$BUILD_TIME", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("buildinfo.buildTime", problems[0])
 
 
 class CliTests(unittest.TestCase):

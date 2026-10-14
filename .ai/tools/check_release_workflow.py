@@ -33,7 +33,12 @@ structure. Checks target behavior, not names:
     read, validated as one vX.Y.Z line, and string-compared against
     the resolved tag version, exiting non-zero on mismatch with AD-40
     cited; the build receives the version as a docker build arg
-    (S3 wires it into ldflags/OCI labels)
+  - S3 (#173): the published artifacts carry the build-info stamp —
+    the component build passes COMMIT (the checked-out tag's commit,
+    never github.sha — a dispatch's github.sha is the branch head, not
+    the tag) and BUILD_TIME (ISO 8601 UTC) alongside VERSION, and the
+    CLI cross-compile injects version/commit/buildTime into buildinfo
+    via -ldflags so the released binary self-reports the release
   - R3: the bundle resolve step rejects component-shaped tags, validates
     vX.Y.Z, and writes ``git_ref``; the bundle checkout pins that ref
   - R3: the pinned-image smoke gate pulls every pin, boots a postgres
@@ -98,6 +103,16 @@ VERSION_GATE_SHAPE_GUARD = (
 VERSION_GATE_COMPARE = '[[ "$file_version" != "$VERSION" ]]'
 BUILD_STEP = "Build and push multi-arch image"
 VERSION_BUILD_ARG = '--build-arg VERSION'
+# S3 (#173): COMMIT is the checked-out tag's commit (the workflow pins
+# the tag ref, so `git rev-parse HEAD` is the released commit in every
+# trigger mode; github.sha is a dispatch's branch head, not the tag);
+# BUILD_TIME is the build moment, ISO 8601 UTC.
+COMMIT_BUILD_ARG = '--build-arg COMMIT'
+BUILD_TIME_BUILD_ARG = '--build-arg BUILD_TIME'
+BUILD_COMMIT_RESOLUTION = "git rev-parse HEAD"
+BUILD_TIME_STAMP = 'date -u +%Y-%m-%dT%H:%M:%SZ'
+BUILDINFO_LDFLAGS = ("buildinfo.version", "buildinfo.commit",
+                     "buildinfo.buildTime")
 EXPECT_IDENTITY_RE = re.compile(r'expect\s+"[^"]*identity[^"]*"\s+400\b')
 EXPECT_TOPOLOGY_RE = re.compile(r'expect\s+"[^"]*topology[^"]*"\s+401\b')
 EXPECT_GATEWAY_RE = re.compile(r'expect\s+"[^"]*gateway[^"]*"\s+404\b')
@@ -278,6 +293,45 @@ def _version_gate_problems(text: str) -> list[str]:
     elif VERSION_BUILD_ARG not in build:
         bad.append("component build does not pass the VERSION content "
                    "as a docker build arg (S3 prep)")
+    return bad
+
+
+def _build_stamp_problems(text: str) -> list[str]:
+    """S3 (#173): the published artifacts must carry the build-info
+    stamp. The component build passes COMMIT and BUILD_TIME build args
+    alongside VERSION — COMMIT resolved from the checked-out tag (never
+    github.sha: a workflow_dispatch's github.sha is the branch head,
+    not the tag's commit), BUILD_TIME the ISO 8601 UTC build moment.
+    The CLI cross-compile injects the same three values into buildinfo
+    via -ldflags so the released binary self-reports the release.
+    Absent steps are reported by their own checks; this one adds only
+    the stamp-specific pieces."""
+    bad = []
+    build = _step_run(text, BUILD_STEP)
+    if build is not None:
+        if COMMIT_BUILD_ARG not in build:
+            bad.append("component build does not pass the tag commit as "
+                       "a docker build arg (S3)")
+        if BUILD_TIME_BUILD_ARG not in build:
+            bad.append("component build does not pass the build time as "
+                       "a docker build arg (S3)")
+        if BUILD_COMMIT_RESOLUTION not in build:
+            bad.append("component build does not resolve the commit from "
+                       "the checked-out tag (`git rev-parse HEAD` missing — "
+                       "github.sha is a dispatch's branch head, not the "
+                       "tag's commit)")
+        if BUILD_TIME_STAMP not in build:
+            bad.append("component build does not stamp an ISO 8601 UTC "
+                       "build time (`date -u +%Y-%m-%dT%H:%M:%SZ` missing)")
+    cross = _step_run(text, CROSS_STEP)
+    if cross is not None and "-ldflags" not in cross:
+        bad.append("CLI cross-compile does not inject build info via "
+                   "-ldflags (S3)")
+    elif cross is not None:
+        for field in BUILDINFO_LDFLAGS:
+            if field not in cross:
+                bad.append("CLI cross-compile's -ldflags do not set "
+                           f"buildinfo's {field} (S3)")
     return bad
 
 
@@ -473,7 +527,8 @@ def _bundle_problems(text: str) -> list[str]:
 
 
 def problems(text: str) -> list[str]:
-    """Return the list of R1+R3 contract pieces missing from the workflow."""
+    """Return the list of R1+R3+S2+S3 contract pieces missing from the
+    workflow."""
     missing = []
     active = _active_push_tags(text)
     for pattern in EXPECTED_TAG_PATTERNS:
@@ -513,6 +568,7 @@ def problems(text: str) -> list[str]:
     if CHECKOUT_TAG_REF not in text:
         missing.append("checkout does not pin the resolved tag ref")
     missing += _version_gate_problems(text)
+    missing += _build_stamp_problems(text)
     missing += _bundle_problems(text)
     return missing
 
