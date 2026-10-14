@@ -245,6 +245,13 @@ class ReleaseShTests(unittest.TestCase):
         # restored, no tag cut.
         remote = self.bare_remote()
         self.git("push", "-q", "origin", "main")
+        # HEAD sits on an unrelated feature branch — the bump branch must
+        # still come from origin/main, never from whatever HEAD carries
+        # (#176 review).
+        self.git("checkout", "-q", "-b", "feat/unrelated")
+        (self.repo / "unrelated.txt").write_text("x", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "unrelated work")
         args_log = self.tmp / "gh-args.log"
         env = dict(self.env, PATH=self.gh_path(args_log))
         r = self.run_script("gateway", "patch", env=env)
@@ -252,7 +259,14 @@ class ReleaseShTests(unittest.TestCase):
         self.assertIn("step 1", r.stdout)
         self.assertEqual(self.heads(remote),
                          ["chore/bump-gateway-v0.1.2", "main"])
-        self.assertEqual(self.git("branch", "--show-current").strip(), "main")
+        self.assertEqual(self.git("branch", "--show-current").strip(),
+                         "feat/unrelated")
+        # The bump branch sits on origin/main: it neither contains nor
+        # forks from the unrelated work.
+        self.assertEqual(
+            self.git("merge-base", "chore/bump-gateway-v0.1.2",
+                     "origin/main").strip(),
+            self.git("rev-parse", "origin/main").strip())
         # The pushed branch carries the bumped file.
         self.git("fetch", "-q", "origin", "chore/bump-gateway-v0.1.2")
         out = self.git("show", "FETCH_HEAD:gateway/VERSION")
@@ -260,6 +274,10 @@ class ReleaseShTests(unittest.TestCase):
         # The PR was asked for with the AD-40 title and issue ref.
         logged = args_log.read_text(encoding="utf-8")
         self.assertIn("chore: bump gateway VERSION to v0.1.2 (#168)", logged)
+        # Both repo-scoped gh calls pin this repository — GH_HOST/GH_REPO
+        # overrides must not redirect them (#176 review).
+        self.assertGreaterEqual(logged.count("--repo"), 2)
+        self.assertIn("kikakkz/looming", logged)
         # Step 2 has not happened: no release tag exists anywhere.
         self.assertNotIn("gateway/v0.1.2", self.tags())
         r2 = subprocess.run(
@@ -336,8 +354,6 @@ class ReleaseShTests(unittest.TestCase):
     def gh_path(self, args_log: Path) -> str:
         """A PATH whose `gh` answers the driver's two calls (no PR yet;
         create succeeds) and logs every argument."""
-        real_gh = shutil.which("gh")
-        self.assertIsNotNone(real_gh)
         shim = self.tmp / "shim-gh"
         shim.mkdir()
         (shim / "gh").write_text(
@@ -355,8 +371,6 @@ class ReleaseShTests(unittest.TestCase):
 
     def gh_failing_path(self) -> str:
         """A PATH whose `gh` fails every call (auth/network outage)."""
-        real_gh = shutil.which("gh")
-        self.assertIsNotNone(real_gh)
         shim = self.tmp / "shim-gh-fail"
         shim.mkdir()
         (shim / "gh").write_text(

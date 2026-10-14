@@ -42,6 +42,12 @@
 
 set -euo pipefail
 
+# Non-interactive credential lookup everywhere (non-interactive-credential-
+# lookup): the terminal prompt and the askpass helper are both disabled,
+# exported so no network git call below can re-enable them by omission.
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="$REPO_ROOT/bundle/manifest.yaml"
 VERSION_TOOL="$REPO_ROOT/.ai/tools/release_version.py"
@@ -89,8 +95,9 @@ file already names the target — the flow starts directly at step 2.
 "current" is "none" for a component with no VERSION file yet (a stderr
 note marks it unreleased). --list is the data source for AI agents'
 native menus (list → menu → non-interactive run); this script has no
-interactive prompts. --list and --dry-run are read-only: no git fetch,
-no ref updates. --dry-run prints the full three-step plan and stops.
+interactive prompts. --list and --dry-run are read-only:
+no fetch, no ref updates. --dry-run prints the full three-step plan and
+stops.
 
 The release CI gate (AD-40) refuses to publish when the pushed tag and
 the VERSION file disagree — land the bump first, tag second.
@@ -401,8 +408,11 @@ EOF
 
 open_pr() { # $1 = branch, $2 = title
     local url
-    if ! gh pr view "$1" >/dev/null 2>&1; then
-        url="$(gh pr create --base main --head "$1" --title "$2" --body "$(pr_body)")" \
+    # --repo pins every repo-scoped call to this repository (gh-access-
+    # check-must-be-host-pinned): GH_HOST/GH_REPO overrides must not
+    # redirect the PR check or creation anywhere else.
+    if ! gh pr view --repo kikakkz/looming "$1" >/dev/null 2>&1; then
+        url="$(gh pr create --repo kikakkz/looming --base main --head "$1" --title "$2" --body "$(pr_body)")" \
             || die "gh pr create failed — the bump branch $1 is pushed; open the PR manually, then re-run after merge"
         log "step 1 — PR opened: $url"
     else
@@ -422,8 +432,10 @@ step1_bump_pr() { # $1 = 1 when the worktree already carries TARGET
         log "step 1 — reusing existing bump branch $BRANCH_NAME"
         git checkout -q "$BRANCH_NAME"
     else
-        log "step 1 — creating bump branch $BRANCH_NAME"
-        git checkout -q -b "$BRANCH_NAME"
+        log "step 1 — creating bump branch $BRANCH_NAME from origin/main"
+        GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git fetch -q origin main \
+            || die "git fetch origin main failed — resolve the network/auth issue and re-run"
+        git checkout -q -b "$BRANCH_NAME" origin/main
     fi
     write_version_file
     git add -- "$VERSION_REL"
