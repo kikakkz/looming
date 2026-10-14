@@ -270,9 +270,10 @@ Mechanism refinements from #168 (AD-40), filed as issues the same way:
   fetch); release.sh strings the three-step flow (bump-VERSION PR →
   merge → tag). Acceptance: a mismatched tag push rejects before any
   image push; `--list` works on a tagless clone.
-- **S3 — image/CI stamping + OCI labels.** Dockerfiles take
+- **S3 — image/CI stamping + OCI labels (landed #173).**
+  Dockerfiles take
   VERSION/COMMIT/BUILD_TIME build args into ldflags and carry the OCI
-  labels (org.opencontainers.image.version/revision); R1's component
+  labels (org.opencontainers.image.version/revision/created); R1's component
   job and R3's CLI cross-compile pass the values. Acceptance: the
   published image carries the labels at the tag's version; the
   released CLI's `--version` reports version and commit matching the

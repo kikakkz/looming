@@ -230,12 +230,17 @@ jobs:
           # supplies GOPROXY so a mirrored/offline build environment
           # overrides the module proxy without editing the Dockerfile;
           # the repo variable is the CI knob, the Go default the
-          # fallback. VERSION is the AD-40 file content (S2 #172) —
-          # S3 (#168) consumes it into buildinfo ldflags + OCI labels.
+          # fallback. VERSION is the AD-40 file content (S2 #172).
           GOPROXY: ${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
+          # S3 (#173): stamp the image with the tag's commit and the
+          # build moment. github.sha is NOT the released commit for a
+          # workflow_dispatch — the checkout above pins the tag's ref,
+          # so HEAD is the released commit in every trigger mode.
+          COMMIT="$(git rev-parse HEAD)"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           case "$COMPONENT" in
             # Every phase-1 image builds from the bundle root with an
             # explicit dockerfile: all three components' go.mod
@@ -264,6 +269,8 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --build-arg GOPROXY \
             --build-arg VERSION="$VERSION" \
+            --build-arg COMMIT="$COMMIT" \
+            --build-arg BUILD_TIME="$BUILD_TIME" \
             --file "$dockerfile" \
             --tag "$IMAGE" \
             --push \
@@ -521,17 +528,27 @@ jobs:
       # The CLI is a host binary (release-l1 §2): cross-compile the two
       # phase-1 platforms from the tagged sources, CGO off, workspace
       # off (cli/go.mod's replace pins platform/go — the same hermetic
-      # shape as the component Dockerfiles).
+      # shape as the component Dockerfiles). S3 (#173): the released
+      # binary carries the same build info as the images — the bundle
+      # version, the tag's commit (HEAD is pinned by the checkout
+      # above, so it is the released commit in every trigger mode), and
+      # the build moment, ISO 8601 UTC.
       - name: Cross-compile CLI
         env:
           GOPROXY: ${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
           cd cli
+          COMMIT="$(git rev-parse HEAD)"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ldflags="-X github.com/kikakkz/looming/platform/go/buildinfo.version=$VERSION -X github.com/kikakkz/looming/platform/go/buildinfo.commit=$COMMIT -X github.com/kikakkz/looming/platform/go/buildinfo.buildTime=$BUILD_TIME"
           CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH=amd64 \
-            go build -trimpath -o "$GITHUB_WORKSPACE/looming-linux-amd64" ./cmd/looming
+            go build -trimpath -ldflags "$ldflags" \
+            -o "$GITHUB_WORKSPACE/looming-linux-amd64" ./cmd/looming
           CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH=arm64 \
-            go build -trimpath -o "$GITHUB_WORKSPACE/looming-linux-arm64" ./cmd/looming
+            go build -trimpath -ldflags "$ldflags" \
+            -o "$GITHUB_WORKSPACE/looming-linux-arm64" ./cmd/looming
           ls -l "$GITHUB_WORKSPACE"/looming-linux-*
 
       # Notes from conventional commits: the pinned-combination table
