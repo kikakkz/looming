@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Canonical component version (AD-40): this file is the single source of
+# truth for gateway's version — the git tag `gateway/vX.Y.Z` and the image
+# tag mark it and must equal this content exactly. The release CI
+# consistency gate refuses to publish on mismatch (release-l1 §3.1(c)).
+v0.1.0

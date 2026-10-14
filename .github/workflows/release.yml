@@ -142,6 +142,41 @@ jobs:
           # needs the persisted token either.
           persist-credentials: false
 
+      # AD-40 consistency gate (release-l1 §3.1(c), S2 #172): the
+      # component-root VERSION file is the canonical version source and
+      # the pushed tag is its mark, never an independent truth. A tag
+      # that disagrees with the file must never publish: read the file,
+      # fail closed on unparsable content, and refuse the mismatch
+      # before any registry write.
+      - name: Check VERSION consistency
+        if: needs.resolve.outputs.verify_only == 'false'
+        env:
+          COMPONENT: ${{ needs.resolve.outputs.component }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # CodeRabbit #176: the whole file parses under the canonical
+          # exactly-one-version-line rule (.ai/tools/release_version.py
+          # read_version_file) — a first-line-only read lets a second
+          # version line pass, and blanket whitespace stripping lets
+          # "v 0.1.0" through. Edge whitespace is trimmed per line,
+          # internal whitespace is not.
+          mapfile -t version_lines < <(grep -Ev '^[[:space:]]*(#|$)' "$COMPONENT/VERSION")
+          if [[ "${#version_lines[@]}" -ne 1 ]]; then
+            echo "::error::$COMPONENT/VERSION must hold exactly one vX.Y.Z version line (got ${#version_lines[@]}: ${version_lines[*]:-<none>})"
+            exit 1
+          fi
+          file_version="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"${version_lines[0]}")"
+          if [[ ! "$file_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$COMPONENT/VERSION holds no single vX.Y.Z version line (got '${version_lines[0]}')"
+            exit 1
+          fi
+          if [[ "$file_version" != "$VERSION" ]]; then
+            echo "::error::AD-40 consistency gate: $COMPONENT/VERSION is '$file_version' but tag $COMPONENT/$VERSION resolves to '$VERSION' — the tag must mark the file; land the VERSION bump first (release-l1 §3.1(c), AD-40)"
+            exit 1
+          fi
+          echo "AD-40 consistency gate green: $COMPONENT/VERSION == $VERSION"
+
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         if: needs.resolve.outputs.verify_only == 'false'
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -195,8 +230,10 @@ jobs:
           # supplies GOPROXY so a mirrored/offline build environment
           # overrides the module proxy without editing the Dockerfile;
           # the repo variable is the CI knob, the Go default the
-          # fallback.
+          # fallback. VERSION is the AD-40 file content (S2 #172) —
+          # S3 (#168) consumes it into buildinfo ldflags + OCI labels.
           GOPROXY: ${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           case "$COMPONENT" in
@@ -226,6 +263,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg GOPROXY \
+            --build-arg VERSION="$VERSION" \
             --file "$dockerfile" \
             --tag "$IMAGE" \
             --push \

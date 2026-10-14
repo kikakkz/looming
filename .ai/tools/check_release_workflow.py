@@ -28,6 +28,12 @@ structure. Checks target behavior, not names:
     appears; the workflow_dispatch ``verify_only`` input exists; the
     immutable pre-check fails closed; ``resolve`` writes ``git_ref``
     and the checkout pins it
+  - S2 (#172, AD-40): the publish job runs a VERSION consistency gate
+    before the image build — the component's VERSION file content is
+    read, validated as one vX.Y.Z line, and string-compared against
+    the resolved tag version, exiting non-zero on mismatch with AD-40
+    cited; the build receives the version as a docker build arg
+    (S3 wires it into ldflags/OCI labels)
   - R3: the bundle resolve step rejects component-shaped tags, validates
     vX.Y.Z, and writes ``git_ref``; the bundle checkout pins that ref
   - R3: the pinned-image smoke gate pulls every pin, boots a postgres
@@ -83,6 +89,15 @@ BUNDLE_GIT_REF_RE = re.compile(
     r"git_ref=refs/tags/\$REF_NAME\"?\s*>>\s*\"\$GITHUB_OUTPUT\"")
 BUNDLE_CHECKOUT_REF = "ref: ${{ steps.resolve.outputs.git_ref }}"
 GATE_STEP = "Pinned-image smoke gate"
+# S2 (#172, AD-40): the component's VERSION file is the canonical
+# version source; the publish job gates on tag == file content and
+# passes the version into the image build (S3 consumes the arg).
+VERSION_GATE_STEP = "Check VERSION consistency"
+VERSION_GATE_SHAPE_GUARD = (
+    'if [[ ! "$file_version" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then')
+VERSION_GATE_COMPARE = '[[ "$file_version" != "$VERSION" ]]'
+BUILD_STEP = "Build and push multi-arch image"
+VERSION_BUILD_ARG = '--build-arg VERSION'
 EXPECT_IDENTITY_RE = re.compile(r'expect\s+"[^"]*identity[^"]*"\s+400\b')
 EXPECT_TOPOLOGY_RE = re.compile(r'expect\s+"[^"]*topology[^"]*"\s+401\b')
 EXPECT_GATEWAY_RE = re.compile(r'expect\s+"[^"]*gateway[^"]*"\s+404\b')
@@ -223,6 +238,46 @@ def _bundle_resolve_problems(text: str) -> list[str]:
                    "$GITHUB_OUTPUT")
     if BUNDLE_CHECKOUT_REF not in text:
         bad.append("bundle checkout does not pin the resolved tag ref")
+    return bad
+
+
+def _version_gate_problems(text: str) -> list[str]:
+    """The AD-40 consistency gate (S2, #172): before any image build,
+    the component's VERSION file content must be read, validated as a
+    single vX.Y.Z line (fail closed on anything else), and
+    string-compared against the resolved tag version — a mismatch or a
+    missing citation refuses the publish. The build also receives the
+    version as a docker build arg, ready for S3's ldflags/OCI wiring."""
+    bad = []
+    script = _step_run(text, VERSION_GATE_STEP)
+    if script is None:
+        bad.append("VERSION consistency gate step absent (AD-40 S2, #172: "
+                   "tag and VERSION file must agree before publishing)")
+    else:
+        if '"$COMPONENT/VERSION"' not in script:
+            bad.append("VERSION gate does not read the component's "
+                       "VERSION file")
+        if VERSION_GATE_SHAPE_GUARD not in script:
+            bad.append("VERSION gate does not fail closed on unparsable "
+                       "file content (no vX.Y.Z shape guard)")
+        if VERSION_GATE_COMPARE not in script:
+            bad.append("VERSION gate does not string-compare the file "
+                       "version against the resolved tag version")
+        if "AD-40" not in script:
+            bad.append("VERSION gate error message does not cite AD-40")
+        if "exit 1" not in script:
+            bad.append("VERSION gate does not exit non-zero on mismatch")
+        build_pos = text.find(f"- name: {BUILD_STEP}")
+        gate_pos = text.find(f"- name: {VERSION_GATE_STEP}")
+        if build_pos != -1 and gate_pos > build_pos:
+            bad.append("VERSION gate must run before the image build "
+                       "(reject before any push)")
+    build = _step_run(text, BUILD_STEP)
+    if build is None:
+        bad.append("component build step absent")
+    elif VERSION_BUILD_ARG not in build:
+        bad.append("component build does not pass the VERSION content "
+                   "as a docker build arg (S3 prep)")
     return bad
 
 
@@ -457,6 +512,7 @@ def problems(text: str) -> list[str]:
         missing.append("resolve job outputs do not map `git_ref`")
     if CHECKOUT_TAG_REF not in text:
         missing.append("checkout does not pin the resolved tag ref")
+    missing += _version_gate_problems(text)
     missing += _bundle_problems(text)
     return missing
 

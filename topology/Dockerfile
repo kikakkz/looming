@@ -13,6 +13,9 @@
 FROM golang:1.25 AS build
 WORKDIR /src/topology
 ARG GOPROXY=https://proxy.golang.org,direct
+# AD-40 (S2 #172): release CI passes the component VERSION file content;
+# S3 (#168) wires it into buildinfo ldflags + the OCI image label.
+ARG VERSION
 ENV GOPROXY=${GOPROXY} GOWORK=off
 COPY topology/go.mod topology/go.sum ./
 COPY platform/go/go.mod platform/go/go.sum /src/platform/go/
