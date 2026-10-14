@@ -57,17 +57,20 @@ def make_fixture(tmp: Path) -> tuple[Path, dict]:
     git("config", "user.name", "T")
     git("config", "user.email", "t@example.com")
     (repo / "f.txt").write_text("x", encoding="utf-8")
-    git("add", "-A")
-    git("commit", "-q", "-m", "init")
-    # The AD-40 source of truth: component VERSION files. topology ships
-    # none yet — the unreleased component. The tags below exist only to
-    # model "released" states for derivation; since #172 they never
-    # drive version math.
+    # The AD-40 source of truth: component VERSION files, tracked on
+    # main from the init commit — like the real repo — so a bump
+    # branch cut from origin/main keeps the directories write_version_file
+    # needs (CodeRabbit #176: untracked files disappear on checkout).
+    # topology ships none yet — the unreleased component. The tags
+    # below exist only to model "released" states for derivation;
+    # since #172 they never drive version math.
     (repo / "gateway").mkdir()
     (repo / "gateway" / "VERSION").write_text(GATEWAY_VERSION,
                                               encoding="utf-8")
     (repo / "identity").mkdir()
     (repo / "identity" / "VERSION").write_text("v0.2.0\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
     for tag in ("gateway/v0.1.0", "gateway/v0.1.1", "identity/v0.2.0"):
         git("tag", tag)
     return repo, env

@@ -39,9 +39,14 @@ GATE = """\
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          file_version="$(grep -Ev '^[[:space:]]*(#|$)' "$COMPONENT/VERSION" | head -n 1 | tr -d '[:space:]')"
+          mapfile -t version_lines < <(grep -Ev '^[[:space:]]*(#|$)' "$COMPONENT/VERSION")
+          if [[ "${#version_lines[@]}" -ne 1 ]]; then
+            echo "::error::$COMPONENT/VERSION must hold exactly one vX.Y.Z version line (got ${#version_lines[@]}: ${version_lines[*]:-<none>})"
+            exit 1
+          fi
+          file_version="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"${version_lines[0]}")"
           if [[ ! "$file_version" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
-            echo "::error::$COMPONENT/VERSION holds no single vX.Y.Z version line"
+            echo "::error::$COMPONENT/VERSION holds no single vX.Y.Z version line (got '${version_lines[0]}')"
             exit 1
           fi
           if [[ "$file_version" != "$VERSION" ]]; then

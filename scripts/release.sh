@@ -426,6 +426,10 @@ step1_bump_pr() { # $1 = 1 when the worktree already carries TARGET
     PREV_BRANCH="$(git branch --show-current)"
     [[ -n "$PREV_BRANCH" ]] \
         || die "detached HEAD — checkout a branch before running the release flow"
+    # Every branch-selection path below validates against origin/main,
+    # so fetch it up front (not only when creating the branch).
+    GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git fetch -q origin main \
+        || die "git fetch origin main failed — resolve the network/auth issue and re-run"
     if [[ "$1" -eq 1 && "$(git branch --show-current)" == "$BRANCH_NAME" ]]; then
         :
     elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
@@ -433,10 +437,15 @@ step1_bump_pr() { # $1 = 1 when the worktree already carries TARGET
         git checkout -q "$BRANCH_NAME"
     else
         log "step 1 — creating bump branch $BRANCH_NAME from origin/main"
-        GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git fetch -q origin main \
-            || die "git fetch origin main failed — resolve the network/auth issue and re-run"
         git checkout -q -b "$BRANCH_NAME" origin/main
     fi
+    # CodeRabbit #176: a reused bump branch must still sit on origin/main
+    # and carry nothing outside the VERSION file — a stale or
+    # contaminated branch would smuggle unrelated changes into the PR.
+    git merge-base --is-ancestor origin/main "$BRANCH_NAME" \
+        || die "bump branch $BRANCH_NAME is not based on the current origin/main — remove or rebase it before re-running"
+    [[ -z "$(git diff --name-only "origin/main...$BRANCH_NAME" -- . ":(exclude)$VERSION_REL")" ]] \
+        || die "bump branch $BRANCH_NAME holds changes outside $VERSION_REL — remove or recreate it before re-running"
     write_version_file
     git add -- "$VERSION_REL"
     # --only keeps other staged changes out of the bump commit.

@@ -155,9 +155,20 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          file_version="$(grep -Ev '^[[:space:]]*(#|$)' "$COMPONENT/VERSION" | head -n 1 | tr -d '[:space:]')"
+          # CodeRabbit #176: the whole file parses under the canonical
+          # exactly-one-version-line rule (.ai/tools/release_version.py
+          # read_version_file) — a first-line-only read lets a second
+          # version line pass, and blanket whitespace stripping lets
+          # "v 0.1.0" through. Edge whitespace is trimmed per line,
+          # internal whitespace is not.
+          mapfile -t version_lines < <(grep -Ev '^[[:space:]]*(#|$)' "$COMPONENT/VERSION")
+          if [[ "${#version_lines[@]}" -ne 1 ]]; then
+            echo "::error::$COMPONENT/VERSION must hold exactly one vX.Y.Z version line (got ${#version_lines[@]}: ${version_lines[*]:-<none>})"
+            exit 1
+          fi
+          file_version="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"${version_lines[0]}")"
           if [[ ! "$file_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::$COMPONENT/VERSION holds no single vX.Y.Z version line (got '${file_version:-<none>}')"
+            echo "::error::$COMPONENT/VERSION holds no single vX.Y.Z version line (got '${version_lines[0]}')"
             exit 1
           fi
           if [[ "$file_version" != "$VERSION" ]]; then
