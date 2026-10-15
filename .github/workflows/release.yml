@@ -467,10 +467,12 @@ jobs:
           # bootstrap server, and the socket vanishes for a beat when
           # the final server takes over (#179, first v0.1.0 bundle run)
           # — so the fixture is "ready" only once the smoke databases
-          # actually exist. The creation is existence-guarded (\gexec),
-          # which survives the temp phase (creations persist), the
-          # handover gap, and the pre-initdb window; every failure is
-          # retried until the deadline, then the gate fails closed.
+          # actually exist. The creation is existence-guarded (\gexec)
+          # inside a bounded retry loop, which survives the temp phase
+          # (creations persist), the handover gap, and the pre-initdb
+          # window; every failure is retried until the deadline, then
+          # the gate fails closed. The guarded queries ride psql's
+          # stdin: a -c argument may not mix SQL with meta-commands.
           for i in $(seq 1 90); do
             if docker exec smoke-pg psql -U postgres -qAt \
                 -c "SELECT 1 FROM pg_database WHERE datname='identity_smoke'" 2>/dev/null | grep -q 1 \
@@ -478,10 +480,11 @@ jobs:
                 -c "SELECT 1 FROM pg_database WHERE datname='topology_smoke'" 2>/dev/null | grep -q 1; then
               break
             fi
-            docker exec smoke-pg psql -U postgres -qAt \
-              -c "SELECT 'CREATE DATABASE identity_smoke' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='identity_smoke')\gexec" \
-              -c "SELECT 'CREATE DATABASE topology_smoke' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='topology_smoke')\gexec" \
-              >/dev/null 2>&1 || true
+            printf '%s\n' \
+              "SELECT 'CREATE DATABASE identity_smoke' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='identity_smoke')\gexec" \
+              "SELECT 'CREATE DATABASE topology_smoke' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='topology_smoke')\gexec" \
+              | docker exec -i smoke-pg psql -U postgres -qAt \
+                >/dev/null 2>&1 || true
             sleep 1
           done
           docker exec smoke-pg psql -U postgres -lqt \
