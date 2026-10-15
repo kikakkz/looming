@@ -144,6 +144,18 @@ __GATE____PRECHECK__      - name: Build and push multi-arch image
           set -euo pipefail
           docker pull "$image"
           docker exec smoke-pg pg_isready -U postgres
+          for i in $(seq 1 90); do
+            if docker exec smoke-pg psql -U postgres -qAt \
+                -c "SELECT 1 FROM pg_database WHERE datname='identity_smoke'" 2>/dev/null | grep -q 1; then
+              break
+            fi
+            printf '%s\\n' \
+              "SELECT 'CREATE DATABASE identity_smoke' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='identity_smoke')\gexec" \
+              | docker exec -i smoke-pg psql -U postgres -qAt \
+                >/dev/null 2>&1 || true
+            sleep 1
+          done
+          docker exec smoke-pg psql -U postgres -lqt | grep -q 'identity_smoke' || exit 1
           probe_identity() { curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18081/v1/self/login -d '{'; }
           probe_topology() { curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18082/v1/internal/guide; }
           probe_gateway() { curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/; }
@@ -467,6 +479,26 @@ class SmokeGateTests(unittest.TestCase):
         problems = crw.problems(text)
         self.assertEqual(len(problems), 1)
         self.assertIn("postgres", problems[0])
+
+    def test_postgres_handover_race_unpinned_fails(self):
+        # #179: pg_isready answers during the entrypoint's temporary
+        # bootstrap server and the socket vanishes for a beat at the
+        # handover — without the existence-guarded retry the fixture
+        # check races and the CREATE DATABASE can die in the gap
+        text = VALID.replace(
+            "SELECT 1 FROM pg_database WHERE datname='identity_smoke'", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("handover", problems[0])
+
+    def test_postgres_creation_without_retry_loop_fails(self):
+        # #179 round 2: the markers alone do not stop a one-shot
+        # creation — dying in the handover gap must be retried inside
+        # a bounded loop
+        text = VALID.replace("for i in $(seq 1 90); do\n", "")
+        problems = crw.problems(text)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("retry loop", problems[0])
 
     def test_missing_identity_probe_fails(self):
         text = VALID.replace('expect "identityd (pinned)" 400 probe_identity\n',

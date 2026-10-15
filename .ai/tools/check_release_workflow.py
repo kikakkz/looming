@@ -116,6 +116,13 @@ BUILDINFO_LDFLAGS = ("buildinfo.version", "buildinfo.commit",
 EXPECT_IDENTITY_RE = re.compile(r'expect\s+"[^"]*identity[^"]*"\s+400\b')
 EXPECT_TOPOLOGY_RE = re.compile(r'expect\s+"[^"]*topology[^"]*"\s+401\b')
 EXPECT_GATEWAY_RE = re.compile(r'expect\s+"[^"]*gateway[^"]*"\s+404\b')
+# #179: the fixture creation must ride inside a bounded retry loop —
+# the loop opens with a seq deadline, carries the \gexec creation, and
+# closes with `sleep 1` + `done` (a one-shot creation, or a loop that
+# does not actually contain the creation, does not match).
+HANDOVER_RETRY_RE = re.compile(
+    r"for i in \$\(seq 1 \d+\); do.*?\\gexec.*?\n\s*sleep 1\n\s*done",
+    re.S)
 IDENTITY_ROUTE = "/v1/self/login"
 TOPOLOGY_ROUTE = "/v1/internal/guide"
 CROSS_STEP = "Cross-compile CLI"
@@ -349,6 +356,15 @@ def _smoke_gate_problems(text: str) -> list[str]:
         bad.append("smoke gate does not pull the pinned images")
     if "pg_isready" not in script:
         bad.append("smoke gate has no postgres fixture (pg_isready)")
+    if ("SELECT 1 FROM pg_database" not in script or "\\gexec" not in script
+            or "-lqt" not in script):
+        bad.append("smoke gate's postgres fixture races the entrypoint "
+                   "temp-server handover (no existence-guarded retry, "
+                   "#179)")
+    if not HANDOVER_RETRY_RE.search(script):
+        bad.append("smoke gate's postgres fixture creation is not in a "
+                   "bounded retry loop (#179: a one-shot creation can "
+                   "die in the entrypoint handover gap)")
     if not EXPECT_IDENTITY_RE.search(script) or IDENTITY_ROUTE not in script:
         bad.append(f"smoke gate lacks the identityd probe "
                    f"({IDENTITY_ROUTE} -> 400)")
