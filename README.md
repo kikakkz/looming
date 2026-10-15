@@ -99,6 +99,7 @@ temporary copy):
 - [How Looming Works](#how-looming-works)
 - [Security](#security)
 - [Compared With Other Tools](#compared-with-other-tools)
+- [Install](#install)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
@@ -267,6 +268,25 @@ in #66; long-form documents land in [docs/](docs/).
 | GitHub / GitLab | Code hosting and CI | Looming is the agent control plane that works across both, keeping repo CI native while running its own pipeline |
 
 ---
+
+## Install
+
+One command installs the latest released bundle — the `releases/latest`
+permalink always resolves to the newest release, so this never pins a
+version and never needs editing per release:
+
+```bash
+curl -fsSL https://github.com/kikakkz/looming/releases/latest/download/install.sh | bash -s -- \
+    --email admin@example.com \
+    --engine-url http://localhost:11434/v1
+```
+
+The installer consumes published release artifacts only: it downloads
+the release's `looming` CLI and its pinned `bundle-manifest.yaml`, then
+converges the component images (immutable version pins — there is no
+mutable `latest` image tag by design, release-l1 §3.1(b)). Pin a specific
+bundle with `--version v0.1.0`; the full option set lives in
+[scripts/install.sh](scripts/install.sh).
 
 ## Documentation
 
