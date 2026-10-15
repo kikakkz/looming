@@ -73,14 +73,17 @@ truncated download could half-run or fail silently:
 
 ```bash
 ( tmp="$(mktemp)" \
-    && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh \
+    && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/latest/download/install.sh \
     && bash "$tmp" --email admin@example.com --engine-url http://192.168.1.10:11434/v1
   rc=$?; rm -f "$tmp"; exit "$rc" )
 ```
 
 The subshell surfaces the install's exit code without closing your
 interactive shell; a failed download still cleans up and reports
-failure (`rc` captures the `&&` chain's exit status either way).
+failure (`rc` captures the `&&` chain's exit status either way). The
+`releases/latest/download/install.sh` permalink always resolves to the
+newest release's asset, so this never pins a version and never needs
+editing per release.
 
 The installer consumes **published release artifacts only**: it
 downloads the released `looming` CLI and the bundle's pinned manifest,
@@ -90,10 +93,10 @@ from source is its own workflow (a checkout + the repo's dev tooling).
 
 - `--version vX.Y.Z` selects the released bundle the installer
   converges; the default resolves the latest release. The one-liner
-  above downloads `install.sh` from `main`, so the installer itself
-  tracks main — to pin the installer to a release as well, take the
-  script from that release's assets (download first, then run, same
-  reason as above):
+  above already downloads the installer from the latest release's
+  assets, so script and artifacts move together — pin both to a
+  specific bundle by taking the script from that release's assets
+  (download first, then run, same reason as above):
   `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"; exit "$rc" )` (subshell form, same reason as above)
 - Re-running is safe. The installer owns only the topology file's
   `bundle:` block: a newer version rewrites just that block and the
@@ -105,7 +108,7 @@ from source is its own workflow (a checkout + the repo's dev tooling).
 Full flags: download the script and run it with `--help` (a
 self-contained form, since the one-liner above already deleted its
 temporary copy):
-`( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
+`( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/latest/download/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
 
 ---
 
