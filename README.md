@@ -65,9 +65,9 @@ plugin — the installer preflights both but does not install them.
 Point it at any OpenAI-compatible engine you run (Ollama, llama.cpp,
 vLLM, …). The engine URL must be reachable from the component
 containers, so use the engine host's LAN IP or DNS name — deployments
-span machines, and a `localhost` URL only works single-node (the
-installer rewrites loopback to `host.docker.internal` as that
-convenience). Download the script first, then run it — piping `curl`
+span machines, and a `localhost`, `127.0.0.1`, or `[::1]` URL only
+works single-node (the installer rewrites these loopback hosts to
+`host.docker.internal` as that convenience). Download the script first, then run it — piping `curl`
 straight into `bash` would execute whatever arrived, and a failed or
 truncated download could half-run or fail silently:
 
