@@ -43,19 +43,38 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 ---
 
+## Table of Contents
+
+- [Install](#install)
+- [Why Looming?](#why-looming)
+- [Architecture](#architecture)
+- [Status](#status)
+- [How Looming Works](#how-looming-works)
+- [Security](#security)
+- [Compared With Other Tools](#compared-with-other-tools)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Install
 
 Prerequisites: a Linux host with Docker Engine and the Docker Compose
 plugin — the installer preflights both but does not install them.
 Point it at any OpenAI-compatible engine you run (Ollama, llama.cpp,
-vLLM, …). Download the script first, then run it — piping `curl`
+vLLM, …). The engine URL must be reachable from the component
+containers, so use the engine host's LAN IP or DNS name — deployments
+span machines, and a `localhost` URL only works single-node (the
+installer rewrites loopback to `host.docker.internal` as that
+convenience). Download the script first, then run it — piping `curl`
 straight into `bash` would execute whatever arrived, and a failed or
 truncated download could half-run or fail silently:
 
 ```bash
 ( tmp="$(mktemp)" \
     && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh \
-    && bash "$tmp" --email admin@example.com --engine-url http://host.docker.internal:11434/v1
+    && bash "$tmp" --email admin@example.com --engine-url http://192.168.1.10:11434/v1
   rc=$?; rm -f "$tmp"; exit "$rc" )
 ```
 
@@ -87,22 +106,6 @@ Full flags: download the script and run it with `--help` (a
 self-contained form, since the one-liner above already deleted its
 temporary copy):
 `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://raw.githubusercontent.com/kikakkz/looming/main/scripts/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
-
----
-
-## Table of Contents
-
-- [Install](#install)
-- [Why Looming?](#why-looming)
-- [Architecture](#architecture)
-- [Status](#status)
-- [How Looming Works](#how-looming-works)
-- [Security](#security)
-- [Compared With Other Tools](#compared-with-other-tools)
-- [Install](#install)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
 
 ---
 
@@ -268,25 +271,6 @@ in #66; long-form documents land in [docs/](docs/).
 | GitHub / GitLab | Code hosting and CI | Looming is the agent control plane that works across both, keeping repo CI native while running its own pipeline |
 
 ---
-
-## Install
-
-One command installs the latest released bundle — the `releases/latest`
-permalink always resolves to the newest release, so this never pins a
-version and never needs editing per release:
-
-```bash
-curl -fsSL https://github.com/kikakkz/looming/releases/latest/download/install.sh | bash -s -- \
-    --email admin@example.com \
-    --engine-url http://localhost:11434/v1
-```
-
-The installer consumes published release artifacts only: it downloads
-the release's `looming` CLI and its pinned `bundle-manifest.yaml`, then
-converges the component images (immutable version pins — there is no
-mutable `latest` image tag by design, release-l1 §3.1(b)). Pin a specific
-bundle with `--version v0.1.0`; the full option set lives in
-[scripts/install.sh](scripts/install.sh).
 
 ## Documentation
 
