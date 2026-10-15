@@ -349,6 +349,11 @@ def _smoke_gate_problems(text: str) -> list[str]:
         bad.append("smoke gate does not pull the pinned images")
     if "pg_isready" not in script:
         bad.append("smoke gate has no postgres fixture (pg_isready)")
+    if ("SELECT 1 FROM pg_database" not in script or "\\gexec" not in script
+            or "-lqt" not in script):
+        bad.append("smoke gate's postgres fixture races the entrypoint "
+                   "temp-server handover (no existence-guarded retry, "
+                   "#179)")
     if not EXPECT_IDENTITY_RE.search(script) or IDENTITY_ROUTE not in script:
         bad.append(f"smoke gate lacks the identityd probe "
                    f"({IDENTITY_ROUTE} -> 400)")
