@@ -97,7 +97,7 @@ from source is its own workflow (a checkout + the repo's dev tooling).
   assets, so script and artifacts move together — pin both to a
   specific bundle by taking the script from that release's assets
   (download first, then run, same reason as above):
-  `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"; exit "$rc" )` (subshell form, same reason as above)
+  `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --version vX.Y.Z --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"; exit "$rc" )` (subshell form, same reason as above)
 - Re-running is safe. The installer owns only the topology file's
   `bundle:` block: a newer version rewrites just that block and the
   manifest file (your edits — ports, engine config, placements —
