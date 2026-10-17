@@ -61,7 +61,8 @@ def base_routes() -> dict:
     return {
         ("api", "repos/x/y/pulls/7"): pull(),
         ("api", "repos/x/y/pulls/7/reviews"): [review("COMMENTED")],
-        # gh applies --jq .check_runs client-side; run_gh sees the array
+        # the fake returns the jq-selected payload directly, as gh would
+        # after applying the caller's `--jq .check_runs` client-side
         ("api", f"repos/x/y/commits/{HEAD}/check-runs"):
             [{"status": "completed", "conclusion": "success"}],
         ("api", "repos/x/y/issues/7/comments"): [],
@@ -181,6 +182,24 @@ class PureFunctionTests(unittest.TestCase):
                 run.return_value = mock.Mock(stdout=url + "\n",
                                              returncode=0)
                 self.assertEqual(pw.detect_repo(), "own/rep")
+
+    def test_gh_json_list_keeps_caller_jq_expression(self) -> None:
+        # #156: gh evaluates the LAST --jq expression, so stacking the
+        # default `.` over a caller's `.check_runs` made the check-runs
+        # endpoint return its wrapper object — checks never read green
+        # and the nudge guard pinned every PR at "wait for green"
+        sent: list[list[str]] = []
+
+        def spy(args: list[str], gh: str = "gh") -> str:
+            sent.append(args)
+            return "[]"
+
+        with mock.patch.object(pw, "run_gh", spy):
+            self.assertEqual(
+                pw.gh_json_list(["api", "x", "--jq", ".check_runs"], "gh"),
+                [])
+        self.assertEqual(sum(1 for a in sent[0] if a == "--jq"), 1)
+        self.assertIn(".check_runs", sent[0])
 
 
 class GraphqlArgvTests(unittest.TestCase):
