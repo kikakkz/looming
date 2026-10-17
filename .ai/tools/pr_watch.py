@@ -16,6 +16,8 @@ Empirical CodeRabbit behavior this encodes (field notes in #21):
 - a just-dismissed approval (dismiss_stale_reviews on push) reads as
   "no review" here — treat it as in-flight and re-acquire via nudge
 - conversation resolution blocks merge independently of reviews
+- gh evaluates the LAST `--jq` expression: gh_json_list must never stack
+  a second `--jq` over a caller's selector (#156)
 
 Commands:
   status PR    — JSON snapshot: head, checks, verdict, open threads, nudge state
@@ -63,7 +65,12 @@ def gh_json(args: list[str], gh: str = "gh") -> dict:
 
 
 def gh_json_list(args: list[str], gh: str = "gh") -> list:
-    out = run_gh([*args, "--paginate", "--jq", "."], gh)
+    # one --jq per invocation: gh evaluates the LAST --jq expression, so
+    # stacking our default `.` over a caller's selector silently reshapes
+    # the result (#156 — the check-runs wrapper came back instead of the
+    # run array and the nudge guard pinned every PR at "pending").
+    argv = list(args) if "--jq" in args else [*args, "--jq", "."]
+    out = run_gh([*argv, "--paginate"], gh)
     # --paginate concatenates JSON arrays; a single page is one array.
     decoder = json.JSONDecoder()
     items, idx = [], 0
