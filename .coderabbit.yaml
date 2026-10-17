@@ -58,7 +58,7 @@ reviews:
     enabled: true
     drafts: false
     base_branches: ["main"]
-    auto_pause_after_reviewed_commits: 0 # gate must never pause: every push reopens review
+    auto_pause_after_reviewed_commits: 2 # pause auto incremental reviews after 2 reviewed rounds per branch; the pr-watch nudge re-opens them on demand. Merge stays gated: dismiss_stale voids approvals on push, so no merge without a fresh verdict (#182)
   tools:
     shellcheck:
       enabled: true
