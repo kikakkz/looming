@@ -28,12 +28,15 @@ requesting the verdict — belong to the loop below; the tool
 
    CodeRabbit findings are ~90% real — verify against current code
    before dismissing any.
-3. **Fix on-branch.** Run `make ci-gate`, commit with the DCO +
-   `Generated-by:` trailers, push to the same branch. Never rename the
-   branch or open a new PR. **After pushing, wait for the verdict to
-   land before pushing anything else** — an approval submitted seconds
-   before a push is auto-dismissed and must be re-acquired, not
-   assumed.
+3. **Fix on-branch — batched.** Collect every fix for this round into
+   ONE commit. Run `make ci-gate`, commit with the DCO +
+   `Generated-by:` trailers, push once. CodeRabbit bills review events
+   per push, not per commit: three commits pushed together cost one
+   event; pushed separately, three. Never rename the branch or open a
+   new PR. **After pushing, wait for the verdict to land before pushing
+   anything else** — an approval submitted seconds before a push is
+   auto-dismissed and must be re-acquired, not assumed, and a push
+   during a running review supersedes it (paid, discarded).
 4. **Hand in once.** `python3 .ai/tools/pr_watch.py nudge <PR>` posts
    exactly one `@coderabbitai full review` per head, only when checks
    are green, no verdict stands, and no threads are open. A clean
@@ -41,6 +44,33 @@ requesting the verdict — belong to the loop below; the tool
    the deterministic verdict lever (~6–13 min).
 5. **Repeat** from step 1 until APPROVED or a genuinely new
    changes-requested arrives. Stop on user interrupt.
+
+## Quota discipline
+
+CodeRabbit bills one review event per push (nudges included) against a
+rolling allowance; the limits are documented at
+https://docs.coderabbit.ai/management/rate-limits. Exhaustion stalls
+every PR's gate at once, so the loop spends events deliberately:
+
+- **Open the PR when the branch is ready for feedback**, not at the
+  first commit: an open non-draft PR draws a review event on every push
+  from the start (`drafts: false` in `.coderabbit.yaml`).
+- **Batch pushes** (step 3) and never push between nudge and verdict —
+  a push inside the review window supersedes the running review: paid,
+  discarded, no feedback.
+- **Rate-limited means stop.** The signature is a `@coderabbitai` reply
+  of "Action not completed — Review rate limited" (or nudge silence):
+  wait out the stated window; the refill is rolling and a blocked
+  attempt costs nothing. Check capacity with `@coderabbitai rate limit`
+  — chat commands bill separately from reviews.
+- **After `auto_pause_after_reviewed_commits` auto rounds** (see
+  `.coderabbit.yaml`), automatic incremental reviews pause and the
+  guarded nudge becomes the only lever — this skill's step 4.
+- **Never GitHub's "Update branch" / "Resolve conflicts" buttons.**
+  Each writes a commit (a billed event) and the merge commit carries no
+  DCO trailer, failing the trailer gate. Instead rebase the branch onto
+  the base locally — the one sanctioned force-push — batched with any
+  pending fixes and announced in the PR.
 
 ## Housekeeping (when merge is blocked despite approval)
 
@@ -58,5 +88,6 @@ requesting the verdict — belong to the loop below; the tool
   manual comments.
 - Never push mid-review: the verdict arrives on the head it was
   requested for.
-- Everything rides the normal branch: no direct pushes, no force-push,
-  same trailer policy as any commit.
+- Everything rides the normal branch: no direct pushes, same trailer
+  policy as any commit. Force-push only as the batched base-branch
+  rebase above — never to evade review.
