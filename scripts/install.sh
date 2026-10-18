@@ -237,7 +237,9 @@ compose_autoinstall() {
         target_dir="${COMPOSE_PLUGIN_SYSTEM_DIR:-/usr/local/lib/docker/cli-plugins}"
         if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
             src="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.docker/cli-plugins/docker-compose"
-            if [ -f "$src" ]; then
+            # -L guard: [ -f ] follows symlinks; copying one as root could
+            # promote a file the user could not read themselves.
+            if [ -f "$src" ] && [ ! -L "$src" ]; then
                 if mkdir -p "$target_dir" &&
                     cp "$src" "$target_dir/docker-compose" &&
                     chmod 755 "$target_dir/docker-compose"; then
@@ -248,7 +250,7 @@ compose_autoinstall() {
             fi
         fi
     else
-        target_dir="$HOME/.docker/cli-plugins"
+        target_dir="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins"
     fi
     case "$(uname -m)" in
         x86_64 | amd64) arch=x86_64 ;;
