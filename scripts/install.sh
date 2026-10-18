@@ -236,7 +236,10 @@ compose_autoinstall() {
     if [ "$(id -u)" -eq 0 ]; then
         target_dir="${COMPOSE_PLUGIN_SYSTEM_DIR:-/usr/local/lib/docker/cli-plugins}"
         if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-            src="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.docker/cli-plugins/docker-compose"
+            # DOCKER_CONFIG wins when sudo preserved it (sudo -E or
+            # sudo DOCKER_CONFIG=... bash); otherwise the invoking
+            # user's default ~/.docker is their active config dir.
+            src="${DOCKER_CONFIG:-$(getent passwd "$SUDO_USER" | cut -d: -f6)/.docker}/cli-plugins/docker-compose"
             # -L guard: [ -f ] follows symlinks; copying one as root could
             # promote a file the user could not read themselves.
             if [ -f "$src" ] && [ ! -L "$src" ]; then
