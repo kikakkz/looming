@@ -51,8 +51,11 @@ requesting the verdict — belong to the loop below; the tool
 
 ## Quota discipline
 
-CodeRabbit bills one review event per push (nudges included) against a
-rolling allowance; the limits are documented at
+CodeRabbit bills one review event per PR evaluation, not per commit:
+a push-triggered incremental review and a manual `@coderabbitai review`
+nudge each count separately, so one pushed head can spend two (the
+push's own review plus the verdict nudge). The rolling allowance and
+its adaptive bands are documented at
 https://docs.coderabbit.ai/management/rate-limits. Exhaustion stalls
 every PR's gate at once, so the loop spends events deliberately:
 
