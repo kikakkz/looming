@@ -224,10 +224,72 @@ topology_pg_port() {
     ' "$TOPOLOGY"
 }
 
+# compose_autoinstall repairs a missing compose plugin instead of dying
+# (#188): the installer runs `docker compose` as whichever user invoked
+# it, and a user-level plugin (~/.docker/cli-plugins) is invisible to
+# root under sudo — while a fresh host may have no plugin at all. Root
+# promotes the invoking user's copy when present (zero download, version
+# the operator already trusts); either way falls back to downloading
+# the arch-matched binary from the docker/compose GitHub release.
+compose_autoinstall() {
+    local target_dir src arch url tmp
+    if [ "$(id -u)" -eq 0 ]; then
+        target_dir="${COMPOSE_PLUGIN_SYSTEM_DIR:-/usr/local/lib/docker/cli-plugins}"
+        if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+            # DOCKER_CONFIG wins when sudo preserved it (sudo -E or
+            # sudo DOCKER_CONFIG=... bash); otherwise the invoking
+            # user's default ~/.docker is their active config dir.
+            src="${DOCKER_CONFIG:-$(getent passwd "$SUDO_USER" | cut -d: -f6)/.docker}/cli-plugins/docker-compose"
+            # -L guard: [ -f ] follows symlinks; copying one as root could
+            # promote a file the user could not read themselves. The
+            # `docker compose version` in the chain validates the copy: a
+            # corrupt or wrong-arch plugin must not count as promoted.
+            if [ -f "$src" ] && [ ! -L "$src" ]; then
+                if mkdir -p "$target_dir" &&
+                    cp "$src" "$target_dir/docker-compose" &&
+                    chmod 755 "$target_dir/docker-compose" &&
+                    docker compose version >/dev/null 2>&1; then
+                    log "compose plugin: promoted $SUDO_USER's user-level install to $target_dir"
+                    return 0
+                fi
+                rm -f "$target_dir/docker-compose"
+                log "compose plugin: $SUDO_USER's copy is not usable — falling back to download"
+            fi
+        fi
+    else
+        target_dir="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins"
+    fi
+    case "$(uname -m)" in
+        x86_64 | amd64) arch=x86_64 ;;
+        aarch64 | arm64) arch=aarch64 ;;
+        *) return 1 ;;
+    esac
+    url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch"
+    tmp="$(mktemp)" || return 1
+    if fetch "$url" "$tmp" 300 && [ -s "$tmp" ]; then
+        if mkdir -p "$target_dir" &&
+            cp "$tmp" "$target_dir/docker-compose" &&
+            chmod 755 "$target_dir/docker-compose"; then
+            log "compose plugin: installed $url"
+            rm -f "$tmp"
+            return 0
+        fi
+        rm -f "$tmp"
+        return 1
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
 # --- preflight ------------------------------------------------------------
 
 log "preflight: docker"
 need_cmd docker
+if ! docker compose version >/dev/null 2>&1; then
+    log "compose plugin missing — attempting install"
+    compose_autoinstall ||
+        die "the docker compose plugin is required and could not be installed (offline?) — see https://docs.docker.com/compose/install/linux/"
+fi
 docker compose version >/dev/null 2>&1 || die "the docker compose plugin is required (docker compose version failed)"
 docker info >/dev/null 2>&1 || die "the docker daemon is not reachable (docker info failed)"
 need_cmd curl
