@@ -61,7 +61,10 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 ## Install
 
 Prerequisites: a Linux host with Docker Engine and the Docker Compose
-plugin — the installer preflights both but does not install them.
+plugin — the installer preflights Docker and, when the compose plugin
+is missing, installs it: your user-level copy is promoted system-wide
+under sudo, otherwise the binary is fetched from the docker/compose
+release.
 Point it at any OpenAI-compatible engine you run (Ollama, llama.cpp,
 vLLM, …). The engine URL must be reachable from the component
 containers, so use the engine host's LAN IP or DNS name — deployments
