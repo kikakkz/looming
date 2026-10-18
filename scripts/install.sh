@@ -241,15 +241,19 @@ compose_autoinstall() {
             # user's default ~/.docker is their active config dir.
             src="${DOCKER_CONFIG:-$(getent passwd "$SUDO_USER" | cut -d: -f6)/.docker}/cli-plugins/docker-compose"
             # -L guard: [ -f ] follows symlinks; copying one as root could
-            # promote a file the user could not read themselves.
+            # promote a file the user could not read themselves. The
+            # `docker compose version` in the chain validates the copy: a
+            # corrupt or wrong-arch plugin must not count as promoted.
             if [ -f "$src" ] && [ ! -L "$src" ]; then
                 if mkdir -p "$target_dir" &&
                     cp "$src" "$target_dir/docker-compose" &&
-                    chmod 755 "$target_dir/docker-compose"; then
+                    chmod 755 "$target_dir/docker-compose" &&
+                    docker compose version >/dev/null 2>&1; then
                     log "compose plugin: promoted $SUDO_USER's user-level install to $target_dir"
                     return 0
                 fi
-                return 1
+                rm -f "$target_dir/docker-compose"
+                log "compose plugin: $SUDO_USER's copy is not usable — falling back to download"
             fi
         fi
     else
