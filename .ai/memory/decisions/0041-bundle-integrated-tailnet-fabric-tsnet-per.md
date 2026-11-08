@@ -31,9 +31,10 @@ looming client alone deploys everything, no external references;
 1. **Overlay**: a Tailscale-class WireGuard network embedded
    per-component via `tsnet` — the in-process Go library with a
    gVisor userspace netstack. Hosts install and perceive nothing:
-   containers need only outbound UDP (docker default) plus a
-   per-component state volume for node-key persistence. No tun
-   device, no NET_ADMIN, no route changes.
+   containers need only outbound UDP (docker default), plus outbound
+   TCP to the DERP relay for data-plane fallback when direct
+   connectivity fails, plus a per-component state volume for node-key
+   persistence. No tun device, no NET_ADMIN, no route changes.
 2. **Control plane**: `headscale` ships as a bundle component (a
    compose service; the first host by default), plus a self-hosted
    `derper` for the NAT-traversal fallback. Nothing — no traffic, no
@@ -70,11 +71,17 @@ looming client alone deploys everything, no external references;
    exception.
 6. **Client access**: v1 default — humans reach the gateway over
    ordinary networks (LAN; a future reverse proxy under #110); the
-   overlay is machine-fabric only. Optional `looming connect`
-   installs the tailscale client on an admin device, pointed at the
-   bundle's headscale, in one command. Funnel-class public ingress
-   is unavailable without Tailscale's cloud, so public ingress
-   reverts to a classic reverse proxy (#110) or is deferred.
+   overlay is machine-fabric only. The gateway front is the single
+   human-facing ingress: besides its own routes it proxies the
+   identity API (registration, login, key management) to identityd
+   over the fabric, so the guide publishes exactly one
+   client-reachable endpoint — the gateway's ordinary-network
+   address — and identityd needs no underlay publication of its own.
+   Optional `looming connect` installs the tailscale client on an
+   admin device, pointed at the bundle's headscale, in one command.
+   Funnel-class public ingress is unavailable without Tailscale's
+   cloud, so public ingress reverts to a classic reverse proxy
+   (#110) or is deferred.
 7. **In-net name resolution**: v1 rides headscale's built-in MagicDNS
    records for node names — every component and sidecar is reachable
    at its tailnet name from the moment it joins; the resolver is part
@@ -89,17 +96,18 @@ looming client alone deploys everything, no external references;
   operator-side plain networking. topology-l1 and the L0
   context map are updated in the same PR as this AD.
 - Host aggregate evolution: `Host.address` remains the host's
-  underlay locator — unique, reachable from every host over ordinary
-  networking — and no host-level tailnet identity is introduced:
-  hosts locate each other via underlay addresses during bootstrap
-  and via each other's component nodes once on the fabric. (An
-  earlier draft tied the Host identity to topologyd's node; a
-  gateway-only host runs no topologyd, so that dependency is
-  removed — review finding, #192.) Per-component node identities are
-  recorded on their ComponentPlacements, so the Host-level address
-  uniqueness invariant is untouched. Join tokens evolve toward
-  headscale pre-authorized keys (the bootstrap flow lives in
-  `looming setup`, AD-42).
+  underlay locator — unique; only the control host's bootstrap
+  endpoints need ordinary reachability from every host, host-to-host
+  underlay reachability is not required — and no host-level tailnet
+  identity is introduced: hosts locate each other via underlay
+  addresses during bootstrap and via each other's component nodes
+  once on the fabric. (An earlier draft tied the Host identity to
+  topologyd's node; a gateway-only host runs no topologyd, so that
+  dependency is removed — review finding, #192.) Per-component node
+  identities are recorded on their ComponentPlacements, so the
+  Host-level address uniqueness invariant is untouched. Join tokens
+  evolve toward headscale pre-authorized keys (the bootstrap flow
+  lives in `looming setup`, AD-42).
 - Capability boundary (operator principle, 2026-11-08): per-component
   capability ships inside looming binaries — tsnet rides as a library
   dependency, and identity issuance / control-plane API client /

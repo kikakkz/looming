@@ -54,10 +54,11 @@ method for deriving and refining this map is
   (no SSH/agentless push).
 - **Topology & bootstrap → all components: fabric identity issuance
   (AD-41).** Setup/join mints each component's tailnet node identity
-  against the in-bundle headscale and records it as the Host's
-  address; components consume identity and addressing, never manage
-  keys. Third-party workloads (postgres) receive theirs through the
-  net sidecar.
+  against the in-bundle headscale; `Host.address` stays the underlay
+  locator and component identities ride on their placements;
+  components consume identity and addressing, never manage keys.
+  Third-party workloads (postgres) receive theirs through the net
+  sidecar.
 
 ## Cross-cutting aspects (not contexts)
 

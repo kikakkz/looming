@@ -50,13 +50,18 @@ once into `credentials.yaml`; the default Profile is written) →
 agent CLI's config) → chat completions flow through the gateway →
 `looming usage`.
 
-**Admin bootstrap**: install the bundle on the first host → write
+**Admin bootstrap**: install the looming CLI on the first host
+(`install.sh`, which only delivers the binary) → `looming setup`
+(AD-42) interviews, proposes a topology through the advisor machinery
+(human-confirmed), resolves and pins the release manifest, writes
 `/etc/looming/topology.yaml` (hosts, placements, and
-`bootstrap.admin_email`) → `looming apply` (converge per topology-l1
-§3; the first apply creates the component databases and prints the
-one-time bootstrap invite — the raw token plus a register `curl` —
-and the join hint — the e2e suite's step 1) → operator carries the
-invite to the first admin's mailbox.
+`bootstrap.admin_email`), stands up the control plane (headscale +
+derper, AD-41), and converges per topology-l1; the first converge
+creates the component databases and prints the one-time bootstrap
+invite — the raw token plus a register `curl` aimed at the gateway's
+published address, which proxies the identity API (AD-41) — plus the
+join hint (the e2e suite's step 1) → operator carries the invite to
+the first admin's mailbox.
 
 **Adding a host** (admin): `looming token create --role engine --ttl
 24h` → on the new host: install bundle → `looming join
