@@ -58,8 +58,10 @@ AI-assisted contributions are welcome and follow the
   human-led work, `Generated-by: <tool> [model]` for machine-led work.
 - `Co-Authored-By:` must never be used for AI — it misattributes
   authorship and contaminates DCO.
-- AI never signs `Signed-off-by:`. A human signs and takes full
-  responsibility for the change, including reviewing it.
+- AI-authored commits carry the maintainer's standing DCO sign-off
+  (`Signed-off-by: Zhao KK <kikakkz@hotmail.com>`, authorized by the
+  maintainer for this repository; the check pins the exact signer).
+  AI never signs as itself.
 - Bots and agents follow the same CI, issue, and trailer rules as humans.
 
 CI enforces the trailer policy on every PR.

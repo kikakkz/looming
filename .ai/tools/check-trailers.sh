@@ -5,8 +5,8 @@
 #   - Co-Authored-By is banned (it misattributes authorship and breaks DCO).
 #   - AI assistance is disclosed with Assisted-by: / Generated-by: trailers.
 #   - AI-authored commits (Generated-by:) carry the maintainer's standing
-#     DCO sign-off: Signed-off-by is required on them with or without --dco
-#     (#194).
+#     DCO sign-off, pinned to the exact signer: Signed-off-by is required
+#     on them with or without --dco (#194).
 #   - With --dco, every commit must carry Signed-off-by (human DCO).
 #
 # Usage: check-trailers.sh [--dco] [REV_RANGE]
@@ -80,8 +80,8 @@ for sha in "${commits[@]}"; do
     fi
 
     if printf '%s\n' "$body" | grep -qE '^Generated-by: .+' \
-        && ! printf '%s\n' "$body" | grep -qiE '^Signed-off-by: .+'; then
-        echo "ERROR [$sha]: AI-authored commit (Generated-by:) must carry Signed-off-by (maintainer DCO, #194)." >&2
+        && ! printf '%s\n' "$body" | grep -qE '^Signed-off-by: Zhao KK <kikakkz@hotmail\.com>$'; then
+        echo "ERROR [$sha]: AI-authored commit (Generated-by:) must carry the maintainer's Signed-off-by (#194)." >&2
         failures=1
     fi
 

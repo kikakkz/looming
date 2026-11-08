@@ -92,6 +92,16 @@ class CheckTrailersTests(unittest.TestCase):
         r = run_script(self.repo, "HEAD")
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_generated_by_with_other_signer_fails(self) -> None:
+        # The standing sign-off is the maintainer's, pinned: any other
+        # human's Signed-off-by on an AI-authored commit is the
+        # misattribution case this rule exists for (#200 review).
+        self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>\n"
+                    "Signed-off-by: Someone Else <s@example.com>")
+        r = run_script(self.repo, "HEAD")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("must carry the maintainer's Signed-off-by", r.stderr)
+
     def test_assisted_by_without_signoff_passes_without_dco(self) -> None:
         # The pair rule binds AI-authored commits (Generated-by:); a
         # human-authored Assisted-by: commit keeps its own DCO freedom.
