@@ -160,9 +160,13 @@ the `host.docker.internal:host-gateway` extra_hosts entry there.
 - `POST /v1/join` `{token, host: {id?, address, labels, capabilities?}}` →
   `201 {host_id, credential, cluster: {access}}`: validates and
   atomically consumes the one-time token, registers the host (server
-  id `host-<uuid8>` when `id` is absent), mints the host's persistent
-  credential (plaintext exactly once), and answers with the gateway
-  access hint. `capabilities` is the joining host's observed machine
+  id `host-<uuid8>` when `id` is absent) — and when the token was
+  minted for a predeclared host and `id` names that entry, BINDS the
+  presenting host to the predeclared row instead, storing the
+  reported address/labels/capabilities onto it (AD-42); a mismatched
+  or absent `id` registers afresh as before —, mints the host's
+  persistent credential (plaintext exactly once), and answers with
+  the gateway access hint. `capabilities` is the joining host's observed machine
   facts (advisor slice 1.3, advisor-l1 §8): `{hardware: {cpu_cores,
   memory_mb, disk_gb, arch}, network: {egress?, latencies_ms?},
   collected_at}` — strict-validated (unknown keys, sanity ranges, the

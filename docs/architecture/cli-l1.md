@@ -63,8 +63,11 @@ per topology-l1; the first converge creates the component databases
 and prints the one-time bootstrap invite — the raw token plus a
 register `curl` aimed at the gateway's published address, which
 proxies the identity API (AD-41) — plus the join hint (the e2e
-suite's step 1) → operator carries the invite to the first admin's
-mailbox.
+suite's step 1) → remaining hosts join and converge per the AD-42
+staged bootstrap → cluster-wide health check → the operator carries
+the invite to the first admin's mailbox — safe whenever the gateway
+it targets was placed on a later host, since every placement is
+converged before handoff.
 
 **Adding a host** (admin): `looming token create --role engine --ttl
 24h` → on the new host: install bundle → `looming join
