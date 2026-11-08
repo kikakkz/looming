@@ -48,7 +48,17 @@ human-confirmed) already built for exactly this shape.
    (headscale and derper per AD-41, join hint emitted as soon as it
    is up), converge the first host, then bring remaining hosts in
    (join + per-host converge), and finish with a cluster-wide
-   health check. Re-runnable and idempotent; `--answers <file>`
+   health check. The first host's converge always includes the
+   minimum serving plane — the state plane (postgres), topologyd
+   (join/guide endpoint), and identityd (invite minting) — so the
+   join endpoint and the bootstrap invite are available before any
+   other host is asked to join, whatever the final topology says
+   about where else those components run. A host predeclared in the
+   topology holds no credential until it joins: join material is
+   minted per host id (one-time, role-scoped, revocable per AD-36),
+   and the pull-based join binds the presenting host to its
+   predeclared entry; a host with no predeclaration registers
+   afresh, as today. Re-runnable and idempotent; `--answers <file>`
    reproduces a setup headlessly so CI keeps determinism.
 3. **`looming purge` tears down symmetrically, at two levels**:
    per-host — run on each host; stops that host's compose project and

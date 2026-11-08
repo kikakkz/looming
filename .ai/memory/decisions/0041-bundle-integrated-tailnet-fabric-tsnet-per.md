@@ -81,7 +81,11 @@ looming client alone deploys everything, no external references;
    admin device, pointed at the bundle's headscale, in one command.
    Funnel-class public ingress is unavailable without Tailscale's
    cloud, so public ingress reverts to a classic reverse proxy
-   (#110) or is deferred.
+   (#110) or is deferred. The human-facing leg inherits phase-1's
+   trusted-network envelope: plain HTTP on a trusted LAN is the v1
+   stance (unchanged from the pre-fabric design); any crossing of
+   untrusted networks requires authenticated encryption and is
+   #110's job, not this decision's.
 7. **In-net name resolution**: v1 rides headscale's built-in MagicDNS
    records for node names — every component and sidecar is reachable
    at its tailnet name from the moment it joins; the resolver is part

@@ -62,8 +62,11 @@ that is Postgres-ecosystem internals, not an architecture decision.
 (AD-42) interviews, proposes a topology through the advisor
 machinery (human-confirmed, AD-38), resolves and pins the release
 manifest, writes `/etc/looming/topology.yaml`, stands up the control
-plane (headscale + derper, AD-41), and converges: validate
-invariants → bring up the state plane: start and initialize the
+plane (headscale + derper, AD-41), and converges the first host —
+always with the minimum serving plane (state plane, topologyd,
+identityd) so the join endpoint and the invite exist before any
+other host is asked to join (AD-42) —: validate invariants → bring
+up the state plane: start and initialize the
 bundle-owned Postgres, creating the `topology` database — on first
 boot it is started before any write → persist the topology → render
 per-host compose files → `docker compose up -d` on each declared

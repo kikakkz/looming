@@ -56,12 +56,15 @@ agent CLI's config) → chat completions flow through the gateway →
 (human-confirmed), resolves and pins the release manifest, writes
 `/etc/looming/topology.yaml` (hosts, placements, and
 `bootstrap.admin_email`), stands up the control plane (headscale +
-derper, AD-41), and converges per topology-l1; the first converge
-creates the component databases and prints the one-time bootstrap
-invite — the raw token plus a register `curl` aimed at the gateway's
-published address, which proxies the identity API (AD-41) — plus the
-join hint (the e2e suite's step 1) → operator carries the invite to
-the first admin's mailbox.
+derper, AD-41), and converges the first host — always with the
+minimum serving plane (state plane, topologyd, identityd) so the
+join endpoint is servable and the invite can be minted there —
+per topology-l1; the first converge creates the component databases
+and prints the one-time bootstrap invite — the raw token plus a
+register `curl` aimed at the gateway's published address, which
+proxies the identity API (AD-41) — plus the join hint (the e2e
+suite's step 1) → operator carries the invite to the first admin's
+mailbox.
 
 **Adding a host** (admin): `looming token create --role engine --ttl
 24h` → on the new host: install bundle → `looming join
