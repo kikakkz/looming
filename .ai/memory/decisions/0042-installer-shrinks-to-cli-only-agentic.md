@@ -42,15 +42,20 @@ human-confirmed) already built for exactly this shape.
    ambition: one machine or several) → propose a topology through
    the advisor machinery (deterministic evaluator plus reasoned
    proposal, human-confirmed per AD-38) → drive the bootstrap:
-   write the topology, stand up the control plane (headscale and
-   derper per AD-41), issue join material for further hosts,
-   converge, health-check, print next steps. Re-runnable and
-   idempotent; `--answers <file>` reproduces a setup headlessly so
-   CI keeps determinism.
-3. **`looming purge` is the symmetric teardown**: stop the compose
-   project, optionally wipe state (pgdata, node keys), optionally
-   retire tailnet identities. Setup and purge are one lifecycle
-   axis; the e2e layer exercises them as a pair.
+   resolve and pin the release (fetch bundle-manifest.yaml into the
+   state dir — the installer no longer touches manifests), write the
+   topology, stand up the control plane (headscale and derper per
+   AD-41), issue join material for further hosts, converge,
+   health-check, print next steps. Re-runnable and idempotent;
+   `--answers <file>` reproduces a setup headlessly so CI keeps
+   determinism.
+3. **`looming purge` tears down symmetrically, at two levels**:
+   per-host — run on each host; stops that host's compose project and
+   optionally wipes its local state (pgdata, node keys) — and cluster
+   retirement from the control host (`--cluster`: retire node
+   identities against headscale, dissolve the roster), which is valid
+   only after every host's per-host purge. Setup and purge are one
+   lifecycle axis; the e2e layer exercises them as a pair.
 4. **Contract break handled openly**: the v0.1 installer's
    cluster-in-one-shot form is retired; the README restructures to
    install → setup → join on further hosts, and the release notes
@@ -67,5 +72,9 @@ human-confirmed) already built for exactly this shape.
 - The installer smoke gate (release workflow) simplifies to a
   binary-delivery check; a new e2e scenario covers
   setup → converge → purge.
+- AD-39's installer-scope provisions (install.sh generating config
+  and owning the manifest) are amended hereby — both move into
+  `looming setup`; AD-39's release-pipeline core (artifact-only
+  delivery) stands unchanged.
 - cli-l1's admin face and the L0 context map (row 12, Topology &
   bootstrap) are updated in the same PR as this AD.

@@ -114,9 +114,12 @@ phase-1, per topology-l1 §8).
   (AD-42): interview → advisor proposal (human-confirmed, AD-38) →
   bootstrap (topology, control plane per AD-41, join material) →
   converge → health check; `--answers` reproduces headlessly.
-- `looming purge [--wipe-state] [--leave-net]` — symmetric teardown
-  (AD-42): stop the compose project, optionally wipe state (pgdata,
-  node keys), optionally retire tailnet identities.
+- `looming purge [--wipe-state] [--leave-net] [--cluster]` —
+  teardown (AD-42) at two levels: per-host — run on each host; stops
+  that host's compose project, optionally wipes local state (pgdata,
+  node keys) — and cluster retirement from the control host
+  (`--cluster`: retire node identities against headscale, dissolve
+  the roster), only after every host's per-host purge.
 - `looming connect` — install the tailscale client on the admin's
   device, pointed at the bundle's headscale (AD-41; optional path).
 - `looming genesis set|sync|status` — the genesis model-channel

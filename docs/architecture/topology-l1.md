@@ -22,10 +22,10 @@ never duplicates them. (#112 cross-NAT was resolved by AD-41.)
 
 ```
 Topology (aggregate root; desired state snapshot)
-  ├─ Host        (registered machine: id, address = the host's tailnet
-  │               identity — topologyd's node, unique, issued at join;
-  │               component node identities ride on their placements,
-  │               AD-41; role labels, joined_at, observed capabilities
+  ├─ Host        (registered machine: id, address = underlay locator,
+  │               unique, reachable from every host; component tailnet
+  │               node identities ride on their placements, AD-41;
+  │               role labels, joined_at, observed capabilities
   │               — join-time facts, advisor slice 1.3)
   ├─ ComponentPlacement (component × host, port/config overrides, the
   │               placement's tailnet node identity (AD-41); gateway
