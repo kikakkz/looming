@@ -61,7 +61,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         url = run_gh(create, args.gh).strip()
         number = pr_number_from_url(url)
-        run_gh(["pr", "merge", number, "--squash", "--auto"], args.gh)
+        # --repo must ride the merge too: a bare number resolves against
+        # the checkout's default repo and could merge the wrong PR (#204
+        # review).
+        merge = ["pr", "merge", number, "--squash", "--auto"]
+        if args.repo:
+            merge += ["--repo", args.repo]
+        run_gh(merge, args.gh)
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         if url:
