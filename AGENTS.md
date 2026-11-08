@@ -7,19 +7,16 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 
 ## Hard constraints (non-negotiable)
 
-1. **Issue-driven development.** No issue, no code — and "no issue yet"
-   never means skip: before any development, find or file the issue first
-   (bots and agents too; CI cannot see the tracker, so this is on the
-   contributor). Every PR references an issue (`Closes #N`). Branches are
-   named `<type>/<issue>-<slug>` where `<type>` is one fixed vocabulary —
-   the Conventional Commits types
-   (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert) — and the
-   prefix must match the PR title's type (CI enforces both). The prefix
-   follows the *change type*, not the issue's `kind/*` label: a
-   feature-kind issue whose change only touches CI is `ci/N-...` with a
-   `ci:` title (e.g. `ci/9-coderabbit-review-gate`; also
-   `feat/6-memory-housekeeping`, `fix/1-...`). The issue thread carries
-   plan, status, and review artifacts.
+1. **Issue-driven development.** No issue, no code — "no issue yet"
+   never means skip: find or file the issue first (bots and agents too;
+   CI cannot see the tracker). Every PR references an issue (`Closes
+   #N`); the issue thread carries plan, status, and review artifacts.
+   Branches are `<type>/<issue>-<slug>`, `<type>` from the Conventional
+   Commits vocabulary (feat|fix|docs|style|refactor|perf|test|build|ci|
+   chore|revert); the prefix follows the *change type*, not the issue's
+   `kind/*` label, and must match the PR title's type (CI enforces both)
+   — a feature-kind issue whose change only touches CI is `ci/N-...`
+   with a `ci:` title.
 2. **CI-first.** Every code change lands in the same PR as the CI that
    checks it. Red CI never merges. Run `make ci-gate` locally before
    pushing.
@@ -41,12 +38,18 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
    addition is not mergeable.
 9. **Worktree-only development.** All development happens in a git
    worktree under `.wt/` (one per issue branch; `docs/193-...` →
-   `.wt/docs-193`). The main checkout stays on `main` and stays clean —
-   no development branches, no uncommitted work. An active session's
-   worktree is never checked out over, moved, or removed, and its
-   branch is never pushed to from outside that session. (Origin:
-   2026-10-01 memory-bank lesson, a subagent sharing the main tree
-   force-pushed mid-session.)
+   `.wt/docs-193`); the main checkout stays on `main` and clean (no
+   dev branches, no uncommitted work). An active session's worktree
+   is never checked out over, moved, or removed, and its branch never
+   pushed to from outside that session (origin: 2026-10-01 lesson, a
+   subagent force-pushed from the shared main tree).
+10. **No comments in code; no bypasses in design docs.** Source files
+    carry no comments — explanations live in the design docs and issue
+    threads. Machine-mandated markers excepted: SPDX headers, build/
+    codegen directives (`//go:build`), required markers (`//nolint`,
+    rationale in the PR). Design docs never describe circumventing
+    implementations — defeating a check, gate, or contract is not
+    documentation material; file the issue or AD that removes the need.
 
 ## Commands
 
@@ -105,8 +108,8 @@ lands before the implementation, in the same PR. Budgets enforced by
 each component's `.golangci.yml` (gateway's verbatim where components
 share the ratchet): ≤ 50 statements per function (funlen), gocognit ≤ 30,
 cyclomatic ≤ 15. Budgets only ratchet down, via a superseding AD-24.
-Every `//nolint` names its linter, explains itself, and must be in use
-(nolintlint).
+Every `//nolint` names its linter and must be in use (nolintlint); its
+rationale lives in the PR or issue thread (constraint 10).
 
 **Testing (AD-25).** Layers by build tag: unit (default — no network,
 disk, or wall-clock), `integration` (testcontainers-go; GitLab CE via
@@ -146,10 +149,8 @@ cites its `kind/flake` issue number; test-only helpers live under
 - Product-plane issues state the `.ai/` tooling they will replace or
   promote (dogfood migration target — e.g. pr_watch.py -> product
   judge); AD-26's seam is a literal migration checklist.
-- Dogfood automation failure is issue-worthy: when a repo automation
-  (ci-gate job, pr-watch, housekeeping, labeler) flakes or misbehaves, file an issue instead of silently retrying.
-- Design-first trigger: a change that is user/operator-facing or
-  crosses an AD-23 context boundary lands as `kind/design` with an AD
+- Dogfood automation failure is issue-worthy: when a repo automation (ci-gate job, pr-watch, housekeeping, labeler) flakes or misbehaves, file an issue instead of silently retrying.
+- Design-first trigger: a change that is user/operator-facing or crosses an AD-23 context boundary lands as `kind/design` with an AD
   before code; everything else is a plain issue.
 - Product intake backpressure: a component carries at most as many
   open implementable issues as one release cycle can land; excess is
