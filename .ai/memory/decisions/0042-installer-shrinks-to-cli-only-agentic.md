@@ -72,7 +72,11 @@ human-confirmed) already built for exactly this shape.
    topologyd address — setup re-renders join hints after final
    placements converge, and the bootstrap-time topologyd serves until
    the final one answers (overlap window), so a moved topologyd never
-   strands later joins.
+   strands later joins. Remote convergence path: after joining, each
+   host pulls its rendered per-host compose file from topologyd over
+   the bootstrap channel and runs local convergence (`docker compose
+   up -d`) on ITSELF — the join API never carries compose files, and
+   the first-host converge never starts remote placements.
 3. **`looming purge` tears down symmetrically, at two levels**:
    per-host — run on each host; stops that host's compose project and
    optionally wipes its local state (pgdata, node keys) — and cluster
