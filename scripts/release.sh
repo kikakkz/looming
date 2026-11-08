@@ -12,13 +12,14 @@
 # the git tag <component>/vX.Y.Z its mark — the release CI consistency
 # gate refuses to publish when tag and file disagree. Releasing is three
 # steps, and this script strings them together:
-#   1. bump PR — in a dedicated, short-lived release worktree under
-#      .wt/ (the invoking worktree is never checked out over — AGENTS.md
-#      hard constraint 9), write the next version into
-#      <component>/VERSION, commit it on a chore/bump-<component>-
-#      <version> branch, push, and open the PR via create_pr.py, born
-#      with auto-merge armed ("chore: bump <component> VERSION to
-#      vX.Y.Z (#168)");
+#   1. bump PR — run from the clean main checkout (linked worktrees
+#      and uncommitted changes are rejected), in a dedicated,
+#      short-lived release worktree under .wt/ (the invoking worktree
+#      is never checked out over — AGENTS.md hard constraint 9), write
+#      the next version into <component>/VERSION, commit it on a
+#      chore/bump-<component>-<version> branch, push, and open the PR
+#      via create_pr.py, born with auto-merge armed ("chore: bump
+#      <component> VERSION to vX.Y.Z (#168)");
 #   2. tag — once the PR is merged, re-running the same command detects
 #      that origin/main carries the new version: tag <component>/<vX.Y.Z>
 #      at origin/main and push the tag;
@@ -82,11 +83,12 @@ major the first (lower fields zeroed); a component with no VERSION file
 starts at v0.1.0.
 
 The release flow is three steps, all non-interactive:
-  1. bump PR — from a dedicated, short-lived release worktree under
-     .wt/ (the invoking worktree is never checked out over), write the
-     next version into <component>/VERSION, commit on
-     chore/bump-<component>-<version>, push, open the auto-merge-armed
-     PR via create_pr.py
+  1. bump PR — from the clean main checkout (linked worktrees and
+     uncommitted changes are rejected), in a dedicated, short-lived
+     release worktree under .wt/ (the invoking worktree is never
+     checked out over), write the next version into
+     <component>/VERSION, commit on chore/bump-<component>-<version>,
+     push, open the auto-merge-armed PR via create_pr.py
      ("chore: bump <component> VERSION to vX.Y.Z (#168)");
   2. tag — after the PR merges, re-running the same command detects
      main carries the new version: tag <component>/<vX.Y.Z> at
@@ -395,11 +397,12 @@ push_ref() { # $1 = ref (tag or branch); retry with backoff — a transient
 
 # Step 1 does its branch work in a dedicated, short-lived release
 # worktree under .wt/ (AGENTS.md hard constraint 9: the invoking
-# worktree is never checked out over). BUMP_WT names it once step 1
-# starts; the EXIT trap removes it on every way out — the happy path
-# removes it explicitly, failure paths get retried here, with --force
-# when the tree is dirty. The bump branch ref itself always survives:
-# it is the pushed PR head.
+# worktree is never checked out over). BUMP_WT is the ownership token:
+# step 1 sets it only AFTER git worktree add succeeds — a failed add
+# may have hit a path another run owns, and the trap must never remove
+# that — and clears it after removal. The EXIT trap removes the owned
+# worktree on every failure path (retrying with --force when dirty).
+# The bump branch ref itself always survives: it is the pushed PR head.
 BUMP_WT=""
 cleanup_bump_wt() {
     if [[ -n "$BUMP_WT" && -d "$BUMP_WT" ]]; then
@@ -443,13 +446,22 @@ open_pr() { # $1 = branch, $2 = title
 }
 
 step1_bump_pr() {
-    local msg_title
+    local msg_title wt_path
     msg_title="$(pr_title)"
+    # CodeRabbit #209: the released version is read from the invoking
+    # checkout's file (AD-40), so the checkout's state decides the
+    # target — a linked worktree may carry a different VERSION, and
+    # uncommitted edits are not releasable state. Refuse both before
+    # anything moves; --list, --dry-run, and step 2 are exempt (they
+    # write nothing to the invoking checkout).
+    [[ "$(git rev-parse --git-dir)" == "$(git rev-parse --git-common-dir)" ]] \
+        || die "the release flow must run from the main checkout, not a linked worktree — cd to the main checkout and re-run"
+    [[ -z "$(git status --porcelain)" ]] \
+        || die "the main checkout has uncommitted changes — commit, stash, or discard them before releasing (AGENTS.md hard constraint 9)"
     # All branch work happens in a dedicated release worktree — the
     # invoking worktree's checkout is never touched (AGENTS.md hard
-    # constraint 9; #201). BUMP_WT is registered for the EXIT trap
-    # before anything can fail below.
-    BUMP_WT="$REPO_ROOT/.wt/release-$COMPONENT-$TARGET"
+    # constraint 9; #201).
+    wt_path="$REPO_ROOT/.wt/release-$COMPONENT-$TARGET"
     # Every branch-selection path below validates against origin/main,
     # so fetch it up front (not only when creating the branch).
     GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git fetch -q origin main \
@@ -458,13 +470,16 @@ step1_bump_pr() {
         log "step 1 — reusing existing bump branch $BRANCH_NAME"
         # Dies naturally when the branch is checked out in another
         # worktree — git's message names that worktree.
-        git worktree add "$BUMP_WT" "$BRANCH_NAME" \
-            || die "could not check out bump branch $BRANCH_NAME at $BUMP_WT (see git's message above)"
+        git worktree add "$wt_path" "$BRANCH_NAME" \
+            || die "could not check out bump branch $BRANCH_NAME at $wt_path (see git's message above)"
     else
-        log "step 1 — creating bump branch $BRANCH_NAME from origin/main in $BUMP_WT"
-        git worktree add -b "$BRANCH_NAME" "$BUMP_WT" origin/main \
-            || die "could not create the release worktree $BUMP_WT (see git's message above)"
+        log "step 1 — creating bump branch $BRANCH_NAME from origin/main in $wt_path"
+        git worktree add -b "$BRANCH_NAME" "$wt_path" origin/main \
+            || die "could not create the release worktree $wt_path (see git's message above)"
     fi
+    # Ownership for the EXIT trap begins only now: only this run's
+    # successfully added worktree may be cleaned up (#209).
+    BUMP_WT="$wt_path"
     # CodeRabbit #176: a reused bump branch must still sit on origin/main
     # and carry nothing outside the VERSION file — a stale or
     # contaminated branch would smuggle unrelated changes into the PR.
@@ -476,18 +491,32 @@ step1_bump_pr() {
         || die "bump branch $BRANCH_NAME holds changes outside $VERSION_REL — remove or recreate it before re-running"
     write_version_file "$BUMP_WT/$VERSION_REL"
     git -C "$BUMP_WT" add -- "$VERSION_REL"
-    # --only keeps other staged changes out of the bump commit.
-    if git -C "$BUMP_WT" commit -q -m "$msg_title" --only "$VERSION_REL"; then
-        log "step 1 — committed $(git -C "$BUMP_WT" rev-parse --short HEAD): $msg_title"
-    else
+    # --only keeps other staged changes out of the bump commit. The
+    # staged-diff pre-check separates "already carries the target"
+    # from a real commit failure (hook/identity): only the former is
+    # a no-op — a failed commit dies loud before any push or PR
+    # (#209).
+    if git -C "$BUMP_WT" diff --cached --quiet -- "$VERSION_REL"; then
         log "step 1 — $VERSION_REL already carries $TARGET (nothing to commit)"
+    else
+        git -C "$BUMP_WT" commit -q -m "$msg_title" --only "$VERSION_REL" \
+            || die "committing $VERSION_REL in the release worktree failed — resolve the error above (hook or identity?), then re-run"
+        log "step 1 — committed $(git -C "$BUMP_WT" rev-parse --short HEAD): $msg_title"
     fi
     push_ref "$BRANCH_NAME"
     open_pr "$BRANCH_NAME" "$msg_title"
     # Happy-path removal; the EXIT trap is the safety net for every
     # failure path (it retries with --force for a dirty tree). The
-    # branch ref is kept — it is the pushed PR head.
-    git worktree remove "$BUMP_WT" || cleanup_bump_wt
+    # branch ref is kept — it is the pushed PR head. Ownership clears
+    # after removal so the trap can never touch a future run's
+    # worktree at this path (#209).
+    if git worktree remove "$BUMP_WT"; then
+        # Disown: the EXIT trap must never touch a worktree a future
+        # run creates at this path (#209).
+        BUMP_WT=""
+    else
+        cleanup_bump_wt
+    fi
     log "step 1 done — merge the PR, then re-run to continue: scripts/release.sh $COMPONENT $BUMP"
 }
 

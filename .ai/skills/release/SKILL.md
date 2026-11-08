@@ -24,11 +24,13 @@ Two-level versioning:
    is the canonical source — land its bump as a PR first (the driver
    strings the three steps: `scripts/release.sh <component> <bump>` →
    bump-VERSION PR → merge → tag) and the release CI gate enforces tag
-   == VERSION, refusing to publish a mismatch. Step 1 does its branch
-   work in a dedicated short-lived `.wt/release-<component>-<version>`
-   worktree — the invoking checkout is never switched (AGENTS.md hard
-   constraint 9, #201) — and opens the PR through `create_pr.py`, so
-   the bump PR is born with squash auto-merge armed (#203, #201).
+   == VERSION, refusing to publish a mismatch. Step 1 requires the
+   clean main checkout — linked worktrees and uncommitted changes are
+   rejected — and does its branch work in a dedicated short-lived
+   `.wt/release-<component>-<version>` worktree (the invoking checkout
+   is never switched, AGENTS.md hard constraint 9, #201), and opens
+   the PR through `create_pr.py`, so the bump PR is born with squash
+   auto-merge armed (#203, #201).
 3. CI publishes the changed component's image under its new semver tag.
    Unchanged components are **not** rebuilt or republished.
 4. Open a PR bumping only that component's pin in the bundle manifest.
