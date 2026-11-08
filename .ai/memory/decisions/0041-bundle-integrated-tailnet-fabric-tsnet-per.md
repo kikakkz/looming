@@ -105,9 +105,12 @@ looming client alone deploys everything, no external references;
   topologyd's node; a gateway-only host runs no topologyd, so that
   dependency is removed — review finding, #192.) Per-component node
   identities are recorded on their ComponentPlacements, so the
-  Host-level address uniqueness invariant is untouched. Join tokens
-  evolve toward headscale pre-authorized keys (the bootstrap flow
-  lives in `looming setup`, AD-42).
+  Host-level address uniqueness invariant is untouched — and that
+  invariant is itself scoped by AD-41: the host id is the identity,
+  addresses are unique only within a network scope (disjoint NAT'd
+  underlays may collide; fabric node names are the globally-unique
+  locators). Join tokens evolve toward headscale pre-authorized keys
+  (the bootstrap flow lives in `looming setup`, AD-42).
 - Capability boundary (operator principle, 2026-11-08): per-component
   capability ships inside looming binaries — tsnet rides as a library
   dependency, and identity issuance / control-plane API client /
@@ -119,7 +122,11 @@ looming client alone deploys everything, no external references;
   binary.
 - New bundle components to version and operate: headscale, derper,
   and the looming-net sidecar; every component gains a node-key
-  volume; state backup/restore must cover these keys.
+  volume. State backup/restore must cover all of it — component node
+  keys AND headscale's database plus its server private keys: a
+  restored control plane with fresh server keys cannot authenticate
+  the existing roster, so recovery means restoring headscale's state
+  as a unit (review finding, #192).
 - Open, each with its owner issue: in-net TLS (own certs → #110),
   naming beyond headscale MagicDNS (#111), gateway-HA node identities
   (#109).

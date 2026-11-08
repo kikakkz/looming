@@ -41,14 +41,15 @@ human-confirmed) already built for exactly this shape.
    command: interview the operator (identity, upstream endpoint,
    ambition: one machine or several) → propose a topology through
    the advisor machinery (deterministic evaluator plus reasoned
-   proposal, human-confirmed per AD-38) → drive the bootstrap:
-   resolve and pin the release (fetch bundle-manifest.yaml into the
-   state dir — the installer no longer touches manifests), write the
-   topology, stand up the control plane (headscale and derper per
-   AD-41), issue join material for further hosts, converge,
-   health-check, print next steps. Re-runnable and idempotent;
-   `--answers <file>` reproduces a setup headlessly so CI keeps
-   determinism.
+   proposal, human-confirmed per AD-38) → drive the bootstrap in
+   stages: resolve and pin the release (fetch bundle-manifest.yaml
+   into the state dir — the installer no longer touches manifests),
+   write the topology, stand up the control plane on the first host
+   (headscale and derper per AD-41, join hint emitted as soon as it
+   is up), converge the first host, then bring remaining hosts in
+   (join + per-host converge), and finish with a cluster-wide
+   health check. Re-runnable and idempotent; `--answers <file>`
+   reproduces a setup headlessly so CI keeps determinism.
 3. **`looming purge` tears down symmetrically, at two levels**:
    per-host — run on each host; stops that host's compose project and
    optionally wipes its local state (pgdata, node keys) — and cluster
