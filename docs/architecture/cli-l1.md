@@ -110,6 +110,15 @@ phase-1, per topology-l1 §8).
   operator-declared, the merged file re-validates through the config
   loader before it is written, and nothing applies — the operator
   reviews the diff and runs `looming apply` (advisor slice 1.3).
+- `looming setup [--answers <file>]` — agentic cluster bring-up
+  (AD-42): interview → advisor proposal (human-confirmed, AD-38) →
+  bootstrap (topology, control plane per AD-41, join material) →
+  converge → health check; `--answers` reproduces headlessly.
+- `looming purge [--wipe-state] [--leave-net]` — symmetric teardown
+  (AD-42): stop the compose project, optionally wipe state (pgdata,
+  node keys), optionally retire tailnet identities.
+- `looming connect` — install the tailscale client on the admin's
+  device, pointed at the bundle's headscale (AD-41; optional path).
 - `looming genesis set|sync|status` — the genesis model-channel
   lifecycle (#143, slice 1.2-A): set the endpoint/credential, sync
   the channel through its three stages, inspect the channel status
