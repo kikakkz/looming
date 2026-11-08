@@ -107,6 +107,7 @@ every PR's gate at once, so the loop spends events deliberately:
 
 ## Hard rules
 
+- PRs are created with `python3 .ai/tools/create_pr.py --title "..." --body-file body.md` — the PR is born with squash auto-merge armed. Bare `gh pr create` leaves "APPROVED → auto-merge owns the rest" false (#199 gap, #203).
 - One nudge per head. The tool enforces it; do not work around with
   manual comments.
 - Never push mid-review: the verdict arrives on the head it was
