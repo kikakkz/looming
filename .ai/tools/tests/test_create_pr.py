@@ -106,6 +106,19 @@ class CreatePrTests(unittest.TestCase):
         self.assertIn("--repo", merge)
         self.assertIn("x/y", merge)  # merge resolves the number in x/y
 
+    def test_head_passes_through(self) -> None:
+        # --head selects the PR's source branch — release.sh passes its
+        # bump branch so create_pr.py stays the single creation path
+        # (#201); it must reach gh pr create verbatim.
+        fake = GhFake(create_url="https://github.com/x/y/pull/46")
+        with mock.patch.object(cp, "run_gh", fake):
+            code, _, _ = run_tool(["--title", "t", "--body", "b",
+                                   "--head", "chore/bump-gateway-v0.1.2"])
+        self.assertEqual(code, 0)
+        create = fake.calls[0]
+        self.assertIn("--head", create)
+        self.assertIn("chore/bump-gateway-v0.1.2", create)
+
 
 class PureTests(unittest.TestCase):
     def test_number_from_url_variants(self) -> None:

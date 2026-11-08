@@ -10,7 +10,7 @@ prints the PR URL for repair.
 
 Usage:
   create_pr.py --title TITLE (--body BODY | --body-file PATH)
-               [--base BASE] [--repo OWNER/NAME] [--gh PATH]
+               [--base BASE] [--head HEAD] [--repo OWNER/NAME] [--gh PATH]
 
 Exit codes: 0 created + armed / 1 usage error or gh failure / 2 unexpected.
 """
@@ -44,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     body.add_argument("--body")
     body.add_argument("--body-file", type=Path)
     parser.add_argument("--base", default=None, help="target branch")
+    parser.add_argument("--head", default=None, help="source branch")
     parser.add_argument("--repo", default=None, help="OWNER/NAME override")
     parser.add_argument("--gh", default="gh", help="path to the gh binary")
     args = parser.parse_args(argv)
@@ -54,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     create = ["pr", "create", "--title", args.title, "--body", text]
     if args.base:
         create += ["--base", args.base]
+    if args.head:
+        create += ["--head", args.head]
     if args.repo:
         create += ["--repo", args.repo]
 
