@@ -58,7 +58,8 @@ human-confirmed) already built for exactly this shape.
    minted per host id (one-time, role-scoped, revocable per AD-36),
    and the pull-based join binds the presenting host to its
    predeclared entry; a host with no predeclaration registers
-   afresh, as today. Re-runnable and idempotent; `--answers <file>`
+   afresh, as today — the binding rides `looming join --host-id <id>`,
+   printed in that host's join hint. Re-runnable and idempotent; `--answers <file>`
    reproduces a setup headlessly so CI keeps determinism. The
    bootstrap invite is minted at the END of setup — joins done,
    cluster-wide health check green — not at first converge by

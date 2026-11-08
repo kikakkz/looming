@@ -71,10 +71,13 @@ converged before handoff (AD-42: invite minted at the end, with
 `apply --print-invite` the explicit early-mint escape hatch).
 
 **Adding a host** (admin): `looming token create --role engine --ttl
-24h` → on the new host: install bundle → `looming join
-http://<first-host>:<port> --token <t>` → the host credential lands
+24h` (for a predeclared host the token is minted against its id, and
+the printed join hint carries it) → on the new host: install the CLI →
+`looming join http://<first-host>:<port> --token <t> [--host-id <id>]`
+(`--host-id` binds a predeclared entry to its bound token, AD-42) →
+the host credential lands
 at `/etc/looming/host.cred` (0600, shown exactly once) — the
-topology-l1 §3 join journey, unchanged.
+topology-l1 §3 join journey, binding semantics per AD-42.
 
 ## 4. Command surface
 
@@ -107,8 +110,10 @@ phase-1, per topology-l1 §8).
   raw token once).
 - `looming guide show` — print the public onboarding guide (rendering
   on demand when stale), per topology-l1 §7.
-- `looming join <first-host-url> --token <t>` — the pulling host's
-  self-registration (topology-l1 §7); the join payload carries the
+- `looming join <first-host-url> --token <t> [--host-id <id>]` — the
+  pulling host's self-registration (topology-l1 §7); `--host-id`
+  binds a predeclared entry to its bound token (AD-42), carried in
+  the printed join hint; the join payload carries the
   host's observed machine facts (advisor slice 1.3), collected locally
   and announced on stdout.
 - `looming topology advise [--reason]` — placement derivation

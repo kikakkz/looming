@@ -140,8 +140,8 @@ command contract; CLI-1 retired the old `looming-ctl` binary —
 topologyd is this component's only binary): `apply` (with
 `--print-invite` to force the bootstrap-invite request; `--dry-run`
 stops after the render), `token create|list|revoke` (admin side,
-direct to the topology DB), `join <first-host-url> --token <t>` (the
-pulling host), `topology advise` (placement feasibility over declared
+direct to the topology DB), `join <first-host-url> --token <t> [--host-id <id>]` (the
+pulling host; `--host-id` binds a predeclared entry to its bound token, AD-42), `topology advise` (placement feasibility over declared
 and observed host facts), `topology facts pull` (merges join-observed
 machine facts into the topology file — the consumer of this section's
 hosts read), `guide show`. The CLI binary's own component placement
