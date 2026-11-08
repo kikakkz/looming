@@ -115,6 +115,10 @@
 # the release skill are present tense (gate landed, three-step flow),
 # release-l1 §3.1(c)/§5 S2 state the landed mechanics; all read_order
 # anchors resolve.
+# 2026-11-08 worktree-only development (#193) re-validated: AGENTS.md
+# gains hard constraint 9 (all development in .wt/ worktrees, main
+# checkout stays clean) and the Commands section joins wrapped bullets
+# for the 200-line budget; all read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
