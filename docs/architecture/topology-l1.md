@@ -8,16 +8,22 @@ decisions). Vocabulary: [glossary](glossary.md).
 
 Single-organization bundle first-boot plus topology management.
 Independent of the Orchestration context (blueprints/runs, → #4).
-Phase-1 envelope per the AD-35-era phase decisions: single gateway
-front, HTTP, plain IPs, trusted network. Phase-2 items live ONLY in
-#109 (gateway HA), #110 (auto TLS), #111 (DNS), #112 (cross-NAT) —
-this design references them, never duplicates them.
+Envelope per the AD-35-era phase decisions, amended by AD-41: a
+single gateway front; component↔component traffic and client-ingress
+targeting ride the bundle-integrated tailnet fabric (tsnet per
+component, headscale in-bundle, AD-41); human clients reach the
+gateway over ordinary networks (LAN, later a reverse proxy under
+#110); upstream reachability is operator-side networking, outside
+this context. Remaining phase-2 items live ONLY in #109 (gateway
+HA), #110 (auto TLS), #111 (DNS) — this design references them,
+never duplicates them. (#112 cross-NAT was resolved by AD-41.)
 
 ## 2. Model
 
 ```
 Topology (aggregate root; desired state snapshot)
-  ├─ Host        (registered machine: id, address, role labels, joined_at,
+  ├─ Host        (registered machine: id, address = tailnet identity
+  │               issued at join (AD-41), role labels, joined_at,
   │               observed capabilities — join-time facts, advisor slice 1.3)
   ├─ ComponentPlacement (component × host, port/config overrides; gateway front exactly 1 in phase-1)
   ├─ JoinToken   (one-time, TTL default 24h, hash-stored, role-scoped, revocable — kubeadm shape)
@@ -92,7 +98,7 @@ secret.
 
 | Aggregate | Invariants |
 |---|---|
-| Topology | hosts ≥ 1; placements reference registered hosts; gateway-front placement exactly 1 (#109 lifts to N); `access` accepts only direct/ip/http in phase-1 — vip/dns/acme shapes are reserved in the schema but rejected at apply, with the owning phase-2 issue named (#109–#112); optimistic revision (component-patterns #3) |
+| Topology | hosts ≥ 1; placements reference registered hosts; gateway-front placement exactly 1 (#109 lifts to N); `access` accepts only direct/ip/http in phase-1 — vip/dns/acme shapes are reserved in the schema but rejected at apply, with the owning phase-2 issue named (#109–#111; cross-NAT resolved per AD-41); optimistic revision (component-patterns #3) |
 | Host | address unique; join is pull-based self-registration — a successful join mints the host's persistent service credential (its AD-27 §6 service-subject identity; re-join authenticates with that credential, identifies the host by id, and updates address/labels) and stores the observed machine facts the join payload carried (slice 1.3: strict-validated, NULL when an old CLI joined, refreshed only by re-running join — never re-stamped by re-join); no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
 | JoinToken | one-time consume; TTL default 24h; hash at rest; atomic consume (guarded UPDATE — the slice-A invite-token precedent) |
 | ComponentPlacement | (component, host) unique; port conflicts rejected at apply |
@@ -198,7 +204,8 @@ invariant).
 - Remote/HA bootstrap API — trigger: #109 multi-replica control
   plane.
 - Admin web UI — trigger: ops team demand.
-- DNS/TLS/HA/cross-NAT → #109–#112 by reference.
+- DNS/TLS/HA → #109–#111 by reference; cross-NAT connectivity →
+  resolved by AD-41 (#112).
 
 ## 10. Implementation slices (filed as issues after this design lands)
 
