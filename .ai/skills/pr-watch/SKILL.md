@@ -45,7 +45,14 @@ requesting the verdict — belong to the loop below; the tool
    exactly one `@coderabbitai full review` per head, only when checks
    are green, no verdict stands, and no threads are open. A clean
    first-pass incremental review is silent by design — the nudge is
-   the deterministic verdict lever (~6–13 min).
+   the deterministic verdict lever (~6–13 min). Nudge only after that
+   incremental review has come back silent: findings mean fix-and-push
+   first, never nudge over a review still in flight (two events, one
+   head — see Quota discipline). Exception — after
+   `auto_pause_after_reviewed_commits` pauses automatic reviews
+   (.coderabbit.yaml), a push spends no event and no incremental will
+   arrive: the guarded nudge IS the path, permitted as soon as checks
+   are green.
 5. **Repeat** from step 1 until APPROVED or a genuinely new
    changes-requested arrives. Stop on user interrupt.
 
@@ -65,6 +72,12 @@ every PR's gate at once, so the loop spends events deliberately:
 - **Batch pushes** (step 3) and never push between nudge and verdict —
   a push inside the review window supersedes the running review: paid,
   discarded, no feedback.
+- **Nudge after silent, not over findings**: the push already spends
+  one event on its incremental review; nudging before that lands spends
+  a second event on the same head. Findings → fix, push once, and nudge
+  only the silent result. Once automatic reviews are paused
+  (`auto_pause_after_reviewed_commits`), nothing is in flight — the
+  guarded nudge re-opens review on demand and is the intended path.
 - **Rate-limited means stop.** The signature is a `@coderabbitai` reply
   of "Action not completed — Review rate limited" (or nudge silence):
   wait out the stated window; the refill is rolling and a blocked
