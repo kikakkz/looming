@@ -123,6 +123,7 @@ BRANCH_ISSUE_RE = re.compile(r"^[a-z]+/(\d+)-")  # <type>/<issue>-<slug>
 
 
 def git_out(args: list[str], root: Path) -> str:
+    """run `git -C root ...`, raising RuntimeError on any failure."""
     proc = subprocess.run(
         ["git", "-C", str(root), *args],
         capture_output=True, text=True, timeout=60)
@@ -132,11 +133,14 @@ def git_out(args: list[str], root: Path) -> str:
 
 
 def repo_root() -> Path:
-    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+    """the repository's main worktree — never the current linked one:
+    porcelain's first entry is always the main worktree. retire may run
+    from inside the worktree it is about to delete."""
+    proc = subprocess.run(["git", "worktree", "list", "--porcelain"],
                           capture_output=True, text=True, timeout=30)
-    if proc.returncode != 0:
+    if proc.returncode != 0 or not proc.stdout.startswith("worktree "):
         raise RuntimeError("not inside a git repository")
-    return Path(proc.stdout.strip())
+    return Path(proc.stdout.split("\n", 1)[0].removeprefix("worktree "))
 
 
 def issue_number_for_branch(branch: str) -> int | None:
@@ -159,6 +163,7 @@ def worktree_for_branch(root: Path, branch: str) -> Path | None:
 
 
 def branch_tip(root: Path, branch: str) -> str | None:
+    """local sha of `branch`, or None when no such local branch exists."""
     proc = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--verify",
          f"refs/heads/{branch}"],
@@ -181,8 +186,10 @@ def find_dependents(repo: str, issue_no: int, gh: str) -> list[int]:
             ["api", f"repos/{repo}/issues/{issue['number']}/comments"], gh)
         return any(pattern.search(c.get("body") or "") for c in comments)
 
+    # query string (not -f): any -f/--field flips `gh api` to POST, which
+    # would hit the issue-creation endpoint and 422 (#199 review).
     open_issues = gh_json_list(
-        ["api", f"repos/{repo}/issues", "-f", "state=open"], gh)
+        ["api", f"repos/{repo}/issues?state=open&per_page=100"], gh)
     return [i["number"] for i in open_issues
             if "pull_request" not in i and refers(i)]
 
@@ -370,6 +377,10 @@ UNBLOCK_TEXT = "Predecessor #{n} has merged — this issue is now unblocked."
 
 
 def cmd_retire(repo: str, pr: int, dry_run: bool, gh: str) -> int:
+    """retire a merged PR: remove its worktree and local branch, notify
+    dependent issues. Guarded (see module section above); dependents are
+    resolved BEFORE any destructive step so a lookup failure leaves the
+    local state untouched."""
     pull = gh_json(["api", f"repos/{repo}/pulls/{pr}"], gh)
     if not pull.get("merged"):
         print("retire: PR is not merged — nothing to retire", file=sys.stderr)
@@ -402,6 +413,8 @@ def cmd_retire(repo: str, pr: int, dry_run: bool, gh: str) -> int:
               "(unpushed commits?) — refusing", file=sys.stderr)
         return 1
 
+    dependents = find_dependents(repo, issue_no, gh)
+
     if dry_run:
         result["dry_run"] = True
     else:
@@ -413,7 +426,7 @@ def cmd_retire(repo: str, pr: int, dry_run: bool, gh: str) -> int:
             result["branch_deleted"] = branch
 
     notified: list[int] = []
-    for dep in find_dependents(repo, issue_no, gh):
+    for dep in dependents:
         text = UNBLOCK_TEXT.format(n=issue_no)
         if not dry_run:
             comments = gh_json_list(

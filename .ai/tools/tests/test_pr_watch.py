@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -404,10 +404,11 @@ class RetireTests(unittest.TestCase):
                 "merged": True, "state": "closed",
                 "head": {"ref": "feat/7-demo", "sha": self.tip}},
             ("api", "repos/x/y/issues/7"): {"state": "closed"},
-            ("api", "repos/x/y/issues", "-f", "state=open"): [],
+            ("api", "repos/x/y/issues?state=open&per_page=100"): [],
         }
 
-    def run_retire(self, fake: GhFake, dry_run: bool = False) -> tuple:
+    def run_retire(self, fake: GhFake, dry_run: bool = False,
+                   patch_root: bool = True) -> tuple:
         out, err = io.StringIO(), io.StringIO()
         argv = ["--repo", "x/y"] + (["--dry-run"] if dry_run else []) \
             + ["retire", "9"]
@@ -415,8 +416,11 @@ class RetireTests(unittest.TestCase):
                 "GIT_CONFIG_GLOBAL": "/dev/null",
                 "GIT_CONFIG_SYSTEM": "/dev/null"}):
             with redirect_stdout(out), redirect_stderr(err):
-                with mock.patch.object(pw, "run_gh", fake), \
-                        mock.patch.object(pw, "repo_root", lambda: self.repo):
+                with ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(pw, "run_gh", fake))
+                    if patch_root:
+                        stack.enter_context(mock.patch.object(
+                            pw, "repo_root", lambda: self.repo))
                     code = pw.main(argv)
         return code, out.getvalue(), err.getvalue()
 
@@ -439,7 +443,7 @@ class RetireTests(unittest.TestCase):
 
     def test_notifies_dependents_and_dedupes(self) -> None:
         routes = self.routes()
-        routes[("api", "repos/x/y/issues", "-f", "state=open")] = [
+        routes[("api", "repos/x/y/issues?state=open&per_page=100")] = [
             {"number": 195, "title": "next",
              "body": "Sequenced behind #7 — lands after it merges."},
         ]
@@ -456,7 +460,7 @@ class RetireTests(unittest.TestCase):
 
     def test_finds_dependent_in_comments(self) -> None:
         routes = self.routes()
-        routes[("api", "repos/x/y/issues", "-f", "state=open")] = [
+        routes[("api", "repos/x/y/issues?state=open&per_page=100")] = [
             {"number": 196, "title": "later", "body": "unrelated"},
         ]
         routes[("api", "repos/x/y/issues/196/comments")] = [
@@ -536,6 +540,29 @@ class RetireTests(unittest.TestCase):
         self.assertIn('"dry_run": true', out)
         self.assertTrue(self.worktree_exists())
         self.assertEqual(fake.posts, [])
+
+    def test_repo_root_resolves_main_worktree_from_linked(self) -> None:
+        # #199 review: --show-toplevel returns the linked worktree itself;
+        # the main worktree must come from porcelain's first entry.
+        cwd = Path.cwd()
+        try:
+            os.chdir(self.wt)
+            self.assertEqual(pw.repo_root(), self.repo)
+        finally:
+            os.chdir(cwd)
+
+    def test_retire_run_from_inside_its_own_worktree(self) -> None:
+        # retire is typically invoked from the worktree it deletes —
+        # repo_root must anchor every git op at the main worktree.
+        cwd = Path.cwd()
+        try:
+            os.chdir(self.wt)
+            code, out, err = self.run_retire(GhFake(self.routes()),
+                                             patch_root=False)
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(self.worktree_exists())
 
 
 class RetirePureTests(unittest.TestCase):
