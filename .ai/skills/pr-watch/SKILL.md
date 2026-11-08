@@ -1,6 +1,6 @@
 ---
 name: pr-watch
-description: Own the PR review-fix loop end to end for one open PR. Use when a PR is awaiting or reacting to review — watch state, triage findings, fix on-branch, and hand in the review with a single guarded nudge.
+description: Own the PR review-fix loop end to end for one open PR. Use when a PR is awaiting or reacting to review — watch state, triage findings, fix on-branch, hand in the review with a single guarded nudge, and retire the branch after merge.
 ---
 
 # PR Watch
@@ -88,6 +88,22 @@ every PR's gate at once, so the loop spends events deliberately:
   fixed: dismiss with `dismiss <REVIEW_ID>`, then nudge.
 - **Just-dismissed approval** (the push race): treat as in-flight, nudge
   to re-acquire.
+
+## Post-merge (one shot, after `merged: true`)
+
+`python3 .ai/tools/pr_watch.py retire <PR>` — guarded retirement (#197):
+
+- Refuses unless the PR is merged, the branch-derived issue is closed,
+  the worktree is clean, and the local branch sits exactly at the
+  merged head.
+- Removes only the worktree that checks out the PR's branch (looked up
+  by branch, not by directory name) and deletes the local branch —
+  anything checked out elsewhere is unreachable by construction
+  (AGENTS.md hard constraint 9).
+- Scans open issues for `lands after|blocked by|sequenced behind|
+  depends on #<issue>` (title/body and comments) and posts one
+  "predecessor merged — unblocked" comment each; already-posted ones
+  are skipped, so a second run is a no-op.
 
 ## Hard rules
 
