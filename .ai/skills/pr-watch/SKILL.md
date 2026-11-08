@@ -107,7 +107,7 @@ every PR's gate at once, so the loop spends events deliberately:
 
 ## Hard rules
 
-- PRs are created with `python3 .ai/tools/create_pr.py --title "..." --body-file body.md` — the PR is born with squash auto-merge armed. Bare `gh pr create` leaves "APPROVED → auto-merge owns the rest" false (#199 gap, #203). Exception: `scripts/release.sh` opens its bump PR itself — arm auto-merge right after (`gh pr merge <n> --squash --auto`); arming inside the driver rides #201.
+- PRs are created with `python3 .ai/tools/create_pr.py --title "..." --body-file body.md` — the PR is born with squash auto-merge armed. Bare `gh pr create` leaves "APPROVED → auto-merge owns the rest" false (#199 gap, #203); `scripts/release.sh` opens its bump PR through the same tool (#201), so every PR is born armed.
 - One nudge per head. The tool enforces it; do not work around with
   manual comments.
 - Never push mid-review: the verdict arrives on the head it was
