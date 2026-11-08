@@ -80,6 +80,15 @@ looming client alone deploys everything, no external references;
   identity issued at join time; join tokens evolve toward headscale
   pre-authorized keys (the bootstrap flow lives in `looming setup`,
   AD-42).
+- Capability boundary (operator principle, 2026-11-08): per-component
+  capability ships inside looming binaries — tsnet rides as a library
+  dependency, and identity issuance / control-plane API client /
+  config rendering / lifecycle are ours to implement. Per-deployment
+  singletons (headscale, derper) stay upstream binaries that looming
+  binaries manage and version-pin, never vendor. The net sidecar is
+  the worked example of the first half: no upstream equivalent
+  existed, so the workload-onboarding function is our own small
+  binary.
 - New bundle components to version and operate: headscale, derper,
   and the looming-net sidecar; every component gains a node-key
   volume; state backup/restore must cover these keys.
