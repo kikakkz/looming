@@ -43,9 +43,10 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
    worktree under `.wt/` (one per issue branch; `docs/193-...` →
    `.wt/docs-193`). The main checkout stays on `main` and stays clean —
    no development branches, no uncommitted work. An active session's
-   worktree is never checked out over, moved, removed, or pushed from
-   outside that session. (Origin: 2026-10-01 memory-bank lesson, a
-   subagent sharing the main tree force-pushed mid-session.)
+   worktree is never checked out over, moved, or removed, and its
+   branch is never pushed to from outside that session. (Origin:
+   2026-10-01 memory-bank lesson, a subagent sharing the main tree
+   force-pushed mid-session.)
 
 ## Commands
 

@@ -33,3 +33,7 @@ coverage*.out
 # Component binaries: a component whose only package is a main
 # (topology post-CLI-1) has `go build ./...` drop the binary in cwd.
 /topology/topologyd
+
+# Worktrees (hard constraint 9): all development happens in
+# .wt/<type>-<issue>/; the main checkout must stay clean.
+/.wt/
