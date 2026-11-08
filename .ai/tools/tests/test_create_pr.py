@@ -102,6 +102,9 @@ class CreatePrTests(unittest.TestCase):
         self.assertIn("main", create)
         self.assertIn("--repo", create)
         self.assertIn("x/y", create)
+        merge = fake.calls[1]
+        self.assertIn("--repo", merge)
+        self.assertIn("x/y", merge)  # merge resolves the number in x/y
 
 
 class PureTests(unittest.TestCase):
