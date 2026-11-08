@@ -58,7 +58,12 @@ reviews:
     enabled: true
     drafts: false
     base_branches: ["main"]
-    auto_pause_after_reviewed_commits: 2 # pause auto incremental reviews after 2 reviewed rounds per branch; the pr-watch nudge re-opens them on demand. Merge stays gated: dismiss_stale voids approvals on push, so no merge without a fresh verdict (#182)
+    # Quota discipline: one auto round per branch (maintainer decision
+    # 2026-11-08, #206, tightening #182's 2) — mid-round pushes no longer
+    # each burn an hourly review slot; the pr-watch nudge re-opens review
+    # on demand. Merge stays gated: dismiss_stale voids approvals on
+    # push, so nothing merges without a fresh verdict.
+    auto_pause_after_reviewed_commits: 1
   tools:
     shellcheck:
       enabled: true
