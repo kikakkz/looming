@@ -89,7 +89,8 @@ class CreatePrTests(unittest.TestCase):
                                        "--body-file", str(body)])
         self.assertEqual(code, 0)
         create = fake.calls[0]
-        self.assertIn("Closes #203", create)
+        self.assertEqual(create[create.index("--body") + 1],
+                         "Closes #203\n")
 
     def test_base_and_repo_pass_through(self) -> None:
         fake = GhFake(create_url="https://github.com/x/y/pull/45")
