@@ -84,7 +84,7 @@ class CheckTrailersTests(unittest.TestCase):
         self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>")
         r = run_script(self.repo, "HEAD")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("must carry Signed-off-by", r.stderr)
+        self.assertIn("must carry the maintainer's Signed-off-by", r.stderr)
 
     def test_generated_by_with_signoff_passes(self) -> None:
         self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>\n"
