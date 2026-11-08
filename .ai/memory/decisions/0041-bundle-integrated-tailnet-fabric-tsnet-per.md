@@ -137,6 +137,11 @@ looming client alone deploys everything, no external references;
   restored control plane with fresh server keys cannot authenticate
   the existing roster, so recovery means restoring headscale's state
   as a unit (review finding, #192).
+- Release integration: headscale, derper, and the looming-net sidecar
+  become versioned bundle components — pinned in
+  bundle-manifest.yaml and delivered through the same artifact-only
+  release pipeline as the other components (release-l1); setup
+  consumes only published artifacts, never ad-hoc pulls.
 - Open, each with its owner issue: in-net TLS (own certs → #110),
   naming beyond headscale MagicDNS (#111), gateway-HA node identities
   (#109).
