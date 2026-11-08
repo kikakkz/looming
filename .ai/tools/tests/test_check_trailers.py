@@ -80,6 +80,54 @@ class CheckTrailersTests(unittest.TestCase):
         r = run_script(self.repo, "HEAD")
         self.assertEqual(r.returncode, 1)
 
+    def test_generated_by_without_signoff_fails(self) -> None:
+        self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>")
+        r = run_script(self.repo, "HEAD")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("must carry Signed-off-by", r.stderr)
+
+    def test_generated_by_with_signoff_passes(self) -> None:
+        self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>\n"
+                    "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
+        r = run_script(self.repo, "HEAD")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_assisted_by_without_signoff_passes_without_dco(self) -> None:
+        # The pair rule binds AI-authored commits (Generated-by:); a
+        # human-authored Assisted-by: commit keeps its own DCO freedom.
+        self.commit("fix: x\n\nAssisted-by: Kimi Code")
+        r = run_script(self.repo, "HEAD")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_default_scope_excludes_pre_policy_history(self) -> None:
+        # An old commit on main predates the pair rule; the default range
+        # (main..HEAD) must not re-litigate it, while an explicit HEAD
+        # still does.
+        self.commit("docs: old\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>")
+        self.git("checkout", "-q", "-b", "feat/new")
+        self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>\n"
+                    "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
+        r = run_script(self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = run_script(self.repo, "HEAD")
+        self.assertEqual(r.returncode, 1)
+
+    def test_default_scope_on_main_is_empty_and_passes(self) -> None:
+        self.commit("fix: x\n\nSigned-off-by: T <t@example.com>")
+        r = run_script(self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("0 commit(s)", r.stdout)
+
+    def test_default_scope_skips_without_baseline(self) -> None:
+        # A repository whose baseline cannot be resolved (no origin/main,
+        # no main) skips with a note instead of checking all of history.
+        self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>")
+        self.git("checkout", "-q", "-b", "trunk")
+        self.git("branch", "-q", "-D", "main")
+        r = run_script(self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("skipping trailer check", r.stdout)
+
     def test_merge_commit_without_signoff_flags_commit_sha(self) -> None:
         # Merge commits carry no trailers; when in range they must be
         # flagged once, naming the merge commit.
