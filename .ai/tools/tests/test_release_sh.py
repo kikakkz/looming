@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 MANIFEST = REPO_ROOT / "bundle" / "manifest.yaml"
 VERSION_TOOL = REPO_ROOT / ".ai" / "tools" / "release_version.py"
+CREATE_PR_TOOL = REPO_ROOT / ".ai" / "tools" / "create_pr.py"
 
 GATEWAY_VERSION = """\
 # SPDX-License-Identifier: Apache-2.0
@@ -44,6 +45,7 @@ def make_fixture(tmp: Path) -> tuple[Path, dict]:
     shutil.copy2(SCRIPT, repo / "scripts" / "release.sh")
     shutil.copy2(MANIFEST, repo / "bundle" / "manifest.yaml")
     shutil.copy2(VERSION_TOOL, repo / ".ai" / "tools" / "release_version.py")
+    shutil.copy2(CREATE_PR_TOOL, repo / ".ai" / "tools" / "create_pr.py")
     env = os.environ.copy()
     env["GIT_CONFIG_GLOBAL"] = "/dev/null"
     env["GIT_CONFIG_SYSTEM"] = "/dev/null"
@@ -57,6 +59,10 @@ def make_fixture(tmp: Path) -> tuple[Path, dict]:
     git("config", "user.name", "T")
     git("config", "user.email", "t@example.com")
     (repo / "f.txt").write_text("x", encoding="utf-8")
+    # The real repo ignores /.wt/ — the fixture must too, or the
+    # release worktree paths would read as untracked dirt in the
+    # invoking checkout's git status (#209's clean-checkout guard).
+    (repo / ".gitignore").write_text("/.wt/\n", encoding="utf-8")
     # The AD-40 source of truth: component VERSION files, tracked on
     # main from the init commit — like the real repo — so a bump
     # branch cut from origin/main keeps the directories write_version_file
@@ -244,8 +250,9 @@ class ReleaseShTests(unittest.TestCase):
 
     def test_step1_pushes_bump_branch_and_opens_pr(self):
         # Full step-1 execution against a local bare remote with a
-        # scripted gh: branch pushed, PR created, original branch
-        # restored, no tag cut.
+        # scripted gh: branch pushed, PR created (auto-merge armed via
+        # the real create_pr.py against the same scripted gh), invoking
+        # worktree untouched, no tag cut.
         remote = self.bare_remote()
         self.git("push", "-q", "origin", "main")
         # HEAD sits on an unrelated feature branch — the bump branch must
@@ -277,10 +284,16 @@ class ReleaseShTests(unittest.TestCase):
         # The PR was asked for with the AD-40 title and issue ref.
         logged = args_log.read_text(encoding="utf-8")
         self.assertIn("chore: bump gateway VERSION to v0.1.2 (#168)", logged)
-        # Both repo-scoped gh calls pin this repository — GH_HOST/GH_REPO
-        # overrides must not redirect them (#176 review).
+        # Every repo-scoped gh call pins this repository — GH_HOST/GH_REPO
+        # overrides must not redirect them (#176 review): pr view, the
+        # delegated pr create, and its arming pr merge.
         self.assertGreaterEqual(logged.count("--repo"), 2)
         self.assertIn("kikakkz/looming", logged)
+        # create_pr.py arms squash auto-merge as one step with creation
+        # and reports it in the JSON release.sh logs (#201). The shim
+        # logs one gh argument per line.
+        self.assertIn("pr\nmerge\n1\n--squash\n--auto", logged)
+        self.assertIn('"auto_merge": true', r.stdout)
         # Step 2 has not happened: no release tag exists anywhere.
         self.assertNotIn("gateway/v0.1.2", self.tags())
         r2 = subprocess.run(
@@ -289,15 +302,194 @@ class ReleaseShTests(unittest.TestCase):
         self.assertNotIn("gateway/v0.1.2", r2.stdout)
 
     def test_step1_gh_failure_aborts_with_guidance(self):
+        # Every gh call fails (auth/network outage): creation is
+        # delegated to the real create_pr.py, which fails loud on gh's
+        # error — release.sh dies with the manual-recovery message. The
+        # branch is pushed either way — the PR can be opened manually.
         remote = self.bare_remote()
         self.git("push", "-q", "origin", "main")
         env = dict(self.env, PATH=self.gh_failing_path())
         r = self.run_script("gateway", "patch", env=env)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("gh pr create failed", r.stderr)
-        # The branch is pushed — the PR can be opened manually.
+        self.assertIn("create_pr.py failed", r.stderr)
+        self.assertIn("open the PR manually", r.stderr)
         self.assertEqual(self.heads(remote),
                          ["chore/bump-gateway-v0.1.2", "main"])
+        # The dedicated release worktree is gone despite the failure
+        # (EXIT trap), leaving nothing behind in the invoking repo.
+        self.assertFalse((self.repo / ".wt" / "release-gateway-v0.1.2")
+                         .exists())
+
+    def test_step1_leaves_invoking_worktree_untouched(self):
+        # AGENTS.md hard constraint 9 / #201: step 1 must never check
+        # out the invoking worktree. HEAD's branch and commit, and the
+        # invoking tree's VERSION file, are identical before and after;
+        # the bump commit lives on the bump branch; the dedicated
+        # release worktree is removed at the end.
+        remote = self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "feat/unrelated")
+        (self.repo / "unrelated.txt").write_text("x", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "unrelated work")
+        branch_before = self.git("branch", "--show-current").strip()
+        head_before = self.git("rev-parse", "HEAD").strip()
+        version_before = (self.repo / "gateway" / "VERSION").read_text(
+            encoding="utf-8")
+        env = dict(self.env, PATH=self.gh_path(self.tmp / "gh-args.log"))
+        r = self.run_script("gateway", "patch", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("branch", "--show-current").strip(),
+                         branch_before)
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), head_before)
+        self.assertEqual((self.repo / "gateway" / "VERSION").read_text(
+            encoding="utf-8"), version_before)
+        # The bump commit advanced the branch ref and carries the new
+        # VERSION content — authored in the release worktree, not here.
+        branch_head = self.git("rev-parse",
+                               "chore/bump-gateway-v0.1.2").strip()
+        self.assertNotEqual(branch_head, head_before)
+        out = self.git("show", f"{branch_head}:gateway/VERSION")
+        self.assertEqual(out.strip().splitlines()[-1], "v0.1.2")
+        self.assertEqual(self.heads(remote),
+                         ["chore/bump-gateway-v0.1.2", "main"])
+        # The dedicated release worktree is removed, from the filesystem
+        # and from git's worktree registry.
+        self.assertFalse((self.repo / ".wt" / "release-gateway-v0.1.2")
+                         .exists())
+        self.assertNotIn("release-gateway-v0.1.2",
+                         self.git("worktree", "list"))
+
+    def test_step1_pr_creation_delegates_to_create_pr_py(self):
+        # #201: the bump PR is created by create_pr.py (auto-merge armed
+        # by construction), not by a bare gh pr create. A scripted
+        # python3 fakes the tool and logs every argument it gets.
+        remote = self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        args_log = self.tmp / "py-args.log"
+        # Stack the two shims: python3 is intercepted for create_pr.py
+        # while gh still answers the pr-view existence check hermetically.
+        combined = (self.py_path(args_log).split(os.pathsep, 1)[0]
+                    + os.pathsep + self.gh_path(self.tmp / "gh-args.log"))
+        env = dict(self.env, PATH=combined)
+        r = self.run_script("gateway", "patch", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        logged = args_log.read_text(encoding="utf-8")
+        self.assertIn("create_pr.py", logged)
+        self.assertIn("--head", logged)
+        self.assertIn("chore/bump-gateway-v0.1.2", logged)
+        self.assertIn("--base", logged)
+        self.assertIn("--repo", logged)
+        self.assertIn("kikakkz/looming", logged)
+        self.assertIn("chore: bump gateway VERSION to v0.1.2 (#168)", logged)
+        # The tool's JSON answer is logged to stdout.
+        self.assertIn('"auto_merge": true', r.stdout)
+        self.assertIn("https://example.invalid/kikakkz/looming/pull/7",
+                      r.stdout)
+        # And the flow still pushed the branch.
+        self.assertEqual(self.heads(remote),
+                         ["chore/bump-gateway-v0.1.2", "main"])
+
+    def test_step1_rejects_dirty_main_checkout(self):
+        # #209: uncommitted edits make the released version ambiguous —
+        # step 1 refuses before anything moves. Read-only surfaces stay
+        # available on a dirty checkout.
+        remote = self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        (self.repo / "f.txt").write_text("dirty", encoding="utf-8")
+        env = dict(self.env, PATH=self.gh_path(self.tmp / "gh-args.log"))
+        r = self.run_script("gateway", "patch", env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("uncommitted changes", r.stderr)
+        self.assertEqual(self.heads(remote), ["main"])
+        self.assertFalse((self.repo / ".wt").exists(),
+                         "no release worktree may be created")
+        r2 = self.run_script("gateway", "patch", "--dry-run")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+    def test_step1_rejects_linked_worktree(self):
+        # #209: the released version is read from the invoking
+        # checkout's file, so running from a linked worktree (which may
+        # carry a different VERSION on its branch) is refused.
+        self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        linked = self.tmp / "linked"
+        self.git("worktree", "add", "-b", "linked-dev", str(linked))
+        env = dict(self.env, PATH=self.gh_path(self.tmp / "gh-args.log"))
+        r = subprocess.run(
+            ["bash", str(linked / "scripts" / "release.sh"),
+             "gateway", "patch"],
+            cwd=linked, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("main checkout", r.stderr)
+        self.assertIn("linked worktree", r.stderr)
+        self.assertFalse((linked / ".wt").exists(),
+                         "no release worktree may be created")
+
+    def test_step1_commit_failure_dies_loud(self):
+        # #209: only "nothing staged" takes the no-commit path. A real
+        # commit failure (here a pre-commit hook) must die before any
+        # push or PR — never fall through as "nothing to commit" — and
+        # the trap still removes the release worktree.
+        remote = self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        hooks = self.tmp / "hooks"
+        hooks.mkdir()
+        (hooks / "pre-commit").write_text(
+            "#!/bin/sh\necho 'hook rejects the commit' >&2\nexit 1\n",
+            encoding="utf-8")
+        os.chmod(hooks / "pre-commit", 0o755)
+        self.git("config", "core.hooksPath", str(hooks))
+        env = dict(self.env, PATH=self.gh_path(self.tmp / "gh-args.log"))
+        r = self.run_script("gateway", "patch", env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("committing gateway/VERSION", r.stderr)
+        self.assertNotIn("nothing to commit", r.stdout)
+        self.assertEqual(self.heads(remote), ["main"],
+                         "a failed commit must never reach push")
+        self.assertFalse((self.repo / ".wt" / "release-gateway-v0.1.2")
+                         .exists())
+
+    def test_step1_reuse_branch_reports_nothing_to_commit(self):
+        # The legitimate no-op side of the staged-diff pre-check: a
+        # second run against the open PR reuses the branch, stages
+        # identical content, reports "nothing to commit", and takes the
+        # PR-exists path — all without touching the invoking checkout.
+        remote = self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        env = dict(self.env, PATH=self.gh_path(self.tmp / "gh-args.log"))
+        r1 = self.run_script("gateway", "patch", env=env)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        env2 = dict(env, GH_VIEW_RC="0")  # the PR now exists
+        r2 = self.run_script("gateway", "patch", env=env2)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("reusing existing bump branch", r2.stdout)
+        self.assertIn("nothing to commit", r2.stdout)
+        self.assertIn("already exists", r2.stdout)
+        self.assertEqual(self.heads(remote),
+                         ["chore/bump-gateway-v0.1.2", "main"])
+        self.assertFalse((self.repo / ".wt" / "release-gateway-v0.1.2")
+                         .exists())
+
+    def test_step1_trap_keeps_a_foreign_worktree(self):
+        # #209 ownership: when git worktree add fails because the
+        # release path already belongs to another run (crashed or
+        # interrupted), this run never took ownership — the EXIT trap
+        # must not remove the foreign worktree or its uncommitted work.
+        self.bare_remote()
+        self.git("push", "-q", "origin", "main")
+        foreign = self.repo / ".wt" / "release-gateway-v0.1.2"
+        self.git("worktree", "add", "-b", "foreign-wip", str(foreign))
+        (foreign / "wip.txt").write_text("uncommitted work\n",
+                                         encoding="utf-8")
+        env = dict(self.env, PATH=self.gh_path(self.tmp / "gh-args.log"))
+        r = self.run_script("gateway", "patch", env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not create the release worktree", r.stderr)
+        self.assertEqual((foreign / "wip.txt").read_text(encoding="utf-8"),
+                         "uncommitted work\n")
+        self.assertIn("release-gateway-v0.1.2",
+                      self.git("worktree", "list"))
 
     def test_step2_tags_main_when_bump_merged(self):
         # Re-running after the bump PR merged: origin/main carries the
@@ -355,21 +547,50 @@ class ReleaseShTests(unittest.TestCase):
         return f"{shim}{os.pathsep}{os.environ['PATH']}"
 
     def gh_path(self, args_log: Path) -> str:
-        """A PATH whose `gh` answers the driver's two calls (no PR yet;
-        create succeeds) and logs every argument."""
+        """A PATH whose `gh` answers the driver's calls (no PR yet;
+        create succeeds; the delegated create_pr.py's arming merge is
+        accepted) and logs every argument. GH_VIEW_RC overrides the
+        pr-view exit code so a second run can simulate an existing
+        PR."""
         shim = self.tmp / "shim-gh"
         shim.mkdir()
         (shim / "gh").write_text(
             '#!/bin/sh\n'
             f'printf \'%s\\n\' "$@" >> "{args_log}"\n'
-            'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then exit 1; fi\n'
+            'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then exit "${GH_VIEW_RC:-1}"; fi\n'
             'if [ "$1" = "pr" ] && [ "$2" = "create" ]; then\n'
             '  echo "https://example.invalid/kikakkz/looming/pull/1"\n'
             '  exit 0\n'
             'fi\n'
+            'if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit 0; fi\n'
             'echo "unexpected gh $*" >&2\n'
             'exit 1\n', encoding="utf-8")
         os.chmod(shim / "gh", 0o755)
+        return f"{shim}{os.pathsep}{os.environ['PATH']}"
+
+    def py_path(self, args_log: Path) -> str:
+        """A PATH whose `python3` logs every argument and answers
+        create_pr.py with a canned success — every other python3 call
+        (release_version.py and friends) delegates to the real
+        interpreter."""
+        real_py = shutil.which("python3")
+        self.assertIsNotNone(real_py)
+        shim = self.tmp / "shim-py"
+        shim.mkdir()
+        (shim / "python3").write_text(
+            '#!/bin/sh\n'
+            f'printf \'%s\\n\' "$@" >> "{args_log}"\n'
+            'for arg in "$@"; do\n'
+            '  case "$arg" in\n'
+            '    *create_pr.py*)\n'
+            '      echo \'{"pr": 7, "url": '
+            '"https://example.invalid/kikakkz/looming/pull/7", '
+            '"auto_merge": true}\'\n'
+            '      exit 0;;\n'
+            '  esac\n'
+            'done\n'
+            f'exec "{real_py}" "$@"\n', encoding="utf-8")
+        os.chmod(shim / "python3", 0o755)
         return f"{shim}{os.pathsep}{os.environ['PATH']}"
 
     def gh_failing_path(self) -> str:
