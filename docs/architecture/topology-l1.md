@@ -22,10 +22,14 @@ never duplicates them. (#112 cross-NAT was resolved by AD-41.)
 
 ```
 Topology (aggregate root; desired state snapshot)
-  ├─ Host        (registered machine: id, address = tailnet identity
-  │               issued at join (AD-41), role labels, joined_at,
-  │               observed capabilities — join-time facts, advisor slice 1.3)
-  ├─ ComponentPlacement (component × host, port/config overrides; gateway front exactly 1 in phase-1)
+  ├─ Host        (registered machine: id, address = the host's tailnet
+  │               identity — topologyd's node, unique, issued at join;
+  │               component node identities ride on their placements,
+  │               AD-41; role labels, joined_at, observed capabilities
+  │               — join-time facts, advisor slice 1.3)
+  ├─ ComponentPlacement (component × host, port/config overrides, the
+  │               placement's tailnet node identity (AD-41); gateway
+  │               front exactly 1 in phase-1)
   ├─ JoinToken   (one-time, TTL default 24h, hash-stored, role-scoped, revocable — kubeadm shape)
   └─ Guide       (rendered artifact from Topology snapshot; idempotent re-render)
 ```

@@ -38,7 +38,13 @@ looming client alone deploys everything, no external references;
    compose service; the first host by default), plus a self-hosted
    `derper` for the NAT-traversal fallback. Nothing — no traffic, no
    identity, no roster — transits Tailscale the company; only the
-   protocol and the client library are borrowed.
+   protocol and the client library are borrowed. The control plane
+   and relay publish **underlay endpoints** — headscale's HTTPS API
+   and derper's TCP + STUN ports — that must be reachable from every
+   host over ordinary networking; this bootstrap channel is the one
+   place ordinary reachability is required (the outbound-UDP-only
+   envelope governs the tailnet data plane, not control/bootstrap
+   traffic).
 3. **Node model — uniform**: every looming component is its own
    tailnet node (gateway-front, identityd, topologyd, and future
    components). Key mint/rotate/revoke is automated against the
@@ -76,10 +82,12 @@ looming client alone deploys everything, no external references;
   component traffic and client ingress; upstream links stay
   operator-side plain networking. topology-l1 §1/§5 and the L0
   context map are updated in the same PR as this AD.
-- Host aggregate evolution: `Host.address` becomes a tailnet
-  identity issued at join time; join tokens evolve toward headscale
-  pre-authorized keys (the bootstrap flow lives in `looming setup`,
-  AD-42).
+- Host aggregate evolution: `Host.address` becomes the host's
+  tailnet identity — topologyd's node, unique — issued at join;
+  per-component node identities are recorded on their
+  ComponentPlacements, so the Host-level address uniqueness invariant
+  is untouched. Join tokens evolve toward headscale pre-authorized
+  keys (the bootstrap flow lives in `looming setup`, AD-42).
 - Capability boundary (operator principle, 2026-11-08): per-component
   capability ships inside looming binaries — tsnet rides as a library
   dependency, and identity issuance / control-plane API client /
