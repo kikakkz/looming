@@ -53,9 +53,11 @@ human-confirmed) already built for exactly this shape.
    per-host — run on each host; stops that host's compose project and
    optionally wipes its local state (pgdata, node keys) — and cluster
    retirement from the control host (`--cluster`: retire node
-   identities against headscale, dissolve the roster), which is valid
-   only after every host's per-host purge. Setup and purge are one
-   lifecycle axis; the e2e layer exercises them as a pair.
+   identities against headscale, dissolve the roster), which must run
+   while the control host's compose project — hence headscale — is
+   still up: after every other host's per-host purge, and before the
+   control host's own stop. Setup and purge are one lifecycle axis;
+   the e2e layer exercises them as a pair.
 4. **Contract break handled openly**: the v0.1 installer's
    cluster-in-one-shot form is retired; the README restructures to
    install → setup → join on further hosts, and the release notes
@@ -76,5 +78,5 @@ human-confirmed) already built for exactly this shape.
   and owning the manifest) are amended hereby — both move into
   `looming setup`; AD-39's release-pipeline core (artifact-only
   delivery) stands unchanged.
-- cli-l1's admin face and the L0 context map (row 12, Topology &
-  bootstrap) are updated in the same PR as this AD.
+- cli-l1's admin face and the L0 context map (Topology & bootstrap)
+  are updated in the same PR as this AD.

@@ -23,9 +23,12 @@ never duplicates them. (#112 cross-NAT was resolved by AD-41.)
 ```
 Topology (aggregate root; desired state snapshot)
   ├─ Host        (registered machine: id, address = underlay locator,
-  │               unique, reachable from every host; component tailnet
-  │               node identities ride on their placements, AD-41;
-  │               role labels, joined_at, observed capabilities
+  │               unique; the control host's bootstrap endpoints
+  │               (headscale/derper/topologyd) reachable from every
+  │               host — host-to-host underlay reachability is NOT
+  │               required, that is what the fabric is for; component
+  │               tailnet node identities ride on their placements,
+  │               AD-41; role labels, joined_at, observed capabilities
   │               — join-time facts, advisor slice 1.3)
   ├─ ComponentPlacement (component × host, port/config overrides, the
   │               placement's tailnet node identity (AD-41); gateway
@@ -54,15 +57,18 @@ that is Postgres-ecosystem internals, not an architecture decision.
 
 ## 3. Journeys
 
-**Admin bootstrap**: install the bundle on the first host → write
-`/etc/looming/topology.yaml` → `looming apply` (converge:
-validate invariants → bring up the state plane: start and initialize
-the bundle-owned Postgres, creating the `topology` database — on
-first boot it is started before any write → persist the topology →
-render per-host compose files → `docker compose up -d` on each
-declared host — restart only what changed; prints the one-time
-bootstrap invite (the raw token plus a register `curl`) plus the join
-hint).
+**Admin bootstrap**: install the looming CLI on the first host
+(`install.sh`, which only delivers the binary) → `looming setup`
+(AD-42) interviews, proposes a topology through the advisor
+machinery (human-confirmed, AD-38), resolves and pins the release
+manifest, writes `/etc/looming/topology.yaml`, stands up the control
+plane (headscale + derper, AD-41), and converges: validate
+invariants → bring up the state plane: start and initialize the
+bundle-owned Postgres, creating the `topology` database — on first
+boot it is started before any write → persist the topology → render
+per-host compose files → `docker compose up -d` on each declared
+host — restart only what changed; prints the one-time bootstrap
+invite (the raw token plus a register `curl`) plus the join hint).
 
 **Adding a host**: `looming token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →

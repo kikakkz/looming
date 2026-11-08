@@ -119,7 +119,9 @@ phase-1, per topology-l1 §8).
   that host's compose project, optionally wipes local state (pgdata,
   node keys) — and cluster retirement from the control host
   (`--cluster`: retire node identities against headscale, dissolve
-  the roster), only after every host's per-host purge.
+  the roster), which must run while the control host's compose
+  project — hence headscale — is still up: after every other host's
+  per-host purge, before the control host's own stop.
 - `looming connect` — install the tailscale client on the admin's
   device, pointed at the bundle's headscale (AD-41; optional path).
 - `looming genesis set|sync|status` — the genesis model-channel

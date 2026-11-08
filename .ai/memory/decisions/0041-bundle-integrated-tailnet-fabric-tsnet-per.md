@@ -12,7 +12,7 @@ adopted-at: "2026-11-08"
 
 ## Context
 
-Phase-1's envelope (AD-35's deferral, topology-l1 §1) fixed the bundle
+Phase-1's envelope (AD-35's deferral; topology-l1) fixed the bundle
 to a single gateway front, HTTP, plain IPs, a trusted network;
 cross-NAT connectivity was deferred as #112 with a named trigger.
 The trigger has fired: deployments are now planned across mixed
@@ -75,12 +75,18 @@ looming client alone deploys everything, no external references;
    bundle's headscale, in one command. Funnel-class public ingress
    is unavailable without Tailscale's cloud, so public ingress
    reverts to a classic reverse proxy (#110) or is deferred.
+7. **In-net name resolution**: v1 rides headscale's built-in MagicDNS
+   records for node names — every component and sidecar is reachable
+   at its tailnet name from the moment it joins; the resolver is part
+   of the fabric, not a separate work item. Naming features beyond
+   that (custom domains, split-horizon, external DNS integration)
+   remain with #111.
 
 ## Consequences
 
 - The phase-1 "trusted network, plain IPs" envelope is superseded for
   component traffic and client ingress; upstream links stay
-  operator-side plain networking. topology-l1 §1/§5 and the L0
+  operator-side plain networking. topology-l1 and the L0
   context map are updated in the same PR as this AD.
 - Host aggregate evolution: `Host.address` remains the host's
   underlay locator — unique, reachable from every host over ordinary
@@ -107,7 +113,7 @@ looming client alone deploys everything, no external references;
   and the looming-net sidecar; every component gains a node-key
   volume; state backup/restore must cover these keys.
 - Open, each with its owner issue: in-net TLS (own certs → #110),
-  in-net naming (own MagicDNS-equivalent → #111), gateway-HA node
-  identities (#109).
+  naming beyond headscale MagicDNS (#111), gateway-HA node identities
+  (#109).
 - The e2e layer (AD-25) gains a cross-host scenario over the fabric
   once the setup flow (AD-42) lands.
