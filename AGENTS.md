@@ -39,6 +39,13 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
    landing its supporting kit in the same PR: CI checks, the skills that
    encode its conventions, and updates to this file. A bare dependency
    addition is not mergeable.
+9. **Worktree-only development.** All development happens in a git
+   worktree under `.wt/` (one per issue branch; `docs/193-...` →
+   `.wt/docs-193`). The main checkout stays on `main` and stays clean —
+   no development branches, no uncommitted work. An active session's
+   worktree is never checked out over, moved, removed, or pushed from
+   outside that session. (Origin: 2026-10-01 memory-bank lesson, a
+   subagent sharing the main tree force-pushed mid-session.)
 
 ## Commands
 
@@ -59,21 +66,12 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
 - `make check-skills` — validate every `.ai/skills/*/SKILL.md` against the Agent Skills frontmatter contract.
 - `make check-index` — validate `.ai/index.yaml`: parseable under the constrained subset, no unknown sections, every anchor (files, dirs, rule pointers) exists.
 - `make lint-semgrep` — validate the custom rule fixtures (`semgrep --test`) and scan `.ai/tools` with the rule pack (`.ai/semgrep/rules`); warns and skips when semgrep is missing locally.
-- `make lint-go` — golangci-lint per Go component (complexity budgets,
-  AD-24); warns and skips when golangci-lint or any `*/go.mod` is missing.
-- `make lint-arch` — AD-23 dependency-matrix enforcement per component
-  via go-arch-lint (`<component>/.go-arch-lint.yml`, AD-33/AD-34); warns
-  and skips when the tool is missing.
+- `make lint-go` — golangci-lint per Go component (complexity budgets, AD-24); warns and skips when golangci-lint or any `*/go.mod` is missing.
+- `make lint-arch` — AD-23 dependency-matrix enforcement per component via go-arch-lint (`<component>/.go-arch-lint.yml`, AD-33/AD-34); warns and skips when the tool is missing.
 - `make test-unit` — Go unit tests with `-race` per component; falls back to plain `go test` without gotestsum; skips when no `*/go.mod` exists.
-- `make test-integration` — `integration`-tagged tests (testcontainers-go,
-  AD-25) per component; loud skip without a Docker daemon or
-  integration-tagged files. A component shipping `.testcoverage.integration.yml`
-  also gets its integration profile threshold-checked there (adapters and
-  migrations are covered by this layer, not the unit profile).
-- `make test-coverage` — per-component coverage profile plus the
-  go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
-- `make test-e2e` — bundle e2e layer (AD-25 `e2e` tag): the onboarding
-  scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI job; loud skip without docker; first run builds all images.
+- `make test-integration` — `integration`-tagged tests (testcontainers-go, AD-25) per component; loud skip without a Docker daemon or integration-tagged files. A component shipping `.testcoverage.integration.yml` also gets its integration profile threshold-checked there (adapters and migrations are covered by this layer, not the unit profile).
+- `make test-coverage` — per-component coverage profile plus the go-test-coverage threshold check (`.testcoverage.yml`, AD-25) when installed.
+- `make test-e2e` — bundle e2e layer (AD-25 `e2e` tag): the onboarding scenario in `tests/e2e/` against real containers. NOT in ci-gate; own CI job; loud skip without docker; first run builds all images.
 - `scripts/release.sh` — per-component release driver (#166): `--list` prints machine-readable candidates (component, current|none, patch/minor/major — the data source for AI agents' native menus; no TTY menu by design); `scripts/release.sh <component> <patch|minor|major> [--dry-run]` derives the version from the component's existing tags and pushes `<component>/vX.Y.Z` — release.yml's component job publishes that component only.
 ## Go engineering standards
 
