@@ -4,8 +4,11 @@
 
 import io
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -359,6 +362,194 @@ class CliTests(unittest.TestCase):
                     pw.main(["--repo", "x/y", "dismiss", "REVIEWNODE"]), 0)
         self.assertTrue(any("dismissPullRequestReview" in " ".join(p)
                             for p in fake.posts))
+
+
+class RetireTests(unittest.TestCase):
+    """retire: real git plumbing in a throwaway repo, gh mocked at the
+    run_gh boundary; repo_root anchored at the throwaway repo."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        self.env = os.environ.copy()
+        self.env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        self.env["GIT_CONFIG_SYSTEM"] = "/dev/null"
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "T")
+        self.git("config", "user.email", "t@example.com")
+        (self.repo / "f.txt").write_text("base", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "chore: base")
+        self.git("checkout", "-q", "-b", "feat/7-demo")
+        (self.repo / "f.txt").write_text("feat", encoding="utf-8")
+        self.git("commit", "-q", "-am", "feat: demo")
+        self.tip = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, env=self.env,
+            capture_output=True, text=True, check=True).stdout.strip()
+        self.git("checkout", "-q", "main")
+        self.git("worktree", "add", "-q", ".wt/feat-7", "feat/7-demo")
+        self.wt = self.repo / ".wt" / "feat-7"
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", *args], cwd=self.repo, env=self.env,
+                       check=True, capture_output=True)
+
+    def routes(self) -> dict:
+        return {
+            ("api", "repos/x/y/pulls/9"): {
+                "merged": True, "state": "closed",
+                "head": {"ref": "feat/7-demo", "sha": self.tip}},
+            ("api", "repos/x/y/issues/7"): {"state": "closed"},
+            ("api", "repos/x/y/issues", "-f", "state=open"): [],
+        }
+
+    def run_retire(self, fake: GhFake, dry_run: bool = False) -> tuple:
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["--repo", "x/y"] + (["--dry-run"] if dry_run else []) \
+            + ["retire", "9"]
+        with mock.patch.dict(os.environ, {
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_SYSTEM": "/dev/null"}):
+            with redirect_stdout(out), redirect_stderr(err):
+                with mock.patch.object(pw, "run_gh", fake), \
+                        mock.patch.object(pw, "repo_root", lambda: self.repo):
+                    code = pw.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def worktree_exists(self) -> bool:
+        return subprocess.run(
+            ["git", "-C", str(self.repo), "worktree", "list", "--porcelain"],
+            env=self.env, capture_output=True, text=True,
+            check=True).stdout.find(f"worktree {self.wt}") != -1
+
+    def test_removes_own_worktree_and_branch(self) -> None:
+        fake = GhFake(self.routes())
+        code, out, _ = self.run_retire(fake)
+        self.assertEqual(code, 0, out)
+        self.assertFalse(self.worktree_exists())
+        proc = subprocess.run(
+            ["git", "-C", str(self.repo), "rev-parse", "--verify",
+             "refs/heads/feat/7-demo"],
+            env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_notifies_dependents_and_dedupes(self) -> None:
+        routes = self.routes()
+        routes[("api", "repos/x/y/issues", "-f", "state=open")] = [
+            {"number": 195, "title": "next",
+             "body": "Sequenced behind #7 — lands after it merges."},
+        ]
+        routes[("api", "repos/x/y/issues/195/comments")] = []
+        code, out, _ = self.run_retire(GhFake(routes))
+        self.assertEqual(code, 0, out)
+        self.assertIn("195", out)
+        routes[("api", "repos/x/y/issues/195/comments")] = [
+            {"body": pw.UNBLOCK_TEXT.format(n=7)}]
+        fake = GhFake(routes)
+        self.run_retire(fake)  # second pass: notification must not re-post
+        self.assertFalse(any("issues/195/comments" in " ".join(p)
+                             for p in fake.posts))
+
+    def test_finds_dependent_in_comments(self) -> None:
+        routes = self.routes()
+        routes[("api", "repos/x/y/issues", "-f", "state=open")] = [
+            {"number": 196, "title": "later", "body": "unrelated"},
+        ]
+        routes[("api", "repos/x/y/issues/196/comments")] = [
+            {"body": "depends on #7"}]
+        code, out, _ = self.run_retire(GhFake(routes))
+        self.assertEqual(code, 0, out)
+        self.assertIn("196", out)
+
+    def test_refuses_when_not_merged(self) -> None:
+        routes = self.routes()
+        routes[("api", "repos/x/y/pulls/9")] = {
+            "merged": False, "state": "open",
+            "head": {"ref": "feat/7-demo", "sha": self.tip}}
+        code, _, err = self.run_retire(GhFake(routes))
+        self.assertEqual(code, 1)
+        self.assertIn("not merged", err)
+        self.assertTrue(self.worktree_exists())
+
+    def test_refuses_when_issue_open(self) -> None:
+        routes = self.routes()
+        routes[("api", "repos/x/y/issues/7")] = {"state": "open"}
+        code, _, err = self.run_retire(GhFake(routes))
+        self.assertEqual(code, 1)
+        self.assertIn("is open", err)
+
+    def test_refuses_when_branch_unparseable(self) -> None:
+        routes = self.routes()
+        routes[("api", "repos/x/y/pulls/9")] = {
+            "merged": True, "state": "closed",
+            "head": {"ref": "hotfix-something", "sha": self.tip}}
+        code, _, err = self.run_retire(GhFake(routes))
+        self.assertEqual(code, 1)
+        self.assertIn("linked issue", err)
+
+    def test_leaves_other_branch_worktree_untouched(self) -> None:
+        # rule 9: a worktree holding another session's branch is
+        # unreachable by construction — retire proceeds with its own
+        # branch and never touches it.
+        self.git("branch", "feat/8-other")
+        self.git("worktree", "remove", "--force", str(self.wt))
+        self.git("worktree", "add", "-q", str(self.wt), "feat/8-other")
+        code, out, _ = self.run_retire(GhFake(self.routes()))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(self.worktree_exists())
+        proc = subprocess.run(
+            ["git", "-C", str(self.repo), "worktree", "list", "--porcelain"],
+            env=self.env, capture_output=True, text=True, check=True)
+        self.assertIn(f"worktree {self.wt}\n", proc.stdout)
+        self.assertIn("branch refs/heads/feat/8-other", proc.stdout)
+
+    def test_refuses_when_dirty(self) -> None:
+        (self.wt / "untracked.txt").write_text("x", encoding="utf-8")
+        code, _, err = self.run_retire(GhFake(self.routes()))
+        self.assertEqual(code, 1)
+        self.assertIn("dirty", err)
+        self.assertTrue(self.worktree_exists())
+
+    def test_refuses_when_local_branch_ahead(self) -> None:
+        (self.wt / "f.txt").write_text("more", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.wt), "commit", "-q", "-am",
+                        "feat: extra"], env=self.env, check=True,
+                       capture_output=True)
+        code, _, err = self.run_retire(GhFake(self.routes()))
+        self.assertEqual(code, 1)
+        self.assertIn("not at the merged head", err)
+
+    def test_no_worktree_still_deletes_branch(self) -> None:
+        self.git("worktree", "remove", str(self.wt))
+        code, out, _ = self.run_retire(GhFake(self.routes()))
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("worktree_removed", out)
+
+    def test_dry_run_removes_nothing(self) -> None:
+        fake = GhFake(self.routes())
+        code, out, _ = self.run_retire(fake, dry_run=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn('"dry_run": true', out)
+        self.assertTrue(self.worktree_exists())
+        self.assertEqual(fake.posts, [])
+
+
+class RetirePureTests(unittest.TestCase):
+    def test_issue_number_for_branch(self) -> None:
+        self.assertEqual(pw.issue_number_for_branch("feat/7-demo"), 7)
+        self.assertEqual(
+            pw.issue_number_for_branch("ci/194-ai-commit-trailer-pair"), 194)
+        self.assertEqual(
+            pw.issue_number_for_branch("feat/151-artifact-installer"), 151)
+
+    def test_issue_number_rejects_non_conforming(self) -> None:
+        self.assertIsNone(pw.issue_number_for_branch("hotfix-something"))
+        self.assertIsNone(pw.issue_number_for_branch("feat/x-demo"))
+        self.assertIsNone(pw.issue_number_for_branch("main"))
 
 
 if __name__ == "__main__":
