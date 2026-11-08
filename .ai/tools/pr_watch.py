@@ -23,6 +23,8 @@ Commands:
   status PR    — JSON snapshot: head, checks, verdict, open threads, nudge state
   findings PR  — open (unresolved, non-outdated) review threads as JSON
   nudge PR     — post ONE full-review comment for the current head (guarded)
+  retire PR    — post-merge: remove the PR's own worktree/branch, unblock
+                 dependent issues (guarded; see #197)
   resolve THREAD_ID — mark a review thread resolved (GraphQL)
   dismiss REVIEW_ID — dismiss a stale review (GraphQL)
 
@@ -41,6 +43,7 @@ import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 NUDGE_TEXT = "@coderabbitai full review"
 BOT_LOGIN = "coderabbitai[bot]"
@@ -110,6 +113,85 @@ def detect_repo(gh: str = "gh") -> str:
     if not match:
         raise RuntimeError("cannot determine owner/repo from remote.origin.url")
     return match.group(1)
+
+
+# --------------------------------------------------------------------------
+# local git plumbing (worktree/branch retirement; all ops anchored at root
+# so in-process callers from any cwd stay inside their own repository)
+
+BRANCH_ISSUE_RE = re.compile(r"^[a-z]+/(\d+)-")  # <type>/<issue>-<slug>
+
+
+def git_out(args: list[str], root: Path) -> str:
+    """run `git -C root ...`, raising RuntimeError on any failure."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True, text=True, timeout=60)
+    if proc.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def repo_root() -> Path:
+    """the repository's main worktree — never the current linked one:
+    porcelain's first entry is always the main worktree. retire may run
+    from inside the worktree it is about to delete."""
+    proc = subprocess.run(["git", "worktree", "list", "--porcelain"],
+                          capture_output=True, text=True, timeout=30)
+    if proc.returncode != 0 or not proc.stdout.startswith("worktree "):
+        raise RuntimeError("not inside a git repository")
+    return Path(proc.stdout.split("\n", 1)[0].removeprefix("worktree "))
+
+
+def issue_number_for_branch(branch: str) -> int | None:
+    match = BRANCH_ISSUE_RE.match(branch)
+    return int(match.group(1)) if match else None
+
+
+def worktree_for_branch(root: Path, branch: str) -> Path | None:
+    """path of the worktree that checks out `branch`, or None when the
+    branch is not checked out anywhere. The directory is looked up, never
+    derived from the branch name — worktree naming is conventional
+    (`.wt/<type>-<issue>`) but not mechanically derivable."""
+    porcelain = git_out(["worktree", "list", "--porcelain"], root)
+    for block in porcelain.split("\n\n"):
+        lines = block.splitlines()
+        ref = next((l for l in lines[1:] if l.startswith("branch ")), "")
+        if ref == f"branch refs/heads/{branch}":
+            return Path(lines[0].removeprefix("worktree "))
+    return None
+
+
+def branch_tip(root: Path, branch: str) -> str | None:
+    """local sha of `branch`, or None when no such local branch exists."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify",
+         f"refs/heads/{branch}"],
+        capture_output=True, text=True, timeout=30)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def find_dependents(repo: str, issue_no: int, gh: str) -> list[int]:
+    """open issues declaring `issue_no` as predecessor, in body/title or
+    comments; phrasing per the #197 convention."""
+    pattern = re.compile(
+        r"(?:lands after|blocked by|sequenced behind|depends on) #%d\b"
+        % issue_no, re.IGNORECASE)
+
+    def refers(issue: dict) -> bool:
+        if pattern.search(issue.get("title") or "") \
+                or pattern.search(issue.get("body") or ""):
+            return True
+        comments = gh_json_list(
+            ["api", f"repos/{repo}/issues/{issue['number']}/comments"], gh)
+        return any(pattern.search(c.get("body") or "") for c in comments)
+
+    # query string (not -f): any -f/--field flips `gh api` to POST, which
+    # would hit the issue-creation endpoint and 422 (#199 review).
+    open_issues = gh_json_list(
+        ["api", f"repos/{repo}/issues?state=open&per_page=100"], gh)
+    return [i["number"] for i in open_issues
+            if "pull_request" not in i and refers(i)]
 
 
 # --------------------------------------------------------------------------
@@ -285,6 +367,81 @@ def cmd_dismiss(repo: str, review_id: str, gh: str) -> int:
 
 
 # --------------------------------------------------------------------------
+# post-merge retirement (#197): the merged PR's own worktree and branch
+# die here; dependent issues wake up. Guards mirror AGENTS.md hard
+# constraint 9: the worktree is looked up by branch, so anything checked
+# out elsewhere is unreachable by construction; a dirty worktree or a
+# local branch ahead of the merged head refuses.
+
+UNBLOCK_TEXT = "Predecessor #{n} has merged — this issue is now unblocked."
+
+
+def cmd_retire(repo: str, pr: int, dry_run: bool, gh: str) -> int:
+    """retire a merged PR: remove its worktree and local branch, notify
+    dependent issues. Guarded (see module section above); dependents are
+    resolved BEFORE any destructive step so a lookup failure leaves the
+    local state untouched."""
+    pull = gh_json(["api", f"repos/{repo}/pulls/{pr}"], gh)
+    if not pull.get("merged"):
+        print("retire: PR is not merged — nothing to retire", file=sys.stderr)
+        return 1
+    branch = pull["head"]["ref"]
+    head = head_sha(pull)
+
+    issue_no = issue_number_for_branch(branch)
+    if issue_no is None:
+        print(f"retire: cannot derive the linked issue from branch "
+              f"{branch!r} — refusing", file=sys.stderr)
+        return 1
+    issue = gh_json(["api", f"repos/{repo}/issues/{issue_no}"], gh)
+    if issue.get("state") != "closed":
+        print(f"retire: issue #{issue_no} is {issue.get('state')}, not "
+              "closed — refusing", file=sys.stderr)
+        return 1
+
+    root = repo_root()
+    wt = worktree_for_branch(root, branch)
+    result: dict[str, object] = {
+        "pr": pr, "issue": issue_no, "branch": branch}
+
+    if wt is not None and git_out(["status", "--porcelain"], wt).strip():
+        print(f"retire: worktree {wt} is dirty — refusing", file=sys.stderr)
+        return 1
+    tip = branch_tip(root, branch)
+    if tip is not None and tip != head:
+        print(f"retire: local {branch} is not at the merged head "
+              "(unpushed commits?) — refusing", file=sys.stderr)
+        return 1
+
+    dependents = find_dependents(repo, issue_no, gh)
+
+    if dry_run:
+        result["dry_run"] = True
+    else:
+        if wt is not None:
+            git_out(["worktree", "remove", str(wt)], root)
+            result["worktree_removed"] = str(wt)
+        if tip is not None:
+            git_out(["branch", "-D", branch], root)
+            result["branch_deleted"] = branch
+
+    notified: list[int] = []
+    for dep in dependents:
+        text = UNBLOCK_TEXT.format(n=issue_no)
+        if not dry_run:
+            comments = gh_json_list(
+                ["api", f"repos/{repo}/issues/{dep}/comments"], gh)
+            if not any(c.get("body") == text for c in comments):
+                run_gh(["api", "-X", "POST",
+                        f"repos/{repo}/issues/{dep}/comments",
+                        "-f", f"body={text}"], gh)
+        notified.append(dep)
+    result["dependents_notified"] = notified
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+# --------------------------------------------------------------------------
 # commands
 
 def cmd_status(repo: str, pr: int, gh: str) -> int:
@@ -338,13 +495,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", help="OWNER/NAME (default: origin remote)")
     parser.add_argument("--gh", default="gh", help="path to the gh binary")
     parser.add_argument("--dry-run", action="store_true",
-                        help="print instead of posting (nudge only)")
+                        help="print instead of posting (nudge) or removing "
+                             "(retire)")
     parser.add_argument("command",
                         choices=["status", "findings", "nudge",
-                                 "resolve", "dismiss"])
+                                 "retire", "resolve", "dismiss"])
     parser.add_argument("target",
-                        help="PR number (status/findings/nudge) or GraphQL "
-                             "node id (resolve/dismiss)")
+                        help="PR number (status/findings/nudge/retire) or "
+                             "GraphQL node id (resolve/dismiss)")
     args = parser.parse_args(argv)
     try:
         repo = args.repo or detect_repo(args.gh)
@@ -361,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_status(repo, pr, args.gh)
         if args.command == "findings":
             return cmd_findings(repo, pr, args.gh)
+        if args.command == "retire":
+            return cmd_retire(repo, pr, args.dry_run, args.gh)
         return cmd_nudge(repo, pr, args.dry_run, args.gh)
     except (RuntimeError, KeyError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
