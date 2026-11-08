@@ -46,6 +46,12 @@ looming client alone deploys everything, no external references;
    ordinary networking; this bootstrap channel is the one place
    ordinary reachability is required (the outbound-UDP-only envelope
    governs the tailnet data plane, not control/bootstrap traffic).
+   The join/rejoin channel rides the same envelope: a trusted
+   underlay carries it plain — the one-time token is the join-time
+   authenticator and the persistent credential is shown exactly
+   once — while an untrusted underlay requires the encrypted
+   bootstrap variant (#110); v1 requires the join path to be
+   trusted, like the human leg.
 3. **Node model — uniform**: every looming component is its own
    tailnet node (gateway-front, identityd, topologyd, and future
    components). Key mint/rotate/revoke is automated against the

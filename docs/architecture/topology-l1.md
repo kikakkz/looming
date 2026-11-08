@@ -64,14 +64,19 @@ machinery (human-confirmed, AD-38), resolves and pins the release
 manifest, writes `/etc/looming/topology.yaml`, stands up the control
 plane (headscale + derper, AD-41), and converges the first host —
 always with the minimum serving plane (state plane, topologyd,
-identityd) so the join endpoint and the invite exist before any
-other host is asked to join (AD-42) —: validate invariants → bring
-up the state plane: start and initialize the
+identityd) as bootstrap-time temporary placements whose hard
+resource rules the first host must satisfy alongside its final
+placements (AD-42) —: validate invariants → bring up the state
+plane: start and initialize the
 bundle-owned Postgres, creating the `topology` database — on first
 boot it is started before any write → persist the topology → render
-per-host compose files → `docker compose up -d` on each declared
-host — restart only what changed; prints the one-time bootstrap
-invite (the raw token plus a register `curl`) plus the join hint).
+per-host compose files → `docker compose up -d` on the FIRST host
+only — remote declared hosts converge only after they join, per the
+staged bootstrap — restart only what changed; prints the join hint;
+the one-time bootstrap invite (the raw token plus a register `curl`)
+is minted when the staged bootstrap completes — joins done,
+cluster-wide health check green — with `apply --print-invite` the
+explicit early-mint escape hatch (AD-42)).
 
 **Adding a host**: `looming token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →
@@ -158,14 +163,15 @@ loopback), so apply also requires the gateway-front placement to carry
 the `host.docker.internal:host-gateway` extra_hosts entry there.
 
 - `POST /v1/join` `{token, host: {id?, address, labels, capabilities?}}` →
-  `201 {host_id, credential, cluster: {access}}`: validates and
-  atomically consumes the one-time token, registers the host (server
-  id `host-<uuid8>` when `id` is absent) — and when the token was
-  minted for a predeclared host and `id` names that entry, BINDS the
-  presenting host to the predeclared row instead, storing the
-  reported address/labels/capabilities onto it (AD-42); a mismatched
-  or absent `id` registers afresh as before —, mints the host's
-  persistent credential (plaintext exactly once), and answers with
+  `201 {host_id, credential, cluster: {access}}`: validates the
+  one-time token, then — when the token was minted for a predeclared
+  host and `id` names that entry — atomically consumes it and BINDS
+  the presenting host to the predeclared row, storing the reported
+  address/labels/capabilities onto it (AD-42). A bound token with a
+  mismatched or absent `id` is rejected BEFORE consumption (403
+  `binding_mismatch`); only unbound tokens may register a fresh host
+  (server id `host-<uuid8>`). Either way it mints the host's
+  persistent credential (plaintext exactly once) and answers with
   the gateway access hint. `capabilities` is the joining host's observed machine
   facts (advisor slice 1.3, advisor-l1 §8): `{hardware: {cpu_cores,
   memory_mb, disk_gb, arch}, network: {egress?, latencies_ms?},

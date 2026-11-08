@@ -59,7 +59,11 @@ human-confirmed) already built for exactly this shape.
    and the pull-based join binds the presenting host to its
    predeclared entry; a host with no predeclaration registers
    afresh, as today. Re-runnable and idempotent; `--answers <file>`
-   reproduces a setup headlessly so CI keeps determinism.
+   reproduces a setup headlessly so CI keeps determinism. The
+   bootstrap invite is minted at the END of setup — joins done,
+   cluster-wide health check green — not at first converge by
+   default; `apply --print-invite` remains the explicit early-mint
+   escape hatch.
 3. **`looming purge` tears down symmetrically, at two levels**:
    per-host — run on each host; stops that host's compose project and
    optionally wipes its local state (pgdata, node keys) — and cluster
