@@ -115,6 +115,10 @@
 # the release skill are present tense (gate landed, three-step flow),
 # release-l1 §3.1(c)/§5 S2 state the landed mechanics; all read_order
 # anchors resolve.
+# 2026-11-08 AI-commit trailer pair (#194) re-validated: AGENTS.md
+# hard constraint 3 states the maintainer's standing DCO sign-off and
+# the Commands check-trailers line notes the branch-scoped range; all
+# read_order anchors resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
