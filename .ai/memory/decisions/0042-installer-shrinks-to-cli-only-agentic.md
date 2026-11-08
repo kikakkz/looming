@@ -64,7 +64,15 @@ human-confirmed) already built for exactly this shape.
    bootstrap invite is minted at the END of setup — joins done,
    cluster-wide health check green — not at first converge by
    default; `apply --print-invite` remains the explicit early-mint
-   escape hatch.
+   escape hatch. Two bootstrap-transition rules: the state plane
+   (bundle Postgres, topology database, join credential store) is
+   PINNED to the first host in v1 — relocating it is a
+   data-preserving migration, deferred, never implied by a
+   re-converge; and join instructions always name the current
+   topologyd address — setup re-renders join hints after final
+   placements converge, and the bootstrap-time topologyd serves until
+   the final one answers (overlap window), so a moved topologyd never
+   strands later joins.
 3. **`looming purge` tears down symmetrically, at two levels**:
    per-host — run on each host; stops that host's compose project and
    optionally wipes its local state (pgdata, node keys) — and cluster

@@ -76,7 +76,15 @@ staged bootstrap — restart only what changed; prints the join hint;
 the one-time bootstrap invite (the raw token plus a register `curl`)
 is minted when the staged bootstrap completes — joins done,
 cluster-wide health check green — with `apply --print-invite` the
-explicit early-mint escape hatch (AD-42)).
+explicit early-mint escape hatch (AD-42)). Two bootstrap-transition
+rules apply afterwards: the state plane (bundle Postgres, topology
+database, join credential store) is PINNED to the first host in v1 —
+relocating it is a data-preserving migration problem, deferred, and a
+re-converge never implies it; and join instructions always name the
+CURRENT topologyd address — setup re-renders join hints after the
+final placements converge, and the bootstrap-time topologyd serves
+until the final one answers, so a moved topologyd never strands later
+joins.
 
 **Adding a host**: `looming token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →
