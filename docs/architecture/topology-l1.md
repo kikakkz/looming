@@ -8,18 +8,31 @@ decisions). Vocabulary: [glossary](glossary.md).
 
 Single-organization bundle first-boot plus topology management.
 Independent of the Orchestration context (blueprints/runs, → #4).
-Phase-1 envelope per the AD-35-era phase decisions: single gateway
-front, HTTP, plain IPs, trusted network. Phase-2 items live ONLY in
-#109 (gateway HA), #110 (auto TLS), #111 (DNS), #112 (cross-NAT) —
-this design references them, never duplicates them.
+Envelope per the AD-35-era phase decisions, amended by AD-41: a
+single gateway front; component↔component traffic and client-ingress
+targeting ride the bundle-integrated tailnet fabric (tsnet per
+component, headscale in-bundle, AD-41); human clients reach the
+gateway over ordinary networks (LAN, later a reverse proxy under
+#110); upstream reachability is operator-side networking, outside
+this context. Remaining phase-2 items live ONLY in #109 (gateway
+HA), #110 (auto TLS), #111 (DNS) — this design references them,
+never duplicates them. (#112 cross-NAT was resolved by AD-41.)
 
 ## 2. Model
 
 ```
 Topology (aggregate root; desired state snapshot)
-  ├─ Host        (registered machine: id, address, role labels, joined_at,
-  │               observed capabilities — join-time facts, advisor slice 1.3)
-  ├─ ComponentPlacement (component × host, port/config overrides; gateway front exactly 1 in phase-1)
+  ├─ Host        (registered machine: id, address = underlay locator,
+  │               unique; the control host's bootstrap endpoints
+  │               (headscale/derper/topologyd) reachable from every
+  │               host — host-to-host underlay reachability is NOT
+  │               required, that is what the fabric is for; component
+  │               tailnet node identities ride on their placements,
+  │               AD-41; role labels, joined_at, observed capabilities
+  │               — join-time facts, advisor slice 1.3)
+  ├─ ComponentPlacement (component × host, port/config overrides, the
+  │               placement's tailnet node identity (AD-41); gateway
+  │               front exactly 1 in phase-1)
   ├─ JoinToken   (one-time, TTL default 24h, hash-stored, role-scoped, revocable — kubeadm shape)
   └─ Guide       (rendered artifact from Topology snapshot; idempotent re-render)
 ```
@@ -44,15 +57,34 @@ that is Postgres-ecosystem internals, not an architecture decision.
 
 ## 3. Journeys
 
-**Admin bootstrap**: install the bundle on the first host → write
-`/etc/looming/topology.yaml` → `looming apply` (converge:
-validate invariants → bring up the state plane: start and initialize
-the bundle-owned Postgres, creating the `topology` database — on
-first boot it is started before any write → persist the topology →
-render per-host compose files → `docker compose up -d` on each
-declared host — restart only what changed; prints the one-time
-bootstrap invite (the raw token plus a register `curl`) plus the join
-hint).
+**Admin bootstrap**: install the looming CLI on the first host
+(`install.sh`, which only delivers the binary) → `looming setup`
+(AD-42) interviews, proposes a topology through the advisor
+machinery (human-confirmed, AD-38), resolves and pins the release
+manifest, writes `/etc/looming/topology.yaml`, stands up the control
+plane (headscale + derper, AD-41), and converges the first host —
+always with the minimum serving plane (state plane, topologyd,
+identityd) as bootstrap-time temporary placements whose hard
+resource rules the first host must satisfy alongside its final
+placements (AD-42) —: validate invariants → bring up the state
+plane: start and initialize the
+bundle-owned Postgres, creating the `topology` database — on first
+boot it is started before any write → persist the topology → render
+per-host compose files → `docker compose up -d` on the FIRST host
+only — remote declared hosts converge only after they join, per the
+staged bootstrap — restart only what changed; prints the join hint;
+the one-time bootstrap invite (the raw token plus a register `curl`)
+is minted when the staged bootstrap completes — joins done,
+cluster-wide health check green — with `apply --print-invite` the
+explicit early-mint escape hatch (AD-42)). Two bootstrap-transition
+rules apply afterwards: the state plane (bundle Postgres, topology
+database, join credential store) is PINNED to the first host in v1 —
+relocating it is a data-preserving migration problem, deferred, and a
+re-converge never implies it; and join instructions always name the
+CURRENT topologyd address — setup re-renders join hints after the
+final placements converge, and the bootstrap-time topologyd serves
+until the final one answers, so a moved topologyd never strands later
+joins.
 
 **Adding a host**: `looming token create --role engine --ttl 24h`
 → operator runs on the new host: install bundle →
@@ -92,8 +124,8 @@ secret.
 
 | Aggregate | Invariants |
 |---|---|
-| Topology | hosts ≥ 1; placements reference registered hosts; gateway-front placement exactly 1 (#109 lifts to N); `access` accepts only direct/ip/http in phase-1 — vip/dns/acme shapes are reserved in the schema but rejected at apply, with the owning phase-2 issue named (#109–#112); optimistic revision (component-patterns #3) |
-| Host | address unique; join is pull-based self-registration — a successful join mints the host's persistent service credential (its AD-27 §6 service-subject identity; re-join authenticates with that credential, identifies the host by id, and updates address/labels) and stores the observed machine facts the join payload carried (slice 1.3: strict-validated, NULL when an old CLI joined, refreshed only by re-running join — never re-stamped by re-join); no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
+| Topology | hosts ≥ 1; placements reference registered hosts; gateway-front placement exactly 1 (#109 lifts to N); `access` accepts only direct/ip/http in phase-1 — vip/dns/acme shapes are reserved in the schema but rejected at apply, with the owning phase-2 issue named (#109–#111; cross-NAT resolved per AD-41); optimistic revision (component-patterns #3) |
+| Host | id is the identity; address is an underlay locator, unique only within a network scope — disjoint NAT'd underlays may legitimately collide, the fabric node names are the globally-unique locators (AD-41); join is pull-based self-registration — a successful join mints the host's persistent service credential (its AD-27 §6 service-subject identity; re-join authenticates with that credential, identifies the host by id, and updates address/labels) and stores the observed machine facts the join payload carried (slice 1.3: strict-validated, NULL when an old CLI joined, refreshed only by re-running join — never re-stamped by re-join); no heartbeat in the aggregate (liveness is the supervisor's concern — the restart policy — not topology's) |
 | JoinToken | one-time consume; TTL default 24h; hash at rest; atomic consume (guarded UPDATE — the slice-A invite-token precedent) |
 | ComponentPlacement | (component, host) unique; port conflicts rejected at apply |
 | Guide | render input = the current Topology snapshot; regenerated on every apply; served only when `access.public`; zero credentials by invariant |
@@ -116,8 +148,8 @@ command contract; CLI-1 retired the old `looming-ctl` binary —
 topologyd is this component's only binary): `apply` (with
 `--print-invite` to force the bootstrap-invite request; `--dry-run`
 stops after the render), `token create|list|revoke` (admin side,
-direct to the topology DB), `join <first-host-url> --token <t>` (the
-pulling host), `topology advise` (placement feasibility over declared
+direct to the topology DB), `join <first-host-url> --token <t> [--host-id <id>]` (the
+pulling host; `--host-id` binds a predeclared entry to its bound token, AD-42), `topology advise` (placement feasibility over declared
 and observed host facts), `topology facts pull` (merges join-observed
 machine facts into the topology file — the consumer of this section's
 hosts read), `guide show`. The CLI binary's own component placement
@@ -130,20 +162,23 @@ gateway, identity → identityd). Its placement is declared in the
 topology YAML like any other component's — typically the state host,
 never forced there. Its env_file carries `TOPOLOGY_SERVICE_TOKEN`
 (the internal guide endpoint's guard); the renderer derives
-`GATEWAY_TOPOLOGY_URL` for the gateway front from this placement, so
-apply validates that both env_files are declared — an unwired token
-would crash-loop the gateway at boot or 503 the guide forever. On the
-loopback single-host shape the derived URL targets
-`host.docker.internal` (the gateway container cannot use host
-loopback), so apply also requires the gateway-front placement to carry
-the `host.docker.internal:host-gateway` extra_hosts entry there.
+`GATEWAY_TOPOLOGY_URL` for the gateway front from topologyd's tailnet
+node name and port, including on a single host (AD-41: uniform
+transport — even same-host traffic rides the tailnet). Apply validates
+that both env_files are declared — an unwired token would crash-loop
+the gateway at boot or 503 the guide forever.
 
 - `POST /v1/join` `{token, host: {id?, address, labels, capabilities?}}` →
-  `201 {host_id, credential, cluster: {access}}`: validates and
-  atomically consumes the one-time token, registers the host (server
-  id `host-<uuid8>` when `id` is absent), mints the host's persistent
-  credential (plaintext exactly once), and answers with the gateway
-  access hint. `capabilities` is the joining host's observed machine
+  `201 {host_id, credential, cluster: {access}}`: validates the
+  one-time token, then — when the token was minted for a predeclared
+  host and `id` names that entry — atomically consumes it and BINDS
+  the presenting host to the predeclared row, storing the reported
+  address/labels/capabilities onto it (AD-42). A bound token with a
+  mismatched or absent `id` is rejected BEFORE consumption (403
+  `binding_mismatch`); only unbound tokens may register a fresh host
+  (server id `host-<uuid8>`). Either way it mints the host's
+  persistent credential (plaintext exactly once) and answers with
+  the gateway access hint. `capabilities` is the joining host's observed machine
   facts (advisor slice 1.3, advisor-l1 §8): `{hardware: {cpu_cores,
   memory_mb, disk_gb, arch}, network: {egress?, latencies_ms?},
   collected_at}` — strict-validated (unknown keys, sanity ranges, the
@@ -198,7 +233,8 @@ invariant).
 - Remote/HA bootstrap API — trigger: #109 multi-replica control
   plane.
 - Admin web UI — trigger: ops team demand.
-- DNS/TLS/HA/cross-NAT → #109–#112 by reference.
+- DNS/TLS/HA → #109–#111 by reference; cross-NAT connectivity →
+  resolved by AD-41 (#112).
 
 ## 10. Implementation slices (filed as issues after this design lands)
 

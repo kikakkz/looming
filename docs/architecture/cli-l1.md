@@ -50,19 +50,34 @@ once into `credentials.yaml`; the default Profile is written) →
 agent CLI's config) → chat completions flow through the gateway →
 `looming usage`.
 
-**Admin bootstrap**: install the bundle on the first host → write
+**Admin bootstrap**: install the looming CLI on the first host
+(`install.sh`, which only delivers the binary) → `looming setup`
+(AD-42) interviews, proposes a topology through the advisor machinery
+(human-confirmed), resolves and pins the release manifest, writes
 `/etc/looming/topology.yaml` (hosts, placements, and
-`bootstrap.admin_email`) → `looming apply` (converge per topology-l1
-§3; the first apply creates the component databases and prints the
-one-time bootstrap invite — the raw token plus a register `curl` —
-and the join hint — the e2e suite's step 1) → operator carries the
-invite to the first admin's mailbox.
+`bootstrap.admin_email`), stands up the control plane (headscale +
+derper, AD-41), and converges the first host — always with the
+minimum serving plane (state plane, topologyd, identityd) so the
+join endpoint is servable and the invite can be minted there —
+per topology-l1; the first converge creates the component databases
+and prints the join hint (the e2e suite's step 1) → remaining hosts
+join and converge per the AD-42 staged bootstrap → cluster-wide
+health check → the one-time bootstrap invite is minted — the raw
+token plus a register `curl` aimed at the gateway's published
+address, which proxies the identity API (AD-41) — and the operator
+carries it to the first admin's mailbox, safe whenever the gateway
+it targets was placed on a later host, since every placement is
+converged before handoff (AD-42: invite minted at the end, with
+`apply --print-invite` the explicit early-mint escape hatch).
 
 **Adding a host** (admin): `looming token create --role engine --ttl
-24h` → on the new host: install bundle → `looming join
-http://<first-host>:<port> --token <t>` → the host credential lands
+24h` (for a predeclared host the token is minted against its id, and
+the printed join hint carries it) → on the new host: install the CLI →
+`looming join http://<first-host>:<port> --token <t> [--host-id <id>]`
+(`--host-id` binds a predeclared entry to its bound token, AD-42) →
+the host credential lands
 at `/etc/looming/host.cred` (0600, shown exactly once) — the
-topology-l1 §3 join journey, unchanged.
+topology-l1 §3 join journey, binding semantics per AD-42.
 
 ## 4. Command surface
 
@@ -95,8 +110,10 @@ phase-1, per topology-l1 §8).
   raw token once).
 - `looming guide show` — print the public onboarding guide (rendering
   on demand when stale), per topology-l1 §7.
-- `looming join <first-host-url> --token <t>` — the pulling host's
-  self-registration (topology-l1 §7); the join payload carries the
+- `looming join <first-host-url> --token <t> [--host-id <id>]` — the
+  pulling host's self-registration (topology-l1 §7); `--host-id`
+  binds a predeclared entry to its bound token (AD-42), carried in
+  the printed join hint; the join payload carries the
   host's observed machine facts (advisor slice 1.3), collected locally
   and announced on stdout.
 - `looming topology advise [--reason]` — placement derivation
@@ -110,6 +127,20 @@ phase-1, per topology-l1 §8).
   operator-declared, the merged file re-validates through the config
   loader before it is written, and nothing applies — the operator
   reviews the diff and runs `looming apply` (advisor slice 1.3).
+- `looming setup [--answers <file>]` — agentic cluster bring-up
+  (AD-42): interview → advisor proposal (human-confirmed, AD-38) →
+  bootstrap (topology, control plane per AD-41, join material) →
+  converge → health check; `--answers` reproduces headlessly.
+- `looming purge [--wipe-state] [--leave-net] [--cluster]` —
+  teardown (AD-42) at two levels: per-host — run on each host; stops
+  that host's compose project, optionally wipes local state (pgdata,
+  node keys) — and cluster retirement from the control host
+  (`--cluster`: retire node identities against headscale, dissolve
+  the roster), which must run while the control host's compose
+  project — hence headscale — is still up: after every other host's
+  per-host purge, before the control host's own stop.
+- `looming connect` — install the tailscale client on the admin's
+  device, pointed at the bundle's headscale (AD-41; optional path).
 - `looming genesis set|sync|status` — the genesis model-channel
   lifecycle (#143, slice 1.2-A): set the endpoint/credential, sync
   the channel through its three stages, inspect the channel status
