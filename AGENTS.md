@@ -47,7 +47,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
     carry no comments — explanations live in the design docs and issue
     threads. Machine-mandated markers excepted: SPDX headers, build/
     codegen directives (`//go:build`), required markers (`//nolint`,
-    rationale in the PR). Design docs never describe circumventing
+    rationale in the PR or issue thread). Design docs never describe circumventing
     implementations — defeating a check, gate, or contract is not
     documentation material; file the issue or AD that removes the need.
 
