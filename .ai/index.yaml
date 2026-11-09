@@ -122,6 +122,10 @@
 # gains hard constraint 9 (all development in .wt/ worktrees, main
 # checkout stays clean) and the Commands section joins wrapped bullets
 # for the 200-line budget; all read_order anchors resolve.
+# 2026-11-08 no-comments constraint (#195) re-validated: AGENTS.md
+# gains hard constraint 10 (no comments in code; design docs never
+# describe circumventing implementations); all read_order anchors
+# resolve.
 #
 # Schema (intentionally minimal; parsed by .ai/tools/check_index.py
 # with stdlib only):
