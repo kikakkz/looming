@@ -21,7 +21,7 @@ method for deriving and refining this map is
 | 9 | Records/observability | MeterRecord, InteractionBody, DecisionEvent, Trace | every append-only store; retention policies; offline read surface (prompt analysis, evals, compliance export) | runtime semantics (→ #3) |
 | 10 | SCM integration | RepoBinding, IssueRef, MergeRequest | issues, review threads, CI status, merge control, webhooks — the anti-corruption layer over GitHub/GitLab CE | pipeline definitions (→ #11) |
 | 11 | CI orchestration | Pipeline, Gate, FailCase | org pipeline definitions, gates, judge fail-case 回流 | SCM connectivity (→ #10) |
-| 12 | Topology & bootstrap | Topology, Host, JoinToken, ComponentPlacement, Guide | bundle first-boot, declarative topology, host join, component placement, onboarding guide rendering | runtime blueprints/runs (→ #4 Orchestration); component process internals; DNS/TLS/HA mechanics (#109–#112 deferred issues) |
+| 12 | Topology & bootstrap | Topology, Host, JoinToken, ComponentPlacement, Guide | bundle first-boot, declarative topology, host join, component placement, onboarding guide rendering, bundle network fabric control plane (headscale/DERP, AD-41), setup/purge lifecycle (AD-42) | runtime blueprints/runs (→ #4 Orchestration); component process internals; public upstream reachability (operator-side, AD-41); DNS/TLS/HA mechanics (#109–#111 deferred) |
 
 ## Relationships (context map)
 
@@ -52,6 +52,13 @@ method for deriving and refining this map is
   components consume placement, never write topology. Host join is
   the only inbound entry, and it is pull-based self-registration
   (no SSH/agentless push).
+- **Topology & bootstrap → all components: fabric identity issuance
+  (AD-41).** Setup/join mints each component's tailnet node identity
+  against the in-bundle headscale; `Host.address` stays the underlay
+  locator and component identities ride on their placements;
+  components consume identity and addressing, never manage keys.
+  Third-party workloads (postgres) receive theirs through the net
+  sidecar.
 
 ## Cross-cutting aspects (not contexts)
 

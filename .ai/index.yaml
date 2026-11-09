@@ -57,6 +57,9 @@
 # all read_order anchors resolve.
 # AD-38 re-validated 2026-10-09: decisions/README.md regenerated for
 # the management-agent AD (#144); all read_order anchors resolve.
+# AD-41/AD-42 re-validated 2026-11-08: decisions/README.md regenerated
+# for the tailnet-fabric (#112) and setup/purge-lifecycle (#191) ADs;
+# all read_order anchors resolve.
 # 2026-10-10 advisor slice 1.1 (#144) re-validated: AGENTS.md directory
 # map platform/go + cli lines name the advisor package and the advise
 # command; all read_order anchors resolve.
