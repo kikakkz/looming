@@ -45,6 +45,7 @@ A bundle release ships exactly these artifacts:
 | Artifact | Form | Consumed by |
 |---|---|---|
 | Component images (`gateway`, `identity`, `topology`) | ghcr images, semver tags | apply pulls them at converge time |
+| Upstream control-plane images (`headscale` today) | upstream-registry images, explicit version tags, pinned never vendored (AD-41) | apply/setup pull them when rendering control-plane services |
 | `looming` CLI | GH Release binaries, per OS/arch (linux-amd64, linux-arm64 first) | install.sh downloads the host's binary; admins and developers download directly |
 | `bundle-manifest.yaml` | GH Release asset + `bundle/manifest.yaml` in the repo | apply resolves component pins at render time |
 | `install.sh` | raw.githubusercontent.com (pinned by ref) + release asset | the operator's one command |
@@ -132,6 +133,9 @@ Three surfaces, three semantics — kept strictly separate:
      gateway: v0.1.0
      identity: v0.1.0
      topology: v0.1.0
+   # Upstream control-plane images (AD-41): pinned, never vendored.
+   upstream:
+     headscale: headscale/headscale:0.29.6
    ```
 
    A component release is followed by a PR bumping only that
@@ -139,6 +143,21 @@ Three surfaces, three semantics — kept strictly separate:
    semver **tags** (the skill's "exact version" semantic — tags under
    our control are immutable); digest pinning is recorded as future
    hardening, not v1.
+
+   The **`upstream:`** section admits the AD-41 control-plane images:
+   full `<repo>:<tag>` references to images the upstream registry
+   owns — looming renders and manages them, it never vendors their
+   bits (the capability boundary in AD-41's consequences). Upstream
+   pins share the component discipline — one bump per change, no
+   mutable tags (`latest` is refused by both the bundle loader and the
+   release scan), anonymous pullability verified at bundle release —
+   with two deliberate differences: the semver-tag shape is the
+   upstream's own convention (not our `vX.Y.Z`), and tag immutability
+   is the upstream's behavior, not CI-enforced as it is for our ghcr
+   components. **derper is intentionally absent**: Tailscale publishes
+   no official derper image, so slice C1 (#112) decides its shape —
+   a source-built image joining `components:`, or a vetted upstream
+   ref landing here. Until then the section carries headscale alone.
 5. **Render/apply contract.** `platform/go/render`'s component
    contract gains an optional image pin. A pinned component renders
    `image: <pinned ref>` and NO `build:` block; apply pulls and
@@ -159,10 +178,15 @@ Three surfaces, three semantics — kept strictly separate:
    fails closed otherwise. The topology file stays the desired-state
    source (AD-36 semantics unchanged).
 6. **Bundle release CI**, on `vX.Y.Z`: verify every manifest pin is
-   pullable → pull the pinned images and run the integration suite
+   pullable (components AND upstream refs — both scans are strict, and
+   upstream `latest` tags are refused) → pull the pinned component
+   images and run the integration suite
    against them (the skill's "ensure integration tests pass for the
    current manifest pins" — pullability does not prove compatibility,
-   so publication gates on this) → cross-compile the CLI
+   so publication gates on this; upstream images are pullability-only
+   — the smoke gate's probes are looming-component contracts, and the
+   upstream control plane's boot contract arrives with its
+   componentization slice, #112 C1) → cross-compile the CLI
    (`CGO_ENABLED=0`, linux/amd64 + linux/arm64) → create the GitHub
    Release with notes generated from conventional commits and the
    asset set from §2. Ordering rule: component tags at or before the
