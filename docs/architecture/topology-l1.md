@@ -162,13 +162,11 @@ gateway, identity → identityd). Its placement is declared in the
 topology YAML like any other component's — typically the state host,
 never forced there. Its env_file carries `TOPOLOGY_SERVICE_TOKEN`
 (the internal guide endpoint's guard); the renderer derives
-`GATEWAY_TOPOLOGY_URL` for the gateway front from this placement, so
-apply validates that both env_files are declared — an unwired token
-would crash-loop the gateway at boot or 503 the guide forever. On the
-loopback single-host shape the derived URL targets
-`host.docker.internal` (the gateway container cannot use host
-loopback), so apply also requires the gateway-front placement to carry
-the `host.docker.internal:host-gateway` extra_hosts entry there.
+`GATEWAY_TOPOLOGY_URL` for the gateway front from topologyd's tailnet
+node name and port, including on a single host (AD-41: uniform
+transport — even same-host traffic rides the tailnet). Apply validates
+that both env_files are declared — an unwired token would crash-loop
+the gateway at boot or 503 the guide forever.
 
 - `POST /v1/join` `{token, host: {id?, address, labels, capabilities?}}` →
   `201 {host_id, credential, cluster: {access}}`: validates the

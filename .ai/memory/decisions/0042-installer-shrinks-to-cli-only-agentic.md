@@ -76,7 +76,12 @@ human-confirmed) already built for exactly this shape.
    host pulls its rendered per-host compose file from topologyd over
    the bootstrap channel and runs local convergence (`docker compose
    up -d`) on ITSELF — the join API never carries compose files, and
-   the first-host converge never starts remote placements.
+   the first-host converge never starts remote placements. The per-host
+   render ships the host's env_files with its compose file as one pull
+   over the same authenticated channel (each host fetches only its own
+   files), so every required file — e.g. a gateway host's
+   `TOPOLOGY_SERVICE_TOKEN` — is on disk before `compose up` ever
+   runs.
 3. **`looming purge` tears down symmetrically, at two levels**:
    per-host — run on each host; stops that host's compose project and
    optionally wipes its local state (pgdata, node keys) — and cluster
