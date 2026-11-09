@@ -59,7 +59,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also check prefix/title consistency.
 - `make validate-locks` — validate `.ai/*.lock.toml` files and the memory bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
-- `make check-trailers` — validate commit-message trailers on the branch's own commits (upstream `main` is the baseline; an explicit range overrides).
+- `make check-trailers` — validate commit-message trailers on the branch's own commits (upstream `main` is the baseline). For an explicit range call the script directly: `bash .ai/tools/check-trailers.sh <range>` (e.g. `HEAD` for whole history).
 - `make check-adr` — validate decision-record links and index freshness.
 - `make check-release` — static R1 contract check for `.github/workflows/release.yml` (release-l1 §3.1/§5, #159): tag patterns, `packages: write`, per-tag concurrency, ghcr prefix, `verify_only` input, immutable pre-check.
 - `make check-docs` — doc-repo consistency: documented make targets exist, ci-gate prerequisites are named here, skill counts and memory wikilinks resolve.
