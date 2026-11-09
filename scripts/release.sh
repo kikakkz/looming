@@ -12,9 +12,14 @@
 # the git tag <component>/vX.Y.Z its mark — the release CI consistency
 # gate refuses to publish when tag and file disagree. Releasing is three
 # steps, and this script strings them together:
-#   1. bump PR — write the next version into <component>/VERSION, commit
-#      it on a chore/bump-<component>-<version> branch, push, and open
-#      the PR ("chore: bump <component> VERSION to vX.Y.Z (#168)");
+#   1. bump PR — run from the clean main checkout (linked worktrees
+#      and uncommitted changes are rejected), in a dedicated,
+#      short-lived release worktree under .wt/ (the invoking worktree
+#      is never checked out over — AGENTS.md hard constraint 9), write
+#      the next version into <component>/VERSION, commit it on a
+#      chore/bump-<component>-<version> branch, push, and open the PR
+#      via create_pr.py, born with auto-merge armed ("chore: bump
+#      <component> VERSION to vX.Y.Z (#168)");
 #   2. tag — once the PR is merged, re-running the same command detects
 #      that origin/main carries the new version: tag <component>/<vX.Y.Z>
 #      at origin/main and push the tag;
@@ -78,8 +83,12 @@ major the first (lower fields zeroed); a component with no VERSION file
 starts at v0.1.0.
 
 The release flow is three steps, all non-interactive:
-  1. bump PR — write the next version into <component>/VERSION, commit
-     on chore/bump-<component>-<version>, push, open the PR
+  1. bump PR — from the clean main checkout (linked worktrees and
+     uncommitted changes are rejected), in a dedicated, short-lived
+     release worktree under .wt/ (the invoking worktree is never
+     checked out over), write the next version into
+     <component>/VERSION, commit on chore/bump-<component>-<version>,
+     push, open the auto-merge-armed PR via create_pr.py
      ("chore: bump <component> VERSION to vX.Y.Z (#168)");
   2. tag — after the PR merges, re-running the same command detects
      main carries the new version: tag <component>/<vX.Y.Z> at
@@ -307,15 +316,15 @@ EOF
 print_plan() { # $1 = phase note
     local step1_line
     if [[ -z "$CURRENT" ]]; then
-        step1_line="create $VERSION_REL naming $TARGET (initial release) on branch $BRANCH_NAME, commit, push, open PR \"$(pr_title)\""
+        step1_line="create $VERSION_REL naming $TARGET (initial release) on branch $BRANCH_NAME via a dedicated release worktree, push, open auto-merge-armed PR \"$(pr_title)\""
     elif [[ "$CURRENT" == "$TARGET" ]]; then
         if [[ "$RELEASED" -eq 1 ]]; then
-            step1_line="bump already applied in this worktree — commit/push/PR on $BRANCH_NAME, then merge and re-run"
+            step1_line="bump already applies — open the auto-merge-armed PR for $BRANCH_NAME from a dedicated release worktree, then merge and re-run"
         else
             step1_line="no bump needed — $VERSION_REL already names $TARGET; step 1 is satisfied once the file is on main"
         fi
     else
-        step1_line="$VERSION_REL: $CURRENT -> $TARGET on branch $BRANCH_NAME, commit, push, open PR \"$(pr_title)\""
+        step1_line="$VERSION_REL: $CURRENT -> $TARGET on branch $BRANCH_NAME via a dedicated release worktree, push, open auto-merge-armed PR \"$(pr_title)\""
     fi
     cat <<EOF
 release plan (AD-40 three-step flow, #168):
@@ -342,7 +351,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     if [[ -z "$CURRENT" ]]; then
         phase="step 1 pending — $VERSION_REL absent here"
     elif [[ "$CURRENT" == "$TARGET" && "$RELEASED" -eq 1 ]]; then
-        phase="step 1 applied in this worktree — awaiting merge on origin/main"
+        phase="step 1 applied — awaiting merge on origin/main"
     elif [[ "$CURRENT" == "$TARGET" ]]; then
         phase="step 1 satisfied — pending release, awaiting the tag"
     else
@@ -386,16 +395,26 @@ push_ref() { # $1 = ref (tag or branch); retry with backoff — a transient
     die "pushing $ref failed after 5 attempts — the local ref remains; resolve the network issue, then push $ref to origin manually"
 }
 
-PREV_BRANCH=""
-restore_branch() {
-    if [[ -n "$PREV_BRANCH" ]]; then
-        git checkout -q "$PREV_BRANCH" 2>/dev/null || true
+# Step 1 does its branch work in a dedicated, short-lived release
+# worktree under .wt/ (AGENTS.md hard constraint 9: the invoking
+# worktree is never checked out over). BUMP_WT is the ownership token:
+# step 1 sets it only AFTER git worktree add succeeds — a failed add
+# may have hit a path another run owns, and the trap must never remove
+# that — and clears it after removal. The EXIT trap removes the owned
+# worktree on every failure path (retrying with --force when dirty).
+# The bump branch ref itself always survives: it is the pushed PR head.
+BUMP_WT=""
+cleanup_bump_wt() {
+    if [[ -n "$BUMP_WT" && -d "$BUMP_WT" ]]; then
+        git worktree remove "$BUMP_WT" 2>/dev/null \
+            || git worktree remove --force "$BUMP_WT" 2>/dev/null \
+            || warn "release worktree $BUMP_WT survived — remove it manually: git worktree remove --force $BUMP_WT"
     fi
 }
-trap restore_branch EXIT
+trap cleanup_bump_wt EXIT
 
-write_version_file() {
-    cat > "$VERSION_ABS" <<EOF
+write_version_file() { # $1 = destination file
+    cat > "$1" <<EOF
 # SPDX-License-Identifier: Apache-2.0
 
 # Canonical component version (AD-40): this file is the single source of
@@ -407,55 +426,97 @@ EOF
 }
 
 open_pr() { # $1 = branch, $2 = title
-    local url
-    # --repo pins every repo-scoped call to this repository (gh-access-
-    # check-must-be-host-pinned): GH_HOST/GH_REPO overrides must not
-    # redirect the PR check or creation anywhere else.
+    local out
+    # Creation is delegated to create_pr.py (#201): the bump PR is born
+    # with squash auto-merge armed, on the same host-pinned path as
+    # every other PR — --repo pins every repo-scoped call to this
+    # repository (gh-access-check-must-be-host-pinned) and create_pr.py
+    # forwards it to the arming merge as well. The exists-check stays a
+    # bare host-pinned gh call.
     if ! gh pr view --repo kikakkz/looming "$1" >/dev/null 2>&1; then
-        url="$(gh pr create --repo kikakkz/looming --base main --head "$1" --title "$2" --body "$(pr_body)")" \
-            || die "gh pr create failed — the bump branch $1 is pushed; open the PR manually, then re-run after merge"
-        log "step 1 — PR opened: $url"
+        if out="$(python3 "$REPO_ROOT/.ai/tools/create_pr.py" --repo kikakkz/looming --base main --head "$1" --title "$2" --body "$(pr_body)")"; then
+            log "step 1 — PR opened (auto-merge armed):"
+            printf '%s\n' "$out"
+        else
+            die "create_pr.py failed — the bump branch $1 is pushed; open the PR manually, then re-run after merge"
+        fi
     else
         log "step 1 — PR for $1 already exists — merge it, then re-run: scripts/release.sh $COMPONENT $BUMP"
     fi
 }
 
-step1_bump_pr() { # $1 = 1 when the worktree already carries TARGET
-    local msg_title
+step1_bump_pr() {
+    local msg_title wt_path
     msg_title="$(pr_title)"
-    PREV_BRANCH="$(git branch --show-current)"
-    [[ -n "$PREV_BRANCH" ]] \
-        || die "detached HEAD — checkout a branch before running the release flow"
+    # CodeRabbit #209: the released version is read from the invoking
+    # checkout's file (AD-40), so the checkout's state decides the
+    # target — a linked worktree may carry a different VERSION, and
+    # uncommitted edits are not releasable state. Refuse both before
+    # anything moves; --list, --dry-run, and step 2 are exempt (they
+    # write nothing to the invoking checkout).
+    [[ "$(git rev-parse --git-dir)" == "$(git rev-parse --git-common-dir)" ]] \
+        || die "the release flow must run from the main checkout, not a linked worktree — cd to the main checkout and re-run"
+    [[ -z "$(git status --porcelain)" ]] \
+        || die "the main checkout has uncommitted changes — commit, stash, or discard them before releasing (AGENTS.md hard constraint 9)"
+    # All branch work happens in a dedicated release worktree — the
+    # invoking worktree's checkout is never touched (AGENTS.md hard
+    # constraint 9; #201).
+    wt_path="$REPO_ROOT/.wt/release-$COMPONENT-$TARGET"
     # Every branch-selection path below validates against origin/main,
     # so fetch it up front (not only when creating the branch).
     GIT_ASKPASS="" GIT_TERMINAL_PROMPT=0 git fetch -q origin main \
         || die "git fetch origin main failed — resolve the network/auth issue and re-run"
-    if [[ "$1" -eq 1 && "$(git branch --show-current)" == "$BRANCH_NAME" ]]; then
-        :
-    elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+    if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
         log "step 1 — reusing existing bump branch $BRANCH_NAME"
-        git checkout -q "$BRANCH_NAME"
+        # Dies naturally when the branch is checked out in another
+        # worktree — git's message names that worktree.
+        git worktree add "$wt_path" "$BRANCH_NAME" \
+            || die "could not check out bump branch $BRANCH_NAME at $wt_path (see git's message above)"
     else
-        log "step 1 — creating bump branch $BRANCH_NAME from origin/main"
-        git checkout -q -b "$BRANCH_NAME" origin/main
+        log "step 1 — creating bump branch $BRANCH_NAME from origin/main in $wt_path"
+        git worktree add -b "$BRANCH_NAME" "$wt_path" origin/main \
+            || die "could not create the release worktree $wt_path (see git's message above)"
     fi
+    # Ownership for the EXIT trap begins only now: only this run's
+    # successfully added worktree may be cleaned up (#209).
+    BUMP_WT="$wt_path"
     # CodeRabbit #176: a reused bump branch must still sit on origin/main
     # and carry nothing outside the VERSION file — a stale or
     # contaminated branch would smuggle unrelated changes into the PR.
+    # Both checks are ref-based (the object store is shared with the
+    # release worktree), so they run here before anything is written.
     git merge-base --is-ancestor origin/main "$BRANCH_NAME" \
         || die "bump branch $BRANCH_NAME is not based on the current origin/main — remove or rebase it before re-running"
     [[ -z "$(git diff --name-only "origin/main...$BRANCH_NAME" -- . ":(exclude)$VERSION_REL")" ]] \
         || die "bump branch $BRANCH_NAME holds changes outside $VERSION_REL — remove or recreate it before re-running"
-    write_version_file
-    git add -- "$VERSION_REL"
-    # --only keeps other staged changes out of the bump commit.
-    if git commit -q -m "$msg_title" --only "$VERSION_REL"; then
-        log "step 1 — committed $(git rev-parse --short HEAD): $msg_title"
-    else
+    write_version_file "$BUMP_WT/$VERSION_REL"
+    git -C "$BUMP_WT" add -- "$VERSION_REL"
+    # --only keeps other staged changes out of the bump commit. The
+    # staged-diff pre-check separates "already carries the target"
+    # from a real commit failure (hook/identity): only the former is
+    # a no-op — a failed commit dies loud before any push or PR
+    # (#209).
+    if git -C "$BUMP_WT" diff --cached --quiet -- "$VERSION_REL"; then
         log "step 1 — $VERSION_REL already carries $TARGET (nothing to commit)"
+    else
+        git -C "$BUMP_WT" commit -q -m "$msg_title" --only "$VERSION_REL" \
+            || die "committing $VERSION_REL in the release worktree failed — resolve the error above (hook or identity?), then re-run"
+        log "step 1 — committed $(git -C "$BUMP_WT" rev-parse --short HEAD): $msg_title"
     fi
     push_ref "$BRANCH_NAME"
     open_pr "$BRANCH_NAME" "$msg_title"
+    # Happy-path removal; the EXIT trap is the safety net for every
+    # failure path (it retries with --force for a dirty tree). The
+    # branch ref is kept — it is the pushed PR head. Ownership clears
+    # after removal so the trap can never touch a future run's
+    # worktree at this path (#209).
+    if git worktree remove "$BUMP_WT"; then
+        # Disown: the EXIT trap must never touch a worktree a future
+        # run creates at this path (#209).
+        BUMP_WT=""
+    else
+        cleanup_bump_wt
+    fi
     log "step 1 done — merge the PR, then re-run to continue: scripts/release.sh $COMPONENT $BUMP"
 }
 
@@ -479,8 +540,8 @@ MAIN_CURRENT="$(version_at_ref FETCH_HEAD)"
 if [[ "$MAIN_CURRENT" == "$TARGET" ]]; then
     step2_tag_push
 elif [[ "$CURRENT" == "$TARGET" ]]; then
-    log "step 1 — the bump is already in this worktree but not on origin/main yet"
-    step1_bump_pr 1
+    log "step 1 — $VERSION_REL already names $TARGET here but origin/main doesn't carry it yet"
+    step1_bump_pr
 else
-    step1_bump_pr 0
+    step1_bump_pr
 fi
