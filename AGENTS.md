@@ -22,7 +22,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
    pushing.
 3. **Attribution.** Humans sign DCO (`git commit -s`); AI assistance is
    disclosed with `Assisted-by:` / `Generated-by:` trailers. `Co-Authored-By:`
-   is banned for AI; AI-authored commits carry `Generated-by: Kimi Code` + the maintainer's standing `Signed-off-by: Zhao KK <kikakkz@hotmail.com>` (#194), never self-signed.
+   is banned for AI; AI-authored commits carry `Generated-by: Kimi Code <noreply@moonshot.cn>` + the maintainer's standing `Signed-off-by: Zhao KK <kikakkz@hotmail.com>` (#194), never self-signed.
 4. **License.** Apache-2.0; new source files carry the SPDX header `# SPDX-License-Identifier: Apache-2.0`.
 5. **Never commit secrets.** Credentials, tokens, and private keys do not
    enter the repository, ever. Report leaked secrets by opening a security
