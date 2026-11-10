@@ -4,17 +4,9 @@
 # Policy (see .github/CONTRIBUTING.md and AGENTS.md):
 #   - Co-Authored-By is banned (it misattributes authorship and breaks DCO).
 #   - AI assistance is disclosed with Assisted-by: / Generated-by: trailers.
-#   - AI-authored commits (Generated-by:) carry the maintainer's standing
-#     DCO sign-off, pinned to the exact signer: Signed-off-by is required
-#     on them with or without --dco (#194).
 #   - With --dco, every commit must carry Signed-off-by (human DCO).
 #
 # Usage: check-trailers.sh [--dco] [REV_RANGE]
-#   REV_RANGE defaults to the branch's own commits: the first resolvable
-#   of origin/main/main is the baseline (base..HEAD, same scope as CI's
-#   --dco job). Whole-history checks stay available by passing HEAD
-#   explicitly. Pre-policy history is never in the default scope, so new
-#   rules do not retroactively fail the gate.
 #
 # Iterates commit-by-commit (not line-by-line): each commit's full body is
 # one unit, so multi-line bodies are checked once and reports name the
