@@ -4,6 +4,8 @@
 # Policy (see .github/CONTRIBUTING.md and AGENTS.md):
 #   - Co-Authored-By is banned (it misattributes authorship and breaks DCO).
 #   - AI assistance is disclosed with Assisted-by: / Generated-by: trailers.
+#     A Generated-by: line must carry the exact value AGENTS.md item 3
+#     prescribes.
 #   - With --dco, every commit must carry Signed-off-by (human DCO).
 #
 # Usage: check-trailers.sh [--dco] [REV_RANGE]
@@ -11,6 +13,16 @@
 # Iterates commit-by-commit (not line-by-line): each commit's full body is
 # one unit, so multi-line bodies are checked once and reports name the
 # offending commit.
+#
+# Existing branches that carry the old bare `Generated-by: Kimi Code`
+# value start failing this check once they merge or rebase past it; a
+# later fix commit does not repair earlier ones. Reword the affected
+# commits (git rebase --interactive with reword/edit) so every
+# Generated-by line carries the full address, then push the rewritten
+# branch with --force-with-lease. Sanctioned force-push: your own
+# unmerged branch, batched with any pending fixes and announced in the
+# PR — same discipline as the base rebase in
+# .ai/skills/pr-watch/SKILL.md; never to evade review.
 
 set -euo pipefail
 
@@ -68,6 +80,13 @@ for sha in "${commits[@]}"; do
     if printf '%s\n' "$body" | grep -qiE '^(assisted|generated)[ -]?by:' \
         && ! printf '%s\n' "$body" | grep -qE '^(Assisted-by|Generated-by): .+'; then
         echo "ERROR [$sha]: malformed AI trailer (must be 'Assisted-by: <what>' or 'Generated-by: <what>')." >&2
+        failures=1
+    fi
+
+    gb_total=$(printf '%s\n' "$body" | grep -ciE '^Generated-by:' || true)
+    gb_exact=$(printf '%s\n' "$body" | grep -cE '^Generated-by: Kimi Code <noreply@moonshot\.cn>$' || true)
+    if [ "$gb_total" -gt 0 ] && [ "$gb_total" -ne "$gb_exact" ]; then
+        echo "ERROR [$sha]: every Generated-by line must be exactly 'Generated-by: Kimi Code <noreply@moonshot.cn>' (AGENTS.md item 3)." >&2
         failures=1
     fi
 

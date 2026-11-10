@@ -55,7 +55,9 @@ AI-assisted contributions are welcome and follow the
 [Linux/OpenStack attribution convention](https://docs.openstack.org/nova/latest/contributor/commit-messages.html):
 
 - Disclose AI assistance with trailers: `Assisted-by: <tool> [model]` for
-  human-led work, `Generated-by: <tool> [model]` for machine-led work.
+  human-led work; machine-led commits in this repository carry
+  `Generated-by: Kimi Code <noreply@moonshot.cn>` — the checker pins
+  this exact value.
 - `Co-Authored-By:` must never be used for AI — it misattributes
   authorship and contaminates DCO.
 - AI-authored commits carry the maintainer's standing DCO sign-off

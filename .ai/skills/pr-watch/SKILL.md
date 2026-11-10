@@ -30,9 +30,12 @@ requesting the verdict — belong to the loop below; the tool
    before dismissing any.
 3. **Fix on-branch — batched.** Collect every fix for this round into
    ONE commit. Run `make ci-gate`, commit with the DCO +
-   `Generated-by:` trailers, push once. Its default trailer check now
-   covers the branch's own commits (`origin/main..HEAD`, `--dco`-free);
-   the explicit form `bash .ai/tools/check-trailers.sh --dco "$(git
+   `Generated-by:` trailers, then run `bash .ai/tools/check-trailers.sh
+   --dco 'origin/main..HEAD'` on the committed result before the single
+   push — the gate cannot inspect a commit that does not exist yet, and
+   CI fails on a pushed bad trailer. Its default trailer check covers
+   the branch's own commits (`origin/main..HEAD`, `--dco`-free); the
+   explicit form `bash .ai/tools/check-trailers.sh --dco "$(git
    merge-base origin/main HEAD)..HEAD"` remains for merge commits and
    base-ref ambiguity. CodeRabbit bills review events
    per push, not per commit: three commits pushed together cost one
@@ -89,7 +92,8 @@ every PR's gate at once, so the loop spends events deliberately:
 - **Never GitHub's "Update branch" / "Resolve conflicts" buttons.**
   Each writes a commit (a billed event) and the merge commit carries no
   DCO trailer, failing the trailer gate. Instead rebase the branch onto
-  the base locally — the one sanctioned force-push — batched with any
+  the base locally — a sanctioned force-push (trailer rewording is the
+  other, see check-trailers.sh's migration note) — batched with any
   pending fixes and announced in the PR.
 
 ## Housekeeping (when merge is blocked despite approval)
@@ -126,5 +130,6 @@ every PR's gate at once, so the loop spends events deliberately:
 - Never push mid-review: the verdict arrives on the head it was
   requested for.
 - Everything rides the normal branch: no direct pushes, same trailer
-  policy as any commit. Force-push only as the batched base-branch
-  rebase above — never to evade review.
+  policy as any commit. Force-push only for the batched base rebase
+  above or trailer rewording (check-trailers.sh migration note) — never
+  to evade review.
