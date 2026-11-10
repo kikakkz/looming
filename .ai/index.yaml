@@ -57,6 +57,9 @@
 # all read_order anchors resolve.
 # AD-38 re-validated 2026-10-09: decisions/README.md regenerated for
 # the management-agent AD (#144); all read_order anchors resolve.
+# AD-41/AD-42 re-validated 2026-11-08: decisions/README.md regenerated
+# for the tailnet-fabric (#112) and setup/purge-lifecycle (#191) ADs;
+# all read_order anchors resolve.
 # 2026-10-10 advisor slice 1.1 (#144) re-validated: AGENTS.md directory
 # map platform/go + cli lines name the advisor package and the advise
 # command; all read_order anchors resolve.
@@ -119,6 +122,10 @@
 # gains hard constraint 9 (all development in .wt/ worktrees, main
 # checkout stays clean) and the Commands section joins wrapped bullets
 # for the 200-line budget; all read_order anchors resolve.
+# 2026-11-08 no-comments constraint (#195) re-validated: AGENTS.md
+# gains hard constraint 10 (no comments in code; design docs never
+# describe circumventing implementations); all read_order anchors
+# resolve.
 # 2026-11-08 AI-commit trailer pair (#194) re-validated: AGENTS.md
 # hard constraint 3 states the maintainer's standing DCO sign-off and
 # the Commands check-trailers line notes the branch-scoped range; all

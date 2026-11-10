@@ -4,6 +4,8 @@
 
 ## Active
 
+- [AD-42 — installer shrinks to CLI-only; agentic setup and purge lifecycle](0042-installer-shrinks-to-cli-only-agentic.md)
+- [AD-41 — bundle-integrated tailnet fabric: tsnet per component, headscale in bundle, uniform transport](0041-bundle-integrated-tailnet-fabric-tsnet-per.md)
 - [AD-40 — component-internal VERSION as the canonical version source](0040-component-internal-version-as-the-canonical.md)
 - [AD-39 — release pipeline and artifact-only install](0039-release-pipeline-and-artifact-only-install.md)
 - [AD-38 — management agent: deterministic-hard, LLM-soft placement derivation](0038-management-agent-deterministic-hard-llm-soft.md)
