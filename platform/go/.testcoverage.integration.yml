@@ -2,10 +2,15 @@
 # against the integration-tagged profile that make test-integration
 # produces (coverage-integration.out). The unit profile excludes the
 # driven adapters, the migration runner, apply's composition-root
-# wiring, and the integration helper; here the adapters, the migration
-# runner, and the composition root are exercised for real, so only the
-# helper — whose code runs inside other packages' test binaries, so its
-# coverage never records — is excluded.
+# wiring, the integration helper, and fabric/tsnode; here the adapters,
+# the migration runner, and the composition root are exercised for
+# real, so only the helper — whose code runs inside other packages'
+# test binaries, so its coverage never records — was excluded, until
+# the fabric foundation landed (#112, AD-41): none of the three
+# fabric packages has an integration-tagged coverage source (tsnode
+# needs a live control plane, the headscale client is covered by
+# mocked unit tests, the root is vocabulary) — the fabric e2e
+# scenario (AD-41 consequence) is their integration home.
 profile: coverage-integration.out
 threshold:
   file: 80
@@ -14,3 +19,4 @@ threshold:
 exclude:
   paths:
     - tests
+    - fabric

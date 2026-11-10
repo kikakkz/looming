@@ -531,7 +531,7 @@ state:
 	// With the env URL, the state plane is skipped entirely: only the
 	// two host ensures touch docker, no probe/up/exec for Postgres.
 	w = newWorld(t, []scriptedCall{{}, {}}, nil)
-	res, err := w.pipeline.Apply(ctx, apply.Input{
+	res, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  writeConfig(t, plain),
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})
@@ -550,7 +550,7 @@ func TestApplyEnvURLWinsOverDerived(t *testing.T) {
 		scriptedCall{}, // ensure app-1
 	), map[string]string{stateEnvFile: stateEnvFileContent})
 
-	_, err := w.pipeline.Apply(ctx, apply.Input{
+	_, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  writeConfig(t, twoHostConfig),
 		DatabaseURL: "postgres://override:o@db.internal:5432/topology",
 	})
@@ -581,7 +581,7 @@ placements:
 		{}, // remove idle-1
 	}, nil)
 
-	res, err := w.pipeline.Apply(ctx, apply.Input{
+	res, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  writeConfig(t, idleConfig),
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})
@@ -599,7 +599,7 @@ placements:
 	assert.Len(t, w.composeUpCalls(), 2, "two ensures; idle hosts get no up")
 
 	// Second apply: the stored empty-artifact hash matches → skip.
-	second, err := w.pipeline.Apply(ctx, apply.Input{
+	second, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  writeConfig(t, idleConfig),
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})

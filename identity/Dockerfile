@@ -8,7 +8,7 @@
 # sibling directory copied below. GOPROXY is a build-arg;
 # distroless nonroot runtime.
 
-FROM golang:1.25 AS build
+FROM golang:1.27.3 AS build
 WORKDIR /src/identity
 ARG GOPROXY=https://proxy.golang.org,direct
 # AD-40 (S2 #172): release CI passes the component VERSION file content;

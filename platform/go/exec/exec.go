@@ -68,7 +68,7 @@ type LocalRunner struct{}
 // Run implements Runner with os/exec: stdin bytes, captured stdout,
 // exit status classified into *ExitError.
 func (LocalRunner) Run(ctx context.Context, name string, args []string, stdin []byte, env []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

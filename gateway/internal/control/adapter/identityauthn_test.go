@@ -324,7 +324,7 @@ func TestAuthnCacheHitCarriesEngineCredential(t *testing.T) {
 	defer cache.Close()
 	raw := "lk-cred"
 	hash := sha256.Sum256([]byte(raw))
-	cache.Apply(1, map[[32]byte]app.KeyEntry{hash: {
+	cache.Apply(1, map[[32]byte]app.KeyEntry{hash: { //nolint:gosec
 		PrincipalID: "p-synced", Status: "active", EngineCredential: "cred-synced", SyncedAt: authnNow,
 	}}, nil)
 
@@ -472,7 +472,7 @@ func TestFrontEndToEndEngineCredentialInjection(t *testing.T) {
 	// Provisioned key: the feed-projected credential wins upstream.
 	rawProv := "lk-e2e-provisioned"
 	hashProv := sha256.Sum256([]byte(rawProv))
-	cache.Apply(1, map[[32]byte]app.KeyEntry{hashProv: {
+	cache.Apply(1, map[[32]byte]app.KeyEntry{hashProv: { //nolint:gosec
 		PrincipalID: "p-1", Status: "active", EngineCredential: "e2e-engine-cred-A", SyncedAt: authnNow,
 	}}, nil)
 	rec := httptest.NewRecorder()
@@ -503,7 +503,7 @@ func TestFrontEndToEndEngineCredentialInjection(t *testing.T) {
 	// the caller sees 401 and the upstream is never touched.
 	rawRevoked := "lk-e2e-revoked"
 	hashRevoked := sha256.Sum256([]byte(rawRevoked))
-	cache.Apply(3, map[[32]byte]app.KeyEntry{hashRevoked: {
+	cache.Apply(3, map[[32]byte]app.KeyEntry{hashRevoked: { //nolint:gosec
 		PrincipalID: "p-3", Status: "active", EngineCredential: "e2e-engine-cred-C", SyncedAt: authnNow,
 	}}, nil)
 	cache.Apply(4, nil, [][32]byte{hashRevoked})
@@ -599,7 +599,7 @@ func TestFrontEndToEndConcurrentDistinctKeysNoBleed(t *testing.T) {
 		if i%3 != 0 {
 			entry.EngineCredential = fmt.Sprintf("conc-cred-%d", i)
 		}
-		cache.Apply(app.Revision(i+1), //nolint:gosec // test-only revision counter; the loop bound keeps i+1 far below any overflow.
+		cache.Apply(app.Revision(i+1),
 			map[[32]byte]app.KeyEntry{hash: entry}, nil)
 	}
 

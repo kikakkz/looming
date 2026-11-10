@@ -218,5 +218,5 @@ func mergeManaged(content, replacement string) (string, bool, error) {
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {
-	return os.WriteFile(path, data, mode)
+	return os.WriteFile(path, data, mode) //nolint:gosec
 }

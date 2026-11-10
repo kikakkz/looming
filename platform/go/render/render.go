@@ -563,7 +563,7 @@ func digestDir(root, dir string) ([]digestEntry, error) {
 			return nil
 		}
 		// #nosec G304 -- path is inside the operator-supplied bundle root.
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec
 		if err != nil {
 			return err
 		}

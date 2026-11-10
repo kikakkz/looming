@@ -10,8 +10,12 @@
 # (topology, host, guide, join), the schema migrations, the release
 # bundle manifest loader (bundle, release-l1 §3.4), the shared
 # buildinfo assembler (AD-40: the promu-shaped --version block every
-# binary prints, stdlib-only like exec), and the integration test
-# helper. Both consumers (cli's admin face, topology's topologyd)
+# binary prints, stdlib-only like exec), the integration test helper,
+# and the tailnet fabric foundation (#112, AD-41): the fabric root
+# vocabulary (NodeConfig + validation, importable without
+# tailscale.com), the headscale control-plane REST client
+# (fabric/headscale, stdlib net/http against the 0.29 API shape), and
+# the tsnet node wrapper (fabric/tsnode). Both consumers (cli's admin face, topology's topologyd)
 # import it; nothing here imports a component.
 #
 # Dependency rules (the AD-23 layering, unchanged by the move):
@@ -61,6 +65,13 @@ components:
   joinadapter:     { in: joinadapter }
   migrations:      { in: migrations }
   tests:           { in: tests/pgtest }
+  # fabric root and fabric/headscale take no project dependencies
+  # (#112 slice F2): the root stays CLI-importable without
+  # tailscale.com; the client is stdlib net/http against the verified
+  # headscale 0.29 REST shape.
+  fabric:          { in: fabric }
+  fabricheadscale: { in: fabric/headscale }
+  fabrictsnode:    { in: fabric/tsnode }
 
 deps:
   config:
@@ -131,3 +142,6 @@ deps:
 
   tests:
     mayDependOn: [migrations]
+
+  fabrictsnode:
+    mayDependOn: [fabric]

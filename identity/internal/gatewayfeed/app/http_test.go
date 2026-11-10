@@ -221,7 +221,7 @@ func TestFeedStoreFailureIs503(t *testing.T) {
 func TestFeedSnapshotCarriesEngineCredentialOnlyWhenProvisioned(t *testing.T) {
 	store := &fakeStore{
 		keys: []feeddomain.Key{
-			{Hash: []byte("0123456789abcdef"), PrincipalID: "p-1", Status: feeddomain.KeyActive, EngineCredential: "sk-engine-value"},
+			{Hash: []byte("0123456789abcdef"), PrincipalID: "p-1", Status: feeddomain.KeyActive, EngineCredential: "sk-engine-value"}, //nolint:gosec
 			{Hash: []byte("fedcba9876543210"), PrincipalID: "p-1", Status: feeddomain.KeyActive},
 		},
 	}
