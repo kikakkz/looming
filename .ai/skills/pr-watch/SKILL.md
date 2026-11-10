@@ -29,12 +29,12 @@ requesting the verdict — belong to the loop below; the tool
    CodeRabbit findings are ~90% real — verify against current code
    before dismissing any.
 3. **Fix on-branch — batched.** Collect every fix for this round into
-   ONE commit. Run `make ci-gate` and `bash .ai/tools/check-trailers.sh
-   --dco "$(git merge-base origin/main HEAD)..HEAD"`, commit with the
-   DCO + `Generated-by:` trailers, push once. The gate's own trailer
-   check covers HEAD only and passes no `--dco` — a mid-range unsigned
-   commit (fixup, rebase absorb, conflict resolution) passes locally
-   and fails PR CI. CodeRabbit bills review events
+   ONE commit. Run `make ci-gate`, commit with the DCO +
+   `Generated-by:` trailers, push once. Its default trailer check now
+   covers the branch's own commits (`origin/main..HEAD`, `--dco`-free);
+   the explicit form `bash .ai/tools/check-trailers.sh --dco "$(git
+   merge-base origin/main HEAD)..HEAD"` remains for merge commits and
+   base-ref ambiguity. CodeRabbit bills review events
    per push, not per commit: three commits pushed together cost one
    event; pushed separately, three. Never rename the branch or open a
    new PR. **After pushing, wait for the verdict to land before pushing
