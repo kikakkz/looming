@@ -13,6 +13,14 @@
 # Iterates commit-by-commit (not line-by-line): each commit's full body is
 # one unit, so multi-line bodies are checked once and reports name the
 # offending commit.
+#
+# Existing branches that carry the old bare `Generated-by: Kimi Code`
+# value start failing this check once they merge or rebase past it; a
+# later fix commit does not repair earlier ones. Reword the affected
+# commits (git rebase --interactive with reword/edit) so every
+# Generated-by line carries the full address, then push the rewritten
+# branch with --force-with-lease. This is the only sanctioned
+# force-push: your own unmerged branch, trailer rewording only.
 
 set -euo pipefail
 
@@ -73,9 +81,10 @@ for sha in "${commits[@]}"; do
         failures=1
     fi
 
-    if printf '%s\n' "$body" | grep -qiE '^Generated-by:' \
-        && ! printf '%s\n' "$body" | grep -qE '^Generated-by: Kimi Code <noreply@moonshot\.cn>$'; then
-        echo "ERROR [$sha]: Generated-by must be exactly 'Generated-by: Kimi Code <noreply@moonshot.cn>' (AGENTS.md item 3)." >&2
+    gb_total=$(printf '%s\n' "$body" | grep -ciE '^Generated-by:' || true)
+    gb_exact=$(printf '%s\n' "$body" | grep -cE '^Generated-by: Kimi Code <noreply@moonshot\.cn>$' || true)
+    if [ "$gb_total" -gt 0 ] && [ "$gb_total" -ne "$gb_exact" ]; then
+        echo "ERROR [$sha]: every Generated-by line must be exactly 'Generated-by: Kimi Code <noreply@moonshot.cn>' (AGENTS.md item 3)." >&2
         failures=1
     fi
 

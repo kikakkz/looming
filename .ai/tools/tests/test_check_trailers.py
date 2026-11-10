@@ -85,7 +85,7 @@ class CheckTrailersTests(unittest.TestCase):
                     "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
         r = run_script(self.repo, "--dco", "HEAD")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("Generated-by must be exactly", r.stderr)
+        self.assertIn("every Generated-by line must be exactly", r.stderr)
 
     def test_wrong_generated_by_address_fails(self) -> None:
         self.commit("fix: x\n\nGenerated-by: Kimi Code <bot@example.com>\n\n"
@@ -99,6 +99,14 @@ class CheckTrailersTests(unittest.TestCase):
                     "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
         r = run_script(self.repo, "--dco", "HEAD")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_mixed_generated_by_lines_fail(self) -> None:
+        self.commit("fix: x\n\n"
+                    "Generated-by: Kimi Code <noreply@moonshot.cn>\n"
+                    "Generated-by: Kimi Code\n"
+                    "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
+        r = run_script(self.repo, "--dco", "HEAD")
+        self.assertEqual(r.returncode, 1)
 
     def test_generated_by_without_signoff_fails(self) -> None:
         self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>")
