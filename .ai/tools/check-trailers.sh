@@ -4,6 +4,8 @@
 # Policy (see .github/CONTRIBUTING.md and AGENTS.md):
 #   - Co-Authored-By is banned (it misattributes authorship and breaks DCO).
 #   - AI assistance is disclosed with Assisted-by: / Generated-by: trailers.
+#     A Generated-by: line must carry the exact value AGENTS.md item 3
+#     prescribes.
 #   - With --dco, every commit must carry Signed-off-by (human DCO).
 #
 # Usage: check-trailers.sh [--dco] [REV_RANGE]
@@ -68,6 +70,12 @@ for sha in "${commits[@]}"; do
     if printf '%s\n' "$body" | grep -qiE '^(assisted|generated)[ -]?by:' \
         && ! printf '%s\n' "$body" | grep -qE '^(Assisted-by|Generated-by): .+'; then
         echo "ERROR [$sha]: malformed AI trailer (must be 'Assisted-by: <what>' or 'Generated-by: <what>')." >&2
+        failures=1
+    fi
+
+    if printf '%s\n' "$body" | grep -qiE '^Generated-by:' \
+        && ! printf '%s\n' "$body" | grep -qE '^Generated-by: Kimi Code <noreply@moonshot\.cn>$'; then
+        echo "ERROR [$sha]: Generated-by must be exactly 'Generated-by: Kimi Code <noreply@moonshot.cn>' (AGENTS.md item 3)." >&2
         failures=1
     fi
 

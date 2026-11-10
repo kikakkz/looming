@@ -80,6 +80,26 @@ class CheckTrailersTests(unittest.TestCase):
         r = run_script(self.repo, "HEAD")
         self.assertEqual(r.returncode, 1)
 
+    def test_bare_generated_by_value_fails(self) -> None:
+        self.commit("fix: x\n\nGenerated-by: Kimi Code\n\n"
+                    "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
+        r = run_script(self.repo, "--dco", "HEAD")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Generated-by must be exactly", r.stderr)
+
+    def test_wrong_generated_by_address_fails(self) -> None:
+        self.commit("fix: x\n\nGenerated-by: Kimi Code <bot@example.com>\n\n"
+                    "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
+        r = run_script(self.repo, "--dco", "HEAD")
+        self.assertEqual(r.returncode, 1)
+
+    def test_exact_generated_by_pair_passes(self) -> None:
+        self.commit("fix: x\n\n"
+                    "Generated-by: Kimi Code <noreply@moonshot.cn>\n\n"
+                    "Signed-off-by: Zhao KK <kikakkz@hotmail.com>")
+        r = run_script(self.repo, "--dco", "HEAD")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_generated_by_without_signoff_fails(self) -> None:
         self.commit("fix: x\n\nGenerated-by: Kimi Code <noreply@moonshot.cn>")
         r = run_script(self.repo, "HEAD")
