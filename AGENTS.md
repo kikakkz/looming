@@ -22,7 +22,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
    pushing.
 3. **Attribution.** Humans sign DCO (`git commit -s`); AI assistance is
    disclosed with `Assisted-by:` / `Generated-by:` trailers. `Co-Authored-By:`
-   is banned for AI. AI never signs `Signed-off-by`.
+   is banned for AI; AI-authored commits carry `Generated-by: Kimi Code` + the maintainer's standing `Signed-off-by: Zhao KK <kikakkz@hotmail.com>` (#194), never self-signed.
 4. **License.** Apache-2.0; new source files carry the SPDX header `# SPDX-License-Identifier: Apache-2.0`.
 5. **Never commit secrets.** Credentials, tokens, and private keys do not
    enter the repository, ever. Report leaked secrets by opening a security
@@ -62,7 +62,7 @@ bulky knowledge lives in `docs/` and is referenced by pointer.
   `python3 .ai/tools/check_branch_name.py --title "ci: ..."` to also check prefix/title consistency.
 - `make validate-locks` — validate `.ai/*.lock.toml` files and the memory bank.
 - `make test-tools` — unit tests for `.ai/tools/`.
-- `make check-trailers` — validate commit-message trailers on `HEAD`.
+- `make check-trailers` — validate commit-message trailers on the branch's own commits (upstream `main` is the baseline). For an explicit range call the script directly: `bash .ai/tools/check-trailers.sh <range>` (e.g. `HEAD` for whole history).
 - `make check-adr` — validate decision-record links and index freshness.
 - `make check-release` — static R1 contract check for `.github/workflows/release.yml` (release-l1 §3.1/§5, #159): tag patterns, `packages: write`, per-tag concurrency, ghcr prefix, `verify_only` input, immutable pre-check.
 - `make check-docs` — doc-repo consistency: documented make targets exist, ci-gate prerequisites are named here, skill counts and memory wikilinks resolve.

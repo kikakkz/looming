@@ -7,7 +7,6 @@
 #   - With --dco, every commit must carry Signed-off-by (human DCO).
 #
 # Usage: check-trailers.sh [--dco] [REV_RANGE]
-#   REV_RANGE defaults to HEAD.
 #
 # Iterates commit-by-commit (not line-by-line): each commit's full body is
 # one unit, so multi-line bodies are checked once and reports name the
@@ -16,18 +15,33 @@
 set -euo pipefail
 
 require_dco=0
-rev_range="HEAD"
+rev_range=""
+range_given=0
 
 for arg in "$@"; do
     case "$arg" in
         --dco) require_dco=1 ;;
-        *) rev_range="$arg" ;;
+        *) rev_range="$arg"; range_given=1 ;;
     esac
 done
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR: not inside a git repository." >&2
     exit 1
+fi
+
+if [ "$range_given" -eq 0 ]; then
+    for base in origin/main main; do
+        if git rev-parse --verify -q "$base" >/dev/null 2>&1; then
+            rev_range="$base..HEAD"
+            break
+        fi
+    done
+    if [ -z "$rev_range" ]; then
+        echo "no baseline ref (origin/main, main) resolvable; " \
+             "skipping trailer check"
+        exit 0
+    fi
 fi
 
 if ! git rev-list --max-count=1 "$rev_range" >/dev/null 2>&1; then
@@ -54,6 +68,12 @@ for sha in "${commits[@]}"; do
     if printf '%s\n' "$body" | grep -qiE '^(assisted|generated)[ -]?by:' \
         && ! printf '%s\n' "$body" | grep -qE '^(Assisted-by|Generated-by): .+'; then
         echo "ERROR [$sha]: malformed AI trailer (must be 'Assisted-by: <what>' or 'Generated-by: <what>')." >&2
+        failures=1
+    fi
+
+    if printf '%s\n' "$body" | grep -qE '^Generated-by: .+' \
+        && ! printf '%s\n' "$body" | grep -qE '^Signed-off-by: Zhao KK <kikakkz@hotmail\.com>$'; then
+        echo "ERROR [$sha]: AI-authored commit (Generated-by:) must carry the maintainer's Signed-off-by (#194)." >&2
         failures=1
     fi
 

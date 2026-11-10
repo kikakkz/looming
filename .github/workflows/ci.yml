@@ -44,6 +44,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bash .ai/tools/check-trailers.sh --dco "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
+      - name: DCO + trailer check on pushes to main
+        if: github.event_name == 'push'
+        run: bash .ai/tools/check-trailers.sh --dco "${{ github.event.before }}..${{ github.event.after }}"
+
       - name: PR body issue-reference lint (Refs needs a reason)
         if: github.event_name == 'pull_request'
         env:
