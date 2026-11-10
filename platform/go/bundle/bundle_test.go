@@ -139,3 +139,121 @@ func TestRepoManifestLoads(t *testing.T) {
 	assert.Equal(t, want, keys,
 		"the shipped manifest pins every release component, and only those")
 }
+
+const validManifestWithUpstream = `
+components:
+  gateway: v0.1.0
+  identity: v0.2.3
+  topology: v0.1.0
+upstream:
+  headscale: headscale/headscale:0.29.6
+`
+
+func TestLoadUpstreamPins(t *testing.T) {
+	m, err := bundle.Load(writeManifest(t, validManifestWithUpstream))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"headscale": "headscale/headscale:0.29.6",
+	}, m.Upstream)
+	assert.Equal(t, m.Upstream, m.UpstreamPins())
+}
+
+func TestLoadUpstreamOptional(t *testing.T) {
+	m, err := bundle.Load(writeManifest(t, validManifest))
+	require.NoError(t, err)
+	assert.Empty(t, m.Upstream)
+	assert.Empty(t, m.UpstreamPins())
+}
+
+func TestLoadRejectsLatestUpstreamTag(t *testing.T) {
+	doc := "components: {gateway: v0.1.0}\nupstream: {headscale: headscale/headscale:latest}\n"
+	_, err := bundle.Load(writeManifest(t, doc))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, bundle.ErrInvalidUpstream)
+}
+
+func TestLoadRejectsDuplicateUpstreamKey(t *testing.T) {
+	// yaml.v3 refuses duplicate mapping keys; the release scan holds
+	// the same line, so a duplicated pin must never ship. The loader's
+	// rejection rides the generic decode error (ErrInvalid).
+	doc := `
+components:
+  gateway: v0.1.0
+upstream:
+  headscale: headscale/headscale:0.29.6
+  headscale: headscale/headscale:0.29.7
+`
+	_, err := bundle.Load(writeManifest(t, doc))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, bundle.ErrInvalid)
+}
+
+func TestLoadRejectsMalformedUpstreamRef(t *testing.T) {
+	cases := []struct {
+		name string
+		ref  string
+	}{
+		{"no tag", "headscale/headscale"},
+		{"empty tag", "headscale/headscale:"},
+		{"uppercase repo", "Headscale/Headscale:0.29.6"},
+		{"whitespace", "head scale/headscale:0.29.6"},
+		{"double colon", "headscale/headscale:0.29.6:extra"},
+		{"digest instead of tag", "headscale/headscale@sha256:abc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "components: {gateway: v0.1.0}\nupstream: {svc: " + tc.ref + "}\n"
+			_, err := bundle.Load(writeManifest(t, doc))
+			require.Error(t, err)
+			assert.ErrorIs(t, err, bundle.ErrInvalidUpstream)
+		})
+	}
+}
+
+func TestLoadAcceptsDockerReferenceSeparators(t *testing.T) {
+	// The loader's ref rule is intentionally identical to the release
+	// scan's (review on #210): repeated reference separators that
+	// docker accepts must pass both gates, or a manifest the release
+	// publishes fails to load at apply time.
+	doc := `
+components:
+  gateway: v0.1.0
+upstream:
+  headscale: registry.example.com/head--scale:0.29.6
+  derper: ghcr.io/a__b/derper:1.0
+`
+	m, err := bundle.Load(writeManifest(t, doc))
+	require.NoError(t, err)
+	assert.Len(t, m.Upstream, 2)
+}
+
+func TestLoadRejectsBadUpstreamName(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{"uppercase", "Headscale"},
+		{"underscore", "head_scale"},
+		{"leading digit", "0headscale"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "components: {gateway: v0.1.0}\nupstream: {" + tc.key + ": headscale/headscale:0.29.6}\n"
+			_, err := bundle.Load(writeManifest(t, doc))
+			require.Error(t, err)
+			assert.ErrorIs(t, err, bundle.ErrInvalidUpstream)
+		})
+	}
+}
+
+// TestRepoManifestUpstream guards the shipped upstream section (AD-41):
+// present, explicit-version, and shared by the release workflow's own
+// scan (.github/workflows/release.yml).
+func TestRepoManifestUpstream(t *testing.T) {
+	m, err := bundle.Load(filepath.Join("..", "..", "..", "bundle", "manifest.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, m.Upstream, "the shipped manifest pins the upstream control plane (AD-41)")
+	for name, ref := range m.Upstream {
+		assert.NotContains(t, ref, ":latest", "upstream pin %s must not use the mutable latest tag", name)
+	}
+}

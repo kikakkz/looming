@@ -374,23 +374,68 @@ jobs:
 
       # Pin verification (release-l1 §3.6, the ordering rule): every
       # manifest pin must already be published — component tags at or
-      # before the bundle tag — or the bundle fails here. The manifest
-      # is scanned strictly (a line that is not a pin is an error, not
-      # a skip) and inspected ANONYMOUSLY: the installer pulls without
-      # credentials, so the anonymous view is the only pullability that
-      # counts (R1's post-publish verification makes it pass).
+      # before the bundle tag, upstream control-plane images in the
+      # upstream registry (AD-41) — or the bundle fails here. The
+      # manifest is scanned strictly (a line that is not a pin is an
+      # error, not a skip) and inspected ANONYMOUSLY: the installer
+      # pulls without credentials, so the anonymous view is the only
+      # pullability that counts (R1's post-publish verification makes
+      # it pass). Components land in pins.tsv for the pinned-image
+      # smoke gate; upstream refs land in upstream-pins.tsv —
+      # pullability only, the smoke gate's probes are looming-component
+      # contracts, and headscale's boot contract arrives with its
+      # componentization slice (#112 C1).
       - name: Verify manifest pins pull
         run: |
           set -euo pipefail
           : > pins.tsv
+          : > upstream-pins.tsv
           images=()
-          while IFS= read -r line; do
+          section=""
+          # Duplicate names/headings are refused here, not just in the
+          # loader: yaml.v3 rejects duplicate mapping keys, so a
+          # duplicated pin must fail the release, never ship.
+          declare -A seen=()
+          while IFS= read -r line || [ -n "$line" ]; do
             case "$line" in
-              ''|'#'*|components:) continue ;;
+              ''|'#'*) continue ;;
+              components:|upstream:)
+                if [ -n "${seen[section:$line]:-}" ]; then
+                  echo "::error::bundle/manifest.yaml: duplicate section heading: $line"
+                  exit 1
+                fi
+                seen[section:$line]=1
+                section="${line%:}"
+                continue
+                ;;
             esac
-            if [[ "$line" =~ ^[[:space:]]{2}([a-z]+):[[:space:]]+(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            if [ "$section" = upstream ]; then
+              if [[ "$line" =~ ^[[:space:]]{2}([a-z][a-z0-9-]*):[[:space:]]+([a-z0-9./_-]+):([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]; then
+                name="${BASH_REMATCH[1]}"
+                image="${BASH_REMATCH[2]}:${BASH_REMATCH[3]}"
+                if [ -n "${seen[upstream:$name]:-}" ]; then
+                  echo "::error::bundle/manifest.yaml: duplicate upstream pin name: $name"
+                  exit 1
+                fi
+                seen[upstream:$name]=1
+                if [ "${BASH_REMATCH[3]}" = latest ]; then
+                  echo "::error::bundle/manifest.yaml: upstream pin '$name' uses the mutable 'latest' tag — pin an explicit version (release-l1 §3.4)"
+                  exit 1
+                fi
+                images+=("$image")
+                printf '%s\t%s\n' "$name" "$image" >> upstream-pins.tsv
+              else
+                echo "::error::bundle/manifest.yaml: not a strict upstream pin line: $line"
+                exit 1
+              fi
+            elif [[ "$line" =~ ^[[:space:]]{2}([a-z]+):[[:space:]]+(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
               component="${BASH_REMATCH[1]}"
               version="${BASH_REMATCH[2]}"
+              if [ -n "${seen[component:$component]:-}" ]; then
+                echo "::error::bundle/manifest.yaml: duplicate component pin name: $component"
+                exit 1
+              fi
+              seen[component:$component]=1
               image="ghcr.io/kikakkz/looming/$component:$version"
               images+=("$image")
               printf '%s\t%s\n' "$component" "$image" >> pins.tsv
@@ -399,14 +444,14 @@ jobs:
               exit 1
             fi
           done < bundle/manifest.yaml
-          if [ "${#images[@]}" -eq 0 ]; then
+          if [ ! -s pins.tsv ]; then
             echo "::error::bundle/manifest.yaml pins no components"
             exit 1
           fi
           for image in "${images[@]}"; do
             if ! docker manifest inspect "$image" >/dev/null 2> inspect.err; then
               cat inspect.err >&2
-              echo "::error::pin $image is not anonymously pullable — component tags must be published at or before the bundle tag (release-l1 §3.6); for a still-private package run R1's verify_only visibility recovery"
+              echo "::error::pin $image is not anonymously pullable — component tags must be published at or before the bundle tag, upstream images must exist in the upstream registry (release-l1 §3.6); for a still-private package run R1's verify_only visibility recovery"
               exit 1
             fi
             echo "pin pullable: $image"

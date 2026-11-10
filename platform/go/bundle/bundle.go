@@ -2,11 +2,12 @@
 
 // Package bundle loads the release bundle manifest (release-l1 §3.4):
 // bundle/manifest.yaml pins every phase-1 component's exact image
-// version, and apply resolves those pins at render time so a released
-// combination converges published images only — never a source build
-// (#160, slice R2). Decoding is strict: an unknown key, an unknown
-// component, or a malformed version is a manifest error, not a silent
-// default — the operator's install fails closed at apply time.
+// version plus the upstream control-plane images (AD-41), and apply
+// resolves those pins at render time so a released combination
+// converges published images only — never a source build (#160, slice
+// R2). Decoding is strict: an unknown key, an unknown component, or a
+// malformed version is a manifest error, not a silent default — the
+// operator's install fails closed at apply time.
 package bundle
 
 import (
@@ -27,12 +28,25 @@ var (
 	ErrInvalid          = errors.New("bundle: invalid manifest")
 	ErrUnknownComponent = errors.New("bundle: unknown component (phase-1 allowlist)")
 	ErrInvalidVersion   = errors.New("bundle: version must be a v-prefixed semver tag (vX.Y.Z)")
+	ErrInvalidUpstream  = errors.New("bundle: invalid upstream image pin (explicit <repo>:<tag>, no mutable tags)")
 )
 
 // versionPattern is the vX.Y.Z shape the release workflow accepts for
 // component tags (.github/workflows/release.yml) — the manifest pins
 // the same tags CI publishes, and nothing else.
 var versionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// upstreamNamePattern and upstreamRefPattern police the upstream
+// section (AD-41): names are short lowercase slugs, refs are explicit
+// <repo>:<tag> image references — the release workflow refuses mutable
+// tags too (release-l1 §3.4), so the loader shares that discipline.
+// The ref pattern is intentionally identical to the release scan's
+// character classes: the two gates must accept the same manifests, or
+// a release could publish what apply cannot load.
+var (
+	upstreamNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	upstreamRefPattern  = regexp.MustCompile(`^[a-z0-9./_-]+:[A-Za-z0-9][A-Za-z0-9._-]*$`)
+)
 
 // ValidVersion reports whether v carries the manifest's vX.Y.Z tag
 // shape. Config's optional topology bundle: section shares it, so a
@@ -41,15 +55,19 @@ func ValidVersion(v string) bool { return versionPattern.MatchString(v) }
 
 // Manifest is the decoded bundle manifest: the released component
 // pins, keyed by release name (the render contracts' ReleaseName
-// values — gateway, identity, topology; release-l1 §3.4).
+// values — gateway, identity, topology; release-l1 §3.4), plus the
+// upstream control-plane image pins (AD-41: version-pinned, never
+// vendored).
 type Manifest struct {
 	Components map[string]string
+	Upstream   map[string]string
 }
 
-// raw mirrors the YAML shape for strict decoding: exactly one
-// components key, nothing else.
+// raw mirrors the YAML shape for strict decoding: a components key, an
+// optional upstream key, nothing else.
 type rawManifest struct {
 	Components map[string]string `yaml:"components"`
+	Upstream   map[string]string `yaml:"upstream"`
 }
 
 // Load reads, strictly decodes, and validates the manifest at path.
@@ -87,7 +105,20 @@ func Load(path string) (*Manifest, error) {
 		}
 		components[name] = version
 	}
-	return &Manifest{Components: components}, nil
+	upstream := make(map[string]string, len(raw.Upstream))
+	for name, ref := range raw.Upstream {
+		if !upstreamNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("%w %q: name %q", ErrInvalidUpstream, path, name)
+		}
+		if !upstreamRefPattern.MatchString(ref) {
+			return nil, fmt.Errorf("%w %q: %s = %q is not an explicit <repo>:<tag> image reference", ErrInvalidUpstream, path, name, ref)
+		}
+		if strings.HasSuffix(ref, ":latest") {
+			return nil, fmt.Errorf("%w %q: %s uses the mutable :latest tag — pin an explicit version", ErrInvalidUpstream, path, name)
+		}
+		upstream[name] = ref
+	}
+	return &Manifest{Components: components, Upstream: upstream}, nil
 }
 
 // Pins resolves every pin into the full image ref apply hands the
@@ -98,6 +129,18 @@ func (m *Manifest) Pins() map[string]string {
 	pins := make(map[string]string, len(m.Components))
 	for release, version := range m.Components {
 		pins[release] = render.ImageRef(release, version)
+	}
+	return pins
+}
+
+// UpstreamPins returns the upstream control-plane image pins verbatim
+// (AD-41: version-pinned, never vendored) — name → full image ref, for
+// renderers that materialize control-plane services (headscale today;
+// derper joins once its image shape is decided, #112 F1 note).
+func (m *Manifest) UpstreamPins() map[string]string {
+	pins := make(map[string]string, len(m.Upstream))
+	for name, ref := range m.Upstream {
+		pins[name] = ref
 	}
 	return pins
 }
