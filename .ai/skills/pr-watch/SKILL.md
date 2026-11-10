@@ -30,9 +30,12 @@ requesting the verdict — belong to the loop below; the tool
    before dismissing any.
 3. **Fix on-branch — batched.** Collect every fix for this round into
    ONE commit. Run `make ci-gate`, commit with the DCO +
-   `Generated-by:` trailers, push once. Its default trailer check now
-   covers the branch's own commits (`origin/main..HEAD`, `--dco`-free);
-   the explicit form `bash .ai/tools/check-trailers.sh --dco "$(git
+   `Generated-by:` trailers, then run `bash .ai/tools/check-trailers.sh
+   --dco 'origin/main..HEAD'` on the committed result before the single
+   push — the gate cannot inspect a commit that does not exist yet, and
+   CI fails on a pushed bad trailer. Its default trailer check covers
+   the branch's own commits (`origin/main..HEAD`, `--dco`-free); the
+   explicit form `bash .ai/tools/check-trailers.sh --dco "$(git
    merge-base origin/main HEAD)..HEAD"` remains for merge commits and
    base-ref ambiguity. CodeRabbit bills review events
    per push, not per commit: three commits pushed together cost one
