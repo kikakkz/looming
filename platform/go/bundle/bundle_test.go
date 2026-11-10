@@ -210,6 +210,23 @@ func TestLoadRejectsMalformedUpstreamRef(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsDockerReferenceSeparators(t *testing.T) {
+	// The loader's ref rule is intentionally identical to the release
+	// scan's (review on #210): repeated reference separators that
+	// docker accepts must pass both gates, or a manifest the release
+	// publishes fails to load at apply time.
+	doc := `
+components:
+  gateway: v0.1.0
+upstream:
+  headscale: registry.example.com/head--scale:0.29.6
+  derper: ghcr.io/a__b/derper:1.0
+`
+	m, err := bundle.Load(writeManifest(t, doc))
+	require.NoError(t, err)
+	assert.Len(t, m.Upstream, 2)
+}
+
 func TestLoadRejectsBadUpstreamName(t *testing.T) {
 	cases := []struct {
 		name string

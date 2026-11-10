@@ -40,9 +40,12 @@ var versionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 // section (AD-41): names are short lowercase slugs, refs are explicit
 // <repo>:<tag> image references — the release workflow refuses mutable
 // tags too (release-l1 §3.4), so the loader shares that discipline.
+// The ref pattern is intentionally identical to the release scan's
+// character classes: the two gates must accept the same manifests, or
+// a release could publish what apply cannot load.
 var (
 	upstreamNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	upstreamRefPattern  = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*:[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	upstreamRefPattern  = regexp.MustCompile(`^[a-z0-9./_-]+:[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
 // ValidVersion reports whether v carries the manifest's vX.Y.Z tag

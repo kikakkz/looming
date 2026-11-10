@@ -45,7 +45,7 @@ A bundle release ships exactly these artifacts:
 | Artifact | Form | Consumed by |
 |---|---|---|
 | Component images (`gateway`, `identity`, `topology`) | ghcr images, semver tags | apply pulls them at converge time |
-| Upstream control-plane images (`headscale` today) | upstream-registry images, explicit version tags, pinned never vendored (AD-41) | apply/setup pull them when rendering control-plane services |
+| Upstream control-plane images (`headscale` today) | upstream-registry images, explicit version tags, pinned never vendored (AD-41) | planned: control-plane rendering consumes these (slice C1, #112) — apply resolves `components:` pins only until then |
 | `looming` CLI | GH Release binaries, per OS/arch (linux-amd64, linux-arm64 first) | install.sh downloads the host's binary; admins and developers download directly |
 | `bundle-manifest.yaml` | GH Release asset + `bundle/manifest.yaml` in the repo | apply resolves component pins at render time |
 | `install.sh` | raw.githubusercontent.com (pinned by ref) + release asset | the operator's one command |
@@ -179,19 +179,21 @@ Three surfaces, three semantics — kept strictly separate:
    source (AD-36 semantics unchanged).
 6. **Bundle release CI**, on `vX.Y.Z`: verify every manifest pin is
    pullable (components AND upstream refs — both scans are strict, and
-   upstream `latest` tags are refused) → pull the pinned component
-   images and run the integration suite
-   against them (the skill's "ensure integration tests pass for the
-   current manifest pins" — pullability does not prove compatibility,
-   so publication gates on this; upstream images are pullability-only
-   — the smoke gate's probes are looming-component contracts, and the
-   upstream control plane's boot contract arrives with its
-   componentization slice, #112 C1) → cross-compile the CLI
+   upstream `latest` tags are refused) → boot each pinned component
+   image under the smoke gate — per-image startup with HTTP liveness
+   probes against a throwaway postgres fixture, not the pinned
+   combination (the skill's "ensure integration tests pass for the
+   current manifest pins" remains open as the pinned-topology
+   follow-up; the gate proves per-image bootability only) →
+   cross-compile the CLI
    (`CGO_ENABLED=0`, linux/amd64 + linux/arm64) → create the GitHub
    Release with notes generated from conventional commits and the
    asset set from §2. Ordering rule: component tags at or before the
    bundle tag; the bundle workflow fails if a pin is missing or the
-   pinned-image integration run is red.
+   pinned-image integration run is red. Upstream images stay
+   pullability-only here — the smoke gate's probes are
+   looming-component contracts, and the upstream control plane's boot
+   contract arrives with its componentization slice (#112 C1).
 7. **Installer flow (#151, slice R4).** `install.sh`:
    resolve the release (default latest; `--version vX.Y.Z` pins) →
    download the CLI binary (host OS/arch) and `bundle-manifest.yaml`

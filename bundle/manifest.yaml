@@ -10,8 +10,11 @@ components:
   topology: v0.1.0
 # Upstream control-plane images (AD-41, #112): version-pinned but never
 # vendored — looming manages and renders these; the upstream registry
-# owns the bits (release-l1 §3.4). Same pin-bump PR discipline; mutable
-# tags (e.g. latest) are refused by both the loader and release CI.
+# owns the bits (release-l1 §3.4). Same pin-bump PR discipline. The
+# literal :latest tag is refused by both the loader and release CI;
+# other moving tags (nightly, edge) pass syntax checks, so pin only
+# tags the upstream itself treats as immutable — that verification is
+# the pin-bumper's duty, not the gate's.
 # derper is deliberately absent until slice C1 decides its image shape:
 # Tailscale publishes no official derper image (community builds only),
 # so it either joins `components:` as a source-built image or lands
