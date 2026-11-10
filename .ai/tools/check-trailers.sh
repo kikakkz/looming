@@ -19,8 +19,10 @@
 # later fix commit does not repair earlier ones. Reword the affected
 # commits (git rebase --interactive with reword/edit) so every
 # Generated-by line carries the full address, then push the rewritten
-# branch with --force-with-lease. This is the only sanctioned
-# force-push: your own unmerged branch, trailer rewording only.
+# branch with --force-with-lease. Sanctioned force-push: your own
+# unmerged branch, batched with any pending fixes and announced in the
+# PR — same discipline as the base rebase in
+# .ai/skills/pr-watch/SKILL.md; never to evade review.
 
 set -euo pipefail
 
