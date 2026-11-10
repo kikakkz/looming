@@ -172,6 +172,22 @@ func TestLoadRejectsLatestUpstreamTag(t *testing.T) {
 	assert.ErrorIs(t, err, bundle.ErrInvalidUpstream)
 }
 
+func TestLoadRejectsDuplicateUpstreamKey(t *testing.T) {
+	// yaml.v3 refuses duplicate mapping keys; the release scan holds
+	// the same line, so a duplicated pin must never ship. The loader's
+	// rejection rides the generic decode error (ErrInvalid).
+	doc := `
+components:
+  gateway: v0.1.0
+upstream:
+  headscale: headscale/headscale:0.29.6
+  headscale: headscale/headscale:0.29.7
+`
+	_, err := bundle.Load(writeManifest(t, doc))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, bundle.ErrInvalid)
+}
+
 func TestLoadRejectsMalformedUpstreamRef(t *testing.T) {
 	cases := []struct {
 		name string

@@ -392,16 +392,32 @@ jobs:
           : > upstream-pins.tsv
           images=()
           section=""
+          # Duplicate names/headings are refused here, not just in the
+          # loader: yaml.v3 rejects duplicate mapping keys, so a
+          # duplicated pin must fail the release, never ship.
+          declare -A seen=()
           while IFS= read -r line; do
             case "$line" in
               ''|'#'*) continue ;;
-              components:) section=components; continue ;;
-              upstream:) section=upstream; continue ;;
+              components:|upstream:)
+                if [ -n "${seen[section:$line]:-}" ]; then
+                  echo "::error::bundle/manifest.yaml: duplicate section heading: $line"
+                  exit 1
+                fi
+                seen[section:$line]=1
+                section="${line%:}"
+                continue
+                ;;
             esac
             if [ "$section" = upstream ]; then
               if [[ "$line" =~ ^[[:space:]]{2}([a-z][a-z0-9-]*):[[:space:]]+([a-z0-9./_-]+):([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]; then
                 name="${BASH_REMATCH[1]}"
                 image="${BASH_REMATCH[2]}:${BASH_REMATCH[3]}"
+                if [ -n "${seen[upstream:$name]:-}" ]; then
+                  echo "::error::bundle/manifest.yaml: duplicate upstream pin name: $name"
+                  exit 1
+                fi
+                seen[upstream:$name]=1
                 if [ "${BASH_REMATCH[3]}" = latest ]; then
                   echo "::error::bundle/manifest.yaml: upstream pin '$name' uses the mutable 'latest' tag — pin an explicit version (release-l1 §3.4)"
                   exit 1
@@ -415,6 +431,11 @@ jobs:
             elif [[ "$line" =~ ^[[:space:]]{2}([a-z]+):[[:space:]]+(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
               component="${BASH_REMATCH[1]}"
               version="${BASH_REMATCH[2]}"
+              if [ -n "${seen[component:$component]:-}" ]; then
+                echo "::error::bundle/manifest.yaml: duplicate component pin name: $component"
+                exit 1
+              fi
+              seen[component:$component]=1
               image="ghcr.io/kikakkz/looming/$component:$version"
               images+=("$image")
               printf '%s\t%s\n' "$component" "$image" >> pins.tsv
