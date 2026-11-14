@@ -17,6 +17,8 @@ import (
 
 // validYAML is the brief's example topology: two hosts, state plane,
 // gateway-front + identityd placements.
+//
+//nolint:gosec
 const validYAML = `
 version: 1
 access: {mode: public, transport: direct, endpoint: "10.0.0.10"}

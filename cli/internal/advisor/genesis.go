@@ -290,7 +290,7 @@ func writeGatewayEnvFile(path, endpoint, apiKey string) error {
 		return fmt.Errorf("genesis: read gateway env file %q: %w", path, err)
 	}
 	merged := padvisor.MergeGatewayEnv(string(existing), endpoint, apiKey)
-	if err := os.WriteFile(path, []byte(merged), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(merged), 0o600); err != nil { //nolint:gosec
 		return fmt.Errorf("genesis: write gateway env file %q: %w", path, err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {

@@ -10,7 +10,7 @@
 # below. The docker-cli runtime base was the retired ctl's need (apply's
 # docker/ssh channels); topologyd is an HTTP server, so the runtime
 # shape mirrors gateway/identity: distroless nonroot.
-FROM golang:1.25 AS build
+FROM golang:1.27.3 AS build
 WORKDIR /src/topology
 ARG GOPROXY=https://proxy.golang.org,direct
 # AD-40 (S2 #172): release CI passes the component VERSION file content;

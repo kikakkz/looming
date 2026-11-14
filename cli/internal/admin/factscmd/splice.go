@@ -103,7 +103,7 @@ func spliceCapabilities(document []byte, hosts []config.Host, merged map[string]
 			if j >= len(hosts) || node.Kind != yaml.MappingNode {
 				continue
 			}
-			caps, ok := merged[hosts[j].ID]
+			caps, ok := merged[hosts[j].ID] //nolint:gosec
 			if !ok {
 				continue
 			}

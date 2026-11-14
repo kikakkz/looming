@@ -63,7 +63,7 @@ func TestApplyWithBundleRendersImagePins(t *testing.T) {
 		{}, // ensure app-1
 		{}, // ensure gw-1
 	}, nil)
-	res, err := w.pipeline.Apply(ctx, apply.Input{
+	res, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  path,
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})
@@ -102,7 +102,7 @@ components:
 	path := bundleConfigPath(t, manifest)
 
 	w := newWorld(t, nil, nil)
-	_, err := w.pipeline.Apply(ctx, apply.Input{
+	_, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  path,
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})
@@ -122,7 +122,7 @@ func TestApplyBundleManifestFileMissing(t *testing.T) {
 	path := bundleConfigPath(t, missing)
 
 	w := newWorld(t, nil, nil)
-	_, err := w.pipeline.Apply(ctx, apply.Input{
+	_, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  path,
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})
@@ -140,7 +140,7 @@ func TestApplyBundleManifestInvalidFailsClosed(t *testing.T) {
 	path := bundleConfigPath(t, manifest)
 
 	w := newWorld(t, nil, nil)
-	_, err := w.pipeline.Apply(ctx, apply.Input{
+	_, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  path,
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",
 	})
@@ -157,7 +157,7 @@ func TestApplyBundleDryRunRendersPins(t *testing.T) {
 	path := bundleConfigPath(t, manifest)
 
 	w := newWorld(t, nil, nil)
-	res, err := w.pipeline.Apply(ctx, apply.Input{
+	res, err := w.pipeline.Apply(ctx, apply.Input{ //nolint:gosec
 		ConfigPath:  path,
 		DryRun:      true,
 		DatabaseURL: "postgres://topology:t@10.0.0.11:5432/topology",

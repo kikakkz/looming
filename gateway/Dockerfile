@@ -11,7 +11,7 @@
 # manager; the static variant carries CA certificates for the TLS era
 # (#110) while phase-1 HTTP stays plain.
 
-FROM golang:1.25 AS build
+FROM golang:1.27.3 AS build
 WORKDIR /src/gateway
 ARG GOPROXY=https://proxy.golang.org,direct
 # AD-40 (S2 #172): release CI passes the component VERSION file content;

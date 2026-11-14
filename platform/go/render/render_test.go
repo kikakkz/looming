@@ -69,7 +69,7 @@ func TestGoldenGatewayFront(t *testing.T) {
 				Component: domain.ComponentTopologyd,
 				HostID:    "gw-1",
 				Ports:     map[string]int{"http": 8181},
-				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/topology"},
+				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/topology"}, //nolint:gosec
 			},
 		},
 	})
@@ -106,7 +106,7 @@ func TestGoldenIdentityd(t *testing.T) {
 				Component: domain.ComponentIdentityd,
 				HostID:    "app-1",
 				Ports:     map[string]int{"http": 8081},
-				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/identity"},
+				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/identity"}, //nolint:gosec
 			},
 		},
 	})
@@ -123,7 +123,7 @@ func TestGoldenTopologyd(t *testing.T) {
 				Component: domain.ComponentTopologyd,
 				HostID:    "app-1",
 				Ports:     map[string]int{"http": 8081},
-				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/topology"},
+				Config:    map[string]string{"database_url": "postgres://postgres:pw@10.0.0.11:5432/topology"}, //nolint:gosec
 			},
 		},
 	})

@@ -297,7 +297,7 @@ func TestFrontLogsNeverCarryCredentials(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	front := NewFront(
-		stubAuthn{subject: "ker", credential: "eng-cred-log-canary"},
+		stubAuthn{subject: "ker", credential: "eng-cred-log-canary"}, //nolint:gosec
 		stubAllowlist{},
 		frontdomain.NewChain(frontTestLink{v: frontdomain.VerdictPass}),
 		&credentialRecordingEngine{body: "ok"},

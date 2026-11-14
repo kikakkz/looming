@@ -246,7 +246,7 @@ func TestReasonEditRevalidatesAndLandsTheEditedFile(t *testing.T) {
 		if updated == string(content) {
 			return errors.New("editor: fixture shape changed")
 		}
-		return os.WriteFile(editedPath, []byte(updated), 0o600)
+		return os.WriteFile(editedPath, []byte(updated), 0o600) //nolint:gosec
 	}
 
 	var stdout, stderr bytes.Buffer

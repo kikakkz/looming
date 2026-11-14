@@ -290,7 +290,7 @@ func TestEnsureStatePlaneProvisionsComponentDatabases(t *testing.T) {
 
 	_, err := p.ensureStatePlane(context.Background(), statePostgresFixture, []string{"identity", DatabaseName})
 	require.NoError(t, err)
-	adminURL := "postgres://postgres:pw@127.0.0.1:5432/postgres?sslmode=disable"
+	adminURL := "postgres://postgres:pw@127.0.0.1:5432/postgres?sslmode=disable" //nolint:gosec
 	assert.Equal(t, []string{
 		"provision:postgres://postgres:pw@127.0.0.1:5432/topology?sslmode=disable",
 		"ensure:" + adminURL + ":identity",

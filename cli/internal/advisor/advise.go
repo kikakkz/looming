@@ -204,7 +204,7 @@ func editorRunner() func(path string) error {
 	return func(path string) error {
 		// #nosec G204 -- the operator's own $EDITOR on their own staged
 		// candidate file is the documented edit mechanism.
-		cmd := exec.Command(editor, path)
+		cmd := exec.Command(editor, path) //nolint:gosec
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		return cmd.Run()
 	}

@@ -49,20 +49,20 @@ type credentialContextKey struct{}
 // request (concurrency), so per-call failure state travels in the
 // request context instead.
 func NewForwardProxy(upstream *url.URL, upstreamAuth string) *httputil.ReverseProxy {
-	rp := httputil.NewSingleHostReverseProxy(upstream)
-	originalDirector := rp.Director
-	rp.Director = func(r *http.Request) {
-		originalDirector(r)
-		r.Host = upstream.Host
-		if cred, ok := r.Context().Value(credentialContextKey{}).(string); ok && cred != "" {
-			r.Header.Set("Authorization", "Bearer "+cred)
-			return
-		}
-		if upstreamAuth != "" {
-			r.Header.Set("Authorization", "Bearer "+upstreamAuth)
-		} else {
-			r.Header.Del("Authorization")
-		}
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(upstream)
+			pr.Out.Host = upstream.Host
+			if cred, ok := pr.Out.Context().Value(credentialContextKey{}).(string); ok && cred != "" {
+				pr.Out.Header.Set("Authorization", "Bearer "+cred)
+				return
+			}
+			if upstreamAuth != "" {
+				pr.Out.Header.Set("Authorization", "Bearer "+upstreamAuth)
+			} else {
+				pr.Out.Header.Del("Authorization")
+			}
+		},
 	}
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
