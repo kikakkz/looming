@@ -194,29 +194,29 @@ Three surfaces, three semantics — kept strictly separate:
    pullability-only here — the smoke gate's probes are
    looming-component contracts, and the upstream control plane's boot
    contract arrives with its componentization slice (#112 C1).
-7. **Installer flow (#151, slice R4).** `install.sh`:
-   resolve the release (default latest; `--version vX.Y.Z` pins) →
-   download the CLI binary (host OS/arch) and `bundle-manifest.yaml`
-   → preflight Docker (daemon + compose plugin) → generate the
-   operator config under the install prefix (topology.yaml + the
-   phase-1 secret env files, all 0600, fresh secrets — the generation
-   logic prototyped on `feat/151-one-click-install`) → run
-   `looming apply`, which pulls the pinned images and converges →
-   print the one-time bootstrap invite (AD-36) and the guide URL.
-   Zero build steps. Ownership split: the `bundle:` block is
-   installer-owned, everything else in topology.yaml is
-   operator-owned. Fresh install writes the whole file; an existing
-   topology.yaml is never clobbered — but when the requested release
-   differs from the file's `bundle.version` (an upgrade), the
-   installer rewrites ONLY the installer-owned `bundle:` block and
-   refreshes the manifest file, preserving operator edits (ports,
-   engine config, placements); a matching version is a converge-only
-   re-run (edit + re-apply).
-8. **Upgrade and rollback.** Upgrade: re-run the installer at the new
-   version — it moves the topology's `bundle:` selection to the new
-   release (installer-owned block only, §3.7) and refreshes the
-   manifest — then apply converges to the new pins; schema migrations
-   under the components move forward only. Rollback: restore from the
+7. **Installer flow (AD-42 — the v0.1 cluster-in-one-shot form is
+   retired, #191).** `install.sh` delivers the `looming` CLI and
+   nothing else: preflight (docker present; the compose-plugin
+   auto-install of #188 stays) → resolve the release (default latest;
+   `--version vX.Y.Z` pins) → download the arch-matched binary to the
+   destination (`~/.local/bin` by default; `--prefix` names another
+   directory) → verify `looming --version`. No topology generation,
+   no manifest download, no converge, no invite — the installer
+   carries zero topology knowledge forward (AD-42 decision 1). The
+   v0.1 ownership split (`bundle:` block installer-owned, operator
+   edits preserved across upgrades) and the awk-based upgrade path
+   retire with it. Bring-up is `looming apply --config topology.yaml`
+   until the agentic `looming setup` lands (AD-42 decision 2, slice
+   S2a of #191), and setup then owns the release-pin fetch and the
+   topology's `bundle:` block. The artifact-only semantics of §2 and
+   the render/apply contract of §3.5 stand unchanged.
+8. **Upgrade and rollback.** CLI upgrade: re-run `install.sh` — it
+   replaces the binary in place; nothing else on the host moves.
+   Cluster upgrade (pin moves): the operator updates the topology's
+   `bundle:` selection and re-applies — today by editing the file,
+   from #191 slice S2a via `looming setup`, which owns the block —
+   then apply converges to the new pins; schema migrations under the
+   components move forward only. Rollback: restore from the
    pg_dump-based backup (AD-36's backup story) — version downgrade of
    a live state plane is not supported.
 9. **Exceptions** — hotfixes and security rebuild waves follow the

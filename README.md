@@ -60,25 +60,32 @@ issue-driven development pipelines across GitHub and self-hosted GitLab CE.
 
 ## Install
 
+> **The installer contract changed from v0.1.** The v0.1 installer
+> brought up the whole cluster in one command (`install.sh --email …
+> --engine-url …` generated a topology and converged the bundle on the
+> spot). [AD-42](.ai/memory/decisions/0042-installer-shrinks-to-cli-only-agentic.md)
+> retired that form: **one command now installs the tool**, and cluster
+> bring-up is staged, driven by the `looming` CLI itself. The agentic
+> `looming setup` — an interview, an advisor-proposed topology,
+> human-confirmed, staged bootstrap (#191, slice S2a) — is the planned
+> bring-up experience; today you bring the cluster up with
+> `looming apply --config`.
+
+### 1. Install the CLI
+
 Prerequisites: a Linux host with Docker Engine; when the Docker Compose
 plugin is missing the installer attempts to install it — under sudo it
 promotes the invoking user's copy to the system plugin dir if present
 (validating it first), otherwise it downloads the binary from the
 docker/compose release — and points at the manual-install docs if none
-of that works.
-Point it at any OpenAI-compatible engine you run (Ollama, llama.cpp,
-vLLM, …). The engine URL must be reachable from the component
-containers, so use the engine host's LAN IP or DNS name — deployments
-span machines, and a `localhost`, `127.0.0.1`, or `[::1]` URL only
-works single-node (the installer rewrites these loopback hosts to
-`host.docker.internal` as that convenience). Download the script first, then run it — piping `curl`
+of that works. Download the script first, then run it — piping `curl`
 straight into `bash` would execute whatever arrived, and a failed or
 truncated download could half-run or fail silently:
 
 ```bash
 ( tmp="$(mktemp)" \
     && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/latest/download/install.sh \
-    && bash "$tmp" --email admin@example.com --engine-url http://192.168.1.10:11434/v1
+    && bash "$tmp"
   rc=$?; rm -f "$tmp"; exit "$rc" )
 ```
 
@@ -90,29 +97,115 @@ newest release's asset, so this never pins a version and never needs
 editing per release.
 
 The installer consumes **published release artifacts only**: it
-downloads the released `looming` CLI and the bundle's pinned manifest,
-then converges the bundle with `looming apply`, which pulls the pinned
-component images. There is no source-build install path — developing
-from source is its own workflow (a checkout + the repo's dev tooling).
+downloads the released `looming` CLI binary (arch-matched) and places
+it at `~/.local/bin` — override the destination with `--prefix <dir>`
+(the directory is created when absent; root-owned system directories
+are refused for non-root users). Nothing else is written: no topology,
+no secrets, no converge. There is no source-build install path —
+developing from source is its own workflow (a checkout + the repo's
+dev tooling).
 
-- `--version vX.Y.Z` selects the released bundle the installer
-  converges; the default resolves the latest release. The one-liner
-  above already downloads the installer from the latest release's
-  assets, so script and artifacts move together — pin both to a
-  specific bundle by taking the script from that release's assets
-  (download first, then run, same reason as above):
-  `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --version vX.Y.Z --email admin@example.com --engine-url ...; rc=$?; rm -f "$tmp"; exit "$rc" )` (subshell form, same reason as above)
-- Re-running is safe. The installer owns only the topology file's
-  `bundle:` block: a newer version rewrites just that block and the
-  manifest file (your edits — ports, engine config, placements —
-  survive), and the same version is a converge-only re-run.
-- Teardown: `docker compose -p looming down` (the Postgres data dir is
-  `/etc/looming/pgdata`).
+- `--version vX.Y.Z` selects the released CLI; the default resolves the
+  latest release. The one-liner above already downloads the installer
+  from the latest release's assets, so script and binary move together —
+  pin both by taking the script from that release's assets (download
+  first, then run, same reason as above):
+  `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/download/vX.Y.Z/install.sh && bash "$tmp" --version vX.Y.Z; rc=$?; rm -f "$tmp"; exit "$rc" )` (subshell form, same reason as above)
+- Re-running is safe: the same destination just receives the binary
+  again, verified with `looming --version` before the script reports
+  success.
+- Full flags: download the script and run it with `--help` (a
+  self-contained form, since the one-liner above already deleted its
+  temporary copy):
+  `( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/latest/download/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
 
-Full flags: download the script and run it with `--help` (a
-self-contained form, since the one-liner above already deleted its
-temporary copy):
-`( tmp="$(mktemp)" && curl -fsSL -o "$tmp" https://github.com/kikakkz/looming/releases/latest/download/install.sh && bash "$tmp" --help; rc=$?; rm -f "$tmp"; exit "$rc" )`
+### 2. Bring up the cluster
+
+Bring-up is `looming apply --config <topology.yaml>`: write a topology
+file describing your cluster and converge it. A minimal single-host
+topology for the current component set (gateway, identity, topology,
+plus the bundle's state Postgres):
+
+```yaml
+version: 1
+access: {mode: public, transport: direct, endpoint: "127.0.0.1"}
+cluster: {name: my cluster}
+bootstrap: {admin_email: admin@example.com}
+state:
+  postgres:
+    image: postgres:16-alpine
+    env_file: /etc/looming/postgres.env   # POSTGRES_USER / POSTGRES_PASSWORD
+    data_dir: /etc/looming/pgdata
+    port: 15432
+hosts:
+  - {id: local, address: 127.0.0.1}
+placements:
+  - component: gateway-front
+    host: local
+    ports: {http: 18080}
+    config:
+        upstream: "http://host.docker.internal:11434/v1"  # your OpenAI-compatible engine
+        upstream_insecure: "1"                             # required for a plain-http upstream
+        identity_url: "http://identityd:18081"
+        identity_insecure: "1"
+    env_file: /etc/looming/gateway.env    # GATEWAY_TOPOLOGY_TOKEN / GATEWAY_IDENTITY_TOKEN
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  - component: identityd
+    host: local
+    ports: {http: 18081}
+    config:
+        database_url: "postgres://looming:<password>@bundle-postgres:5432/identity?sslmode=disable"
+    env_file: /etc/looming/identityd.env  # IDENTITY_BOOTSTRAP_KEY / IDENTITY_GATEWAY_TOKEN / IDENTITY_KEY_MASTER_KEY
+  - component: topologyd
+    host: local
+    ports: {http: 18082}
+    config:
+        database_url: "postgres://looming:<password>@bundle-postgres:5432/topology?sslmode=disable"
+    env_file: /etc/looming/topologyd.env  # TOPOLOGY_SERVICE_TOKEN
+```
+
+The paths above are the conventional system location — any directory
+works; create it and write the env files before applying. The env files
+carry the services' secrets — write them yourself (all
+`0600`, values from `openssl rand -hex 24`; `IDENTITY_GATEWAY_TOKEN`
+and `GATEWAY_IDENTITY_TOKEN` are the paired gateway↔identity token,
+`TOPOLOGY_SERVICE_TOKEN` and `GATEWAY_TOPOLOGY_TOKEN` the paired
+topology↔gateway one). Point `upstream` at any OpenAI-compatible engine
+you run (Ollama, llama.cpp, vLLM, …): the URL must be reachable from
+the component containers — containers reach the host through the
+`host.docker.internal:host-gateway` alias, so a `localhost`/`127.0.0.1`
+engine URL must be written as `host.docker.internal` (and only works
+single-node; multi-host deployments should use the engine host's LAN IP
+or DNS name).
+
+```bash
+looming apply --config topology.yaml
+```
+
+`apply` validates the topology, renders the per-host compose files, and
+converges the first host — pulling the release-pinned component images
+and printing the one-time bootstrap invite for the admin in
+`bootstrap.admin_email`. The full topology schema lives in
+[docs/architecture/topology-l1.md](docs/architecture/topology-l1.md).
+Teardown: `docker compose -p looming down` (the Postgres data dir is
+wherever the topology's `state.postgres.data_dir` points).
+
+### 3. Join further hosts
+
+On the first host, mint a one-time join token (the topology database
+URL is the published state Postgres):
+
+```bash
+looming token create --role engine --ttl 24h \
+  --database-url "postgres://looming:<password>@127.0.0.1:15432/topology?sslmode=disable"
+```
+
+On each new host: install the CLI (step 1), then join — the host
+registers itself and converges what the topology places on it:
+
+```bash
+looming join http://<first-host>:18082 --token <token> --host-id <id> --address <ip>
+```
 
 ---
 
